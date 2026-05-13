@@ -1,0 +1,27 @@
+{
+  "service_url": {
+    "description": "小窝日记服务地址，例如 http://nest-diary:28080。",
+    "type": "string",
+    "default": "http://nest-diary:28080"
+  },
+  "bot_api_token": {
+    "description": "小窝服务中配置的 bot 专属 API token。",
+    "type": "string",
+    "default": ""
+  },
+  "request_timeout_seconds": {
+    "description": "请求小窝服务的超时时间，单位秒。",
+    "type": "int",
+    "default": 30
+  },
+  "daily_write_enabled": {
+    "description": "是否启用插件侧每日写日记触发流程。",
+    "type": "bool",
+    "default": true
+  },
+  "notify_after_write": {
+    "description": "每日写入完成后是否提示。",
+    "type": "bool",
+    "default": true
+  }
+}
