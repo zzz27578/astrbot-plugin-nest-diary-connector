@@ -160,7 +160,7 @@ class NestDiaryConnectorPlugin(Star):
             message = f"小窝在线：{status.get('status', 'unknown')}"
         except Exception as exc:
             message = f"小窝暂时连不上：{_brief_error(exc)}"
-        yield event.plain_result(message)
+        return message
 
     @filter.llm_tool(name="write_diary")
     async def write_diary_tool(
@@ -198,7 +198,7 @@ class NestDiaryConnectorPlugin(Star):
             message = f"已写入 {saved_date} 的小窝日记{suffix}。"
         except Exception as exc:
             message = f"写入小窝日记失败：{_brief_error(exc)}"
-        yield event.plain_result(message)
+        return message
 
     @filter.llm_tool(name="read_diary")
     async def read_diary_tool(self, event: AstrMessageEvent, date: str):
@@ -216,7 +216,7 @@ class NestDiaryConnectorPlugin(Star):
                 message = f"{date} 的日记：\n{content}"
         except Exception as exc:
             message = f"读取小窝日记失败：{_brief_error(exc)}"
-        yield event.plain_result(message)
+        return message
 
     @filter.llm_tool(name="search_diary")
     async def search_diary_tool(self, event: AstrMessageEvent, query: str, top_k: int = 8):
@@ -240,7 +240,7 @@ class NestDiaryConnectorPlugin(Star):
                 message = "\n".join(lines)
         except Exception as exc:
             message = f"搜索小窝日记失败：{_brief_error(exc)}"
-        yield event.plain_result(message)
+        return message
 
     @filter.llm_tool(name="attach_media")
     async def attach_media_tool(
@@ -275,4 +275,4 @@ class NestDiaryConnectorPlugin(Star):
             message = f"已把媒体归档到 {date}。{media_id}"
         except Exception as exc:
             message = f"归档媒体失败：{_brief_error(exc)}"
-        yield event.plain_result(message)
+        return message
