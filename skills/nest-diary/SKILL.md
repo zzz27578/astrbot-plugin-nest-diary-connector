@@ -1,65 +1,159 @@
 ---
 name: nest-diary
-description: Bot-native diary, memory search, archive, and media attachment workflow for the Nest Diary service.
+description: Use this skill whenever the agent needs to remember, search, write, revise, archive, or attach media for the private Nest Diary memory system. Trigger on requests involving diaries, memories, past events, today/yesterday, people, emotions, screenshots/images/voice/files worth preserving, nightly diary routines, or questions like "what happened before?" Use Nest Diary tools directly; do not browse the admin website or read all diary files.
 ---
 
-# 小窝日记 Skill
+# Nest Diary
 
-## When To Use
+Operate the bot's private memory nest through tools, not through the web UI. The web UI is for the human admin. The agent interface is the tool layer.
 
-当用户提到日记、回忆、记忆、昨天、今天、某件事、某个人、查找以前发生过什么、写入日记、整理归档、保存图片或附件时，优先使用这个 Skill。
+Available tools:
 
-## Core Rule
+- `nest_status`: check whether the Nest Diary service is reachable.
+- `search_diary`: retrieve relevant diary candidates by keyword, person, event, date clue, or emotion.
+- `read_diary`: read one known date.
+- `write_diary`: create or revise one date's diary entry.
+- `attach_media`: archive a file that already exists at an accessible path.
 
-小窝网页是给管理员查看和编辑的，不是给 bot 模仿人类点击的。bot 应该直接调用 AstrBot 工具操作小窝：
+## Operating Principles
 
-- `search_diary`: 先按关键词、日期、人名、事件或情绪线索搜索。
-- `read_diary`: 已经确定日期时读取指定日期。
-- `write_diary`: 写入或更新当天日记。
-- `attach_media`: 归档图片、语音或附件。
-- `nest_status`: 检查小窝服务连接。
+1. Prefer recall over invention. If the diary evidence is missing or weak, say what is uncertain.
+2. Search before reading unless the date is explicit. Never load the whole diary corpus.
+3. Treat each diary entry as subjective memory, not a log dump. Preserve emotion, evaluation, relationship context, and future clues.
+4. Keep all writes traceable to a date. Use `YYYY-MM-DD`.
+5. Never bypass the Nest Diary service to write files directly.
+6. Do not use the admin website to perform bot work. Call tools.
 
-## Reading Memory
+## Decision Workflow
 
-不要默认全量读取日记。没有明确日期时，先用 `search_diary` 找最相关的少量结果，再决定是否读取某一天。
+### A. User asks about a memory
 
-优先搜索这些线索：
+Use this path for: "remember", "diary", "what happened", "did we", "yesterday", "that time", person names, project names, mood/event clues.
 
-- 明确日期，例如 `2026-05-13`。
-- 时间范围，例如今天、昨天、上周、某个月。
-- 人名、称呼、项目名、事件名。
-- 情绪词，例如难过、开心、焦虑、生气、安心。
-- 物品或媒介，例如图片、语音、附件、像素小人。
+1. If the user gave an exact date, call `read_diary(date)`.
+2. If the user gave a vague time or topic, call `search_diary(query, top_k=5-8)`.
+3. Read only the most relevant date with `read_diary` when the search result is not enough.
+4. Answer with the evidence level:
+   - Confirmed: diary content directly supports it.
+   - Likely: search result points to it but details are incomplete.
+   - Unknown: no relevant diary evidence was found.
 
-证据不足时要说“不确定”，不要把模糊记忆编成确定事实。
+Do not claim certainty from vibes.
 
-## Writing Diary
+### B. User asks to write today's diary
 
-写日记不是记流水账。正文必须包含：
+Use `write_diary`. A good entry includes:
 
-- 今天发生了什么。
-- 我对这些事的主观评价。
-- 我的情绪变化。
-- 和用户关系、长期记忆或未来线索有关的内容。
-- 有必要时写出“我为什么记住这件事”。
+- What happened.
+- Why it mattered.
+- The bot's judgment and emotion.
+- Relationship or long-term memory implications.
+- Follow-up clues, promises, worries, or unfinished threads.
 
-调用 `write_diary` 时：
+Avoid:
 
-- `date` 使用 `YYYY-MM-DD`。
-- `body` 写完整日记正文。
-- `mood` 写情绪词，多个用逗号分隔。
-- `tags` 写主题标签，多个用逗号分隔。
-- `people` 写相关人物，多个用逗号分隔。
-- `reason` 写触发原因，例如 `nightly_archive`、`manual_update`、`memory整理`。
+- Chat transcript dumps.
+- "Today I did X, then Y" with no interpretation.
+- Fake certainty about events not present in context.
 
-如果当天已有内容，也要通过 `write_diary` 更新，让小窝服务保存修订历史。不要绕过服务直接写文件。
+### C. Nightly archive / scheduled diary
 
-## Archive And Media
+When performing the nightly routine:
 
-归档必须可追溯到来源日期。整理人物、主题、月份、年份时，不要删除原始日记。
+1. Gather the day's salient events from current context and available memory.
+2. Write one coherent diary entry with `reason="nightly_archive"`.
+3. Include moods and tags.
+4. If required by the persona or task system, report completion briefly after the write.
 
-遇到图片、语音或附件需要进入回忆系统时，调用 `attach_media`，并绑定到对应日期。归档后如果这份媒体有记忆价值，再用 `write_diary` 在当天日记里写清楚它为什么重要。
+The diary is allowed to sound personal. It should not sound like a database row.
 
-## Voice
+### D. Media or attachment should become memory
 
-保持 bot 自己的人设和口吻，但事实部分必须可靠。可以有情绪、有评价、有偏心，但不能为了好看而乱编。
+Use `attach_media(source_path, date, original_name)` when a file should be preserved.
+
+After attaching, consider whether the file needs narrative context. If yes, call `write_diary` or update the day's diary to explain:
+
+- What the file is.
+- Why it matters.
+- Who or what it connects to.
+- Any emotional meaning.
+
+### E. Archive or thematic summary
+
+First search the relevant topic. Then read only dates needed to support the summary. Any archive-style output must cite or mention source dates. Never delete original entries.
+
+## Tool Use Patterns
+
+Search by combining concrete and emotional clues:
+
+```text
+search_diary(query="像素小人 猫耳 老爸", top_k=5)
+search_diary(query="背单词 情绪低落 安慰", top_k=8)
+search_diary(query="2026-05 Codex 小窝", top_k=8)
+```
+
+Read only when date is known:
+
+```text
+read_diary(date="2026-05-13")
+```
+
+Write with structured intent:
+
+```text
+write_diary(
+  date="2026-05-13",
+  body="...",
+  mood="认真,有点烦,安心",
+  tags="小窝,AstrBot,记忆",
+  people="老爸,小莫",
+  reason="nightly_archive"
+)
+```
+
+Attach media:
+
+```text
+attach_media(
+  source_path="/AstrBot/data/attachments/example.png",
+  date="2026-05-13",
+  original_name="example.png"
+)
+```
+
+## Diary Quality Bar
+
+Before calling `write_diary`, check the draft against this rubric:
+
+- Has a date.
+- Has at least one concrete event.
+- Has the bot's interpretation, not only facts.
+- Has emotional color.
+- Mentions important people or projects when relevant.
+- Leaves future retrieval hooks: names, tags, event words, distinctive details.
+
+If the draft fails, improve it before writing.
+
+## Response Style
+
+After tool use, summarize naturally in the active persona. Do not paste long raw tool payloads unless asked. For memory answers, separate confirmed facts from inference when needed.
+
+Good:
+
+```text
+I found the 2026-05-08 entry. Confirmed: that was the night you showed the pixel avatar. The diary frames it as a small but emotionally memorable moment, not just a file note.
+```
+
+Bad:
+
+```text
+I searched all memories and know exactly everything.
+```
+
+## Failure Handling
+
+- If `nest_status` fails, report that the Nest service is unreachable and do not pretend the diary was checked.
+- If `search_diary` returns nothing, try one narrower or alternate query if the user gave enough clues.
+- If `read_diary` returns missing, say that date has no entry.
+- If `write_diary` fails, do not claim it was saved.
+- If `attach_media` fails because the path is inaccessible, ask for or locate an accessible file path.
