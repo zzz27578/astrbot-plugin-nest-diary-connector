@@ -23,5 +23,10 @@
     "description": "每日写入完成后是否提示。",
     "type": "bool",
     "default": true
+  },
+  "enable_skill": {
+    "description": "是否把小窝日记 Skill 安装到 AstrBot 的 skills 目录。",
+    "type": "bool",
+    "default": true
   }
 }

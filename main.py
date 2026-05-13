@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import logging
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
+
 import aiohttp
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
+
+
+PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
+SKILL_NAME = "nest-diary"
+logger = logging.getLogger(PLUGIN_NAME)
 
 
 class NestDiaryClient:
@@ -123,10 +134,10 @@ def _brief_error(exc: Exception) -> str:
 
 
 @register(
-    "astrbot_plugin_nest_diary_connector",
+    PLUGIN_NAME,
     "local",
     "连接独立小窝日记服务的 AstrBot 插件。",
-    "0.1.2",
+    "0.1.3",
 )
 class NestDiaryConnectorPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -138,6 +149,94 @@ class NestDiaryConnectorPlugin(Star):
             timeout_seconds=int(self.config.get("request_timeout_seconds", 30)),
         )
         self.tools = NestDiaryTools(self.client)
+
+    async def initialize(self):
+        self._migrate_skill_to_persistent()
+        if self.config.get("enable_skill", True):
+            self._install_skill()
+        else:
+            self._uninstall_skill()
+
+    def _get_skill_manager(self):
+        if hasattr(self, "_skill_mgr"):
+            return self._skill_mgr
+        try:
+            from astrbot.core.skills import SkillManager
+
+            self._skill_mgr = SkillManager()
+        except ImportError:
+            self._skill_mgr = None
+        return self._skill_mgr
+
+    def _get_plugin_data_path(self) -> Path:
+        try:
+            from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+
+            plugin_data_root = Path(get_astrbot_plugin_data_path())
+        except ImportError:
+            plugin_data_root = Path(__file__).parent / "plugin_data"
+
+        plugin_data_dir = plugin_data_root / PLUGIN_NAME
+        plugin_data_dir.mkdir(parents=True, exist_ok=True)
+        return plugin_data_dir
+
+    def _get_skill_persistent_path(self) -> Path:
+        return self._get_plugin_data_path() / "skill"
+
+    def _migrate_skill_to_persistent(self):
+        source_dir = Path(__file__).parent / "skill"
+        persistent_dir = self._get_skill_persistent_path()
+
+        if not source_dir.exists():
+            logger.warning("[%s] skill source directory not found: %s", PLUGIN_NAME, source_dir)
+            return
+
+        try:
+            shutil.copytree(source_dir, persistent_dir, dirs_exist_ok=True)
+            logger.info("[%s] Skill copied to persistent directory: %s", PLUGIN_NAME, persistent_dir)
+        except Exception as exc:
+            logger.error("[%s] Failed to copy Skill: %s", PLUGIN_NAME, exc)
+
+    def _install_skill(self):
+        source_dir = self._get_skill_persistent_path()
+        skill_mgr = self._get_skill_manager()
+        if not skill_mgr:
+            logger.error("[%s] SkillManager unavailable, cannot install Skill", PLUGIN_NAME)
+            return
+        if not source_dir.exists():
+            logger.error("[%s] Skill persistent directory not found: %s", PLUGIN_NAME, source_dir)
+            return
+
+        tmp_zip = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                tmp_zip = Path(tmp.name)
+
+            with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+                for file in source_dir.rglob("*"):
+                    if file.is_file():
+                        arcname = f"{SKILL_NAME}/{file.relative_to(source_dir).as_posix()}"
+                        zf.write(file, arcname)
+
+            skill_mgr.install_skill_from_zip(str(tmp_zip), overwrite=True)
+            logger.info("[%s] Skill installed and activated: %s", PLUGIN_NAME, SKILL_NAME)
+        except Exception as exc:
+            logger.error("[%s] Skill install failed: %s", PLUGIN_NAME, exc)
+        finally:
+            if tmp_zip:
+                tmp_zip.unlink(missing_ok=True)
+
+    def _uninstall_skill(self):
+        skill_mgr = self._get_skill_manager()
+        if not skill_mgr:
+            logger.error("[%s] SkillManager unavailable, cannot uninstall Skill", PLUGIN_NAME)
+            return
+
+        try:
+            skill_mgr.delete_skill(SKILL_NAME)
+            logger.info("[%s] Skill uninstalled: %s", PLUGIN_NAME, SKILL_NAME)
+        except Exception as exc:
+            logger.error("[%s] Skill uninstall failed: %s", PLUGIN_NAME, exc)
 
     @filter.command("小窝状态")
     async def nest_status(self, event: AstrMessageEvent):
