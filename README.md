@@ -25,7 +25,7 @@ bot 不需要登录网页，也不需要模仿人类点按钮。插件会把 bot
 - 保存 bot 专属 API token。
 - 提供 `/小窝状态` 连接检查指令。
 - 封装写日记、搜日记、读日记、上传媒体等工具客户端。
-- 自动安装内置 `nest-diary` Skill，规范 bot 使用小窝。
+- 提供官方插件内置 `nest-diary` Skill，规范 bot 使用小窝。
 - 不保存大量日记和图片。
 
 ## 当前功能
@@ -39,7 +39,7 @@ bot 不需要登录网页，也不需要模仿人类点按钮。插件会把 bot
 - 注册 bot 可直接调用的日记读取工具。
 - 注册 bot 可直接调用的日记搜索工具。
 - 注册 bot 可直接调用的媒体归档工具。
-- 内置并自动安装 `nest-diary` Skill。
+- 内置 `nest-diary` Skill，会由 AstrBot 自动纳入 Skill Manager。
 
 ## AstrBot 插件结构
 
@@ -51,8 +51,9 @@ metadata.yaml
 _conf_schema.json
 requirements.txt
 logo.png
-skill/
-  SKILL.md
+skills/
+  nest-diary/
+    SKILL.md
 ```
 
 `logo.png` 为 1:1，256x256。
@@ -75,7 +76,6 @@ https://github.com/zzz27578/astrbot-plugin-nest-diary-connector
 service_url = http://nest-diary:28080
 bot_api_token = 与小窝服务 NEST_BOT_API_TOKEN 相同
 request_timeout_seconds = 30
-enable_skill = true
 ```
 
 如果 AstrBot 和小窝服务不在同一个 Docker 网络，`service_url` 可以改成：
@@ -173,16 +173,16 @@ original_name: 原始文件名，可空
 
 ## 内置 Skill
 
-插件根目录提供：
+插件根目录提供官方支持的插件内置 Skill：
 
 ```text
-skill/SKILL.md
+skills/nest-diary/SKILL.md
 ```
 
-插件初始化时会参考 `astrbot_plugin_grok_web_search` 的做法，把 `skill/` 复制到插件数据目录，再通过 AstrBot 官方 `SkillManager.install_skill_from_zip()` 安装为：
+AstrBot 官方文档说明：插件可以提供 `skills/` 目录。插件加载后，里面合法的 Skill 会自动纳入 Skill Manager，并在 WebUI Skills 页面显示来源为插件。
 
 ```text
-data/skills/nest-diary/
+data/plugins/astrbot_plugin_nest_diary_connector/skills/nest-diary/SKILL.md
 ```
 
 这个 Skill 用于约束 bot：
@@ -192,7 +192,7 @@ data/skills/nest-diary/
 - 归档必须保留来源日期。
 - 修改内容应通过小窝服务保留修订历史。
 
-注意：本插件的 Skill 不会禁用 LLM Tools。Skill 负责告诉 bot “什么时候、怎样使用小窝”，真正读写仍然调用 `write_diary`、`search_diary`、`read_diary`、`attach_media` 这些工具。
+注意：本插件的 Skill 不会禁用 LLM Tools。Skill 负责告诉 bot “什么时候、怎样使用小窝”，真正读写仍然调用 `write_diary`、`search_diary`、`read_diary`、`attach_media` 这些工具。是否启用这个 Skill，请在 AstrBot 的 Skills 页面里管理。
 
 ## 推荐部署顺序
 
