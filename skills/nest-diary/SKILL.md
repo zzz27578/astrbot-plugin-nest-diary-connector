@@ -1,11 +1,11 @@
 ---
 name: nest-diary
-description: Use this skill whenever the agent needs to remember, search, write, revise, archive, or attach media for the private Nest Diary memory system. Trigger on requests involving diaries, memories, past events, today/yesterday, people, emotions, screenshots/images/voice/files worth preserving, nightly diary routines, or questions like "what happened before?" Use Nest Diary tools directly; do not browse the admin website or read all diary files.
+description: Use this skill whenever the agent needs to remember, search, write, revise, archive, or attach media for a private Nest Diary memory system. Trigger on requests involving diaries, memories, past events, today/yesterday, people, emotions, screenshots/images/voice/files worth preserving, scheduled diary routines, or questions like "what happened before?" Use Nest Diary tools directly; do not browse the admin website or read all diary files.
 ---
 
 # Nest Diary
 
-Operate the bot's private memory nest through tools, not through the web UI. The web UI is for the human admin. The agent interface is the tool layer.
+Operate a private memory diary through tools, not through the web UI. The web UI is for authorized human administration. The agent interface is the tool layer.
 
 Available tools:
 
@@ -22,7 +22,7 @@ Available tools:
 3. Treat each diary entry as subjective memory, not a log dump. Preserve emotion, evaluation, relationship context, and future clues.
 4. Keep all writes traceable to a date. Use `YYYY-MM-DD`.
 5. Never bypass the Nest Diary service to write files directly.
-6. Do not use the admin website to perform bot work. Call tools.
+6. Do not use the admin website to perform agent work. Call tools.
 
 ## Decision Workflow
 
@@ -46,7 +46,7 @@ Use `write_diary`. A good entry includes:
 
 - What happened.
 - Why it mattered.
-- The bot's judgment and emotion.
+- The agent's judgment and emotion.
 - Relationship or long-term memory implications.
 - Follow-up clues, promises, worries, or unfinished threads.
 
@@ -63,7 +63,7 @@ When performing the nightly routine:
 1. Gather the day's salient events from current context and available memory.
 2. Write one coherent diary entry with `reason="nightly_archive"`.
 3. Include moods and tags.
-4. If required by the persona or task system, report completion briefly after the write.
+4. If required by the active role or task system, report completion briefly after the write.
 
 The diary is allowed to sound personal. It should not sound like a database row.
 
@@ -87,9 +87,9 @@ First search the relevant topic. Then read only dates needed to support the summ
 Search by combining concrete and emotional clues:
 
 ```text
-search_diary(query="像素小人 猫耳 老爸", top_k=5)
-search_diary(query="背单词 情绪低落 安慰", top_k=8)
-search_diary(query="2026-05 Codex 小窝", top_k=8)
+search_diary(query="avatar design screenshot", top_k=5)
+search_diary(query="study plan frustration encouragement", top_k=8)
+search_diary(query="2026-05 project diary system", top_k=8)
 ```
 
 Read only when date is known:
@@ -104,9 +104,9 @@ Write with structured intent:
 write_diary(
   date="2026-05-13",
   body="...",
-  mood="认真,有点烦,安心",
-  tags="小窝,AstrBot,记忆",
-  people="老爸,小莫",
+  mood="focused,frustrated,relieved",
+  tags="diary,AstrBot,memory",
+  people="admin,assistant",
   reason="nightly_archive"
 )
 ```
@@ -127,7 +127,7 @@ Before calling `write_diary`, check the draft against this rubric:
 
 - Has a date.
 - Has at least one concrete event.
-- Has the bot's interpretation, not only facts.
+- Has the agent's interpretation, not only facts.
 - Has emotional color.
 - Mentions important people or projects when relevant.
 - Leaves future retrieval hooks: names, tags, event words, distinctive details.
@@ -136,7 +136,7 @@ If the draft fails, improve it before writing.
 
 ## Response Style
 
-After tool use, summarize naturally in the active persona. Do not paste long raw tool payloads unless asked. For memory answers, separate confirmed facts from inference when needed.
+After tool use, summarize naturally in the active role. Do not paste long raw tool payloads unless asked. For memory answers, separate confirmed facts from inference when needed.
 
 Good:
 
