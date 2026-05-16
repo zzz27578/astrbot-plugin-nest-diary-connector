@@ -211,7 +211,7 @@ def _is_time_now(now: datetime, configured: str) -> bool:
     PLUGIN_NAME,
     "local",
     "连接独立小窝日记服务的 AstrBot 插件。",
-    "0.1.6",
+    "0.1.7",
 )
 class NestDiaryConnectorPlugin(Star):
     def __init__(self, context: Context, config=None):
