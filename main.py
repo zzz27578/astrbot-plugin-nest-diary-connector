@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import aiohttp
+from urllib.parse import quote
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
@@ -67,6 +68,35 @@ class NestDiaryClient:
                 response.raise_for_status()
                 return await response.json()
 
+    async def list_impressions(self) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                f"{self.service_url}/api/v1/impressions",
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def read_impression(self, name: str) -> dict:
+        safe_name = quote(name, safe="")
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                f"{self.service_url}/api/v1/impressions/{safe_name}",
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def write_impression(self, payload: dict) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.post(
+                f"{self.service_url}/api/v1/impressions/write",
+                json=payload,
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
 
 class NestDiaryTools:
     """Bot-native operations. These call the nest service instead of touching files."""
@@ -111,6 +141,38 @@ class NestDiaryTools:
             }
         )
 
+    async def list_impressions(self) -> dict:
+        return await self.client.list_impressions()
+
+    async def read_impression(self, name: str) -> dict:
+        return await self.client.read_impression(name)
+
+    async def write_impression(
+        self,
+        name: str,
+        summary: str,
+        traits: list[str] | None = None,
+        interests: list[str] | None = None,
+        preferences: list[str] | None = None,
+        relationship: str = "",
+        evidence_dates: list[str] | None = None,
+        confidence: int = 3,
+        notes: str = "",
+    ) -> dict:
+        return await self.client.write_impression(
+            {
+                "name": name,
+                "summary": summary,
+                "traits": traits or [],
+                "interests": interests or [],
+                "preferences": preferences or [],
+                "relationship": relationship,
+                "evidence_dates": evidence_dates or [],
+                "confidence": confidence,
+                "notes": notes,
+            }
+        )
+
 
 def _split_words(value: str | None) -> list[str]:
     if not value:
@@ -129,7 +191,7 @@ def _brief_error(exc: Exception) -> str:
     PLUGIN_NAME,
     "local",
     "连接独立小窝日记服务的 AstrBot 插件。",
-    "0.1.4",
+    "0.1.5",
 )
 class NestDiaryConnectorPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -275,4 +337,92 @@ class NestDiaryConnectorPlugin(Star):
             message = f"已把媒体归档到 {date}。{media_id}"
         except Exception as exc:
             message = f"归档媒体失败：{_brief_error(exc)}"
+        return message
+
+    @filter.llm_tool(name="list_impressions")
+    async def list_impressions_tool(self, event: AstrMessageEvent):
+        """列出小窝中已经记录的人物印象摘要。"""
+        try:
+            result = await self.tools.list_impressions()
+            items = result.get("items") or []
+            if not items:
+                message = "还没有记录任何人物印象。"
+            else:
+                lines = [f"已有 {len(items)} 条人物印象："]
+                for item in items:
+                    lines.append(f"- {item.get('name', '未知')}: {item.get('summary', '')}")
+                message = "\n".join(lines)
+        except Exception as exc:
+            message = f"读取人物印象列表失败：{_brief_error(exc)}"
+        return message
+
+    @filter.llm_tool(name="read_impression")
+    async def read_impression_tool(self, event: AstrMessageEvent, name: str):
+        """读取指定人物的长期印象。
+
+        Args:
+            name(string): 人物名。
+        """
+        try:
+            item = await self.tools.read_impression(name)
+            parts = [
+                f"{item.get('name', name)} 的人物印象：",
+                item.get("summary", ""),
+            ]
+            if item.get("traits"):
+                parts.append("性格：" + "，".join(item["traits"]))
+            if item.get("interests"):
+                parts.append("兴趣：" + "，".join(item["interests"]))
+            if item.get("preferences"):
+                parts.append("偏好：" + "，".join(item["preferences"]))
+            if item.get("evidence_dates"):
+                parts.append("证据日期：" + "，".join(item["evidence_dates"]))
+            message = "\n".join(part for part in parts if part)
+        except Exception as exc:
+            message = f"读取人物印象失败：{_brief_error(exc)}"
+        return message
+
+    @filter.llm_tool(name="write_impression")
+    async def write_impression_tool(
+        self,
+        event: AstrMessageEvent,
+        name: str,
+        summary: str,
+        traits: str = "",
+        interests: str = "",
+        preferences: str = "",
+        relationship: str = "",
+        evidence_dates: str = "",
+        confidence: int = 3,
+        notes: str = "",
+    ):
+        """写入或更新指定人物的长期印象。
+
+        Args:
+            name(string): 人物名。
+            summary(string): 对这个人的稳定总结，应该基于可追溯证据。
+            traits(string): 性格特征，多个词用逗号分隔。
+            interests(string): 兴趣爱好，多个词用逗号分隔。
+            preferences(string): 偏好或相处方式，多个词用逗号分隔。
+            relationship(string): 与 bot 或项目的关系。
+            evidence_dates(string): 支撑这次更新的日记日期，多个日期用逗号分隔。
+            confidence(number): 可信度，1 到 5。
+            notes(string): 额外备注。
+        """
+        try:
+            result = await self.tools.write_impression(
+                name=name,
+                summary=summary,
+                traits=_split_words(traits),
+                interests=_split_words(interests),
+                preferences=_split_words(preferences),
+                relationship=relationship,
+                evidence_dates=_split_words(evidence_dates),
+                confidence=int(confidence),
+                notes=notes,
+            )
+            item = result.get("item") or {}
+            message = f"已更新 {item.get('name', name)} 的人物印象。"
+        except Exception as exc:
+            message = f"写入人物印象失败：{_brief_error(exc)}"
         return message

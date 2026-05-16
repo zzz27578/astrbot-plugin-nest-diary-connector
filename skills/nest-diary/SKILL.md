@@ -14,6 +14,9 @@ Available tools:
 - `read_diary`: read one known date.
 - `write_diary`: create or revise one date's diary entry.
 - `attach_media`: archive a file that already exists at an accessible path.
+- `list_impressions`: list known people impressions.
+- `read_impression`: read one person's long-term impression.
+- `write_impression`: create or revise one person's impression.
 
 ## Operating Principles
 
@@ -23,6 +26,7 @@ Available tools:
 4. Keep all writes traceable to a date. Use `YYYY-MM-DD`.
 5. Never bypass the Nest Diary service to write files directly.
 6. Do not use the admin website to perform agent work. Call tools.
+7. Update people impressions only when a diary or conversation provides stable evidence. Do not rewrite a person model from one weak mood signal.
 
 ## Decision Workflow
 
@@ -78,7 +82,19 @@ After attaching, consider whether the file needs narrative context. If yes, call
 - Who or what it connects to.
 - Any emotional meaning.
 
-### E. Archive or thematic summary
+### E. Person impression update
+
+Use this path after writing or reading a diary when the content changes what the agent knows about a person.
+
+1. Identify whether the entry contains stable evidence about a person: traits, interests, preferences, relationship, recurring needs, boundaries, or long-term context.
+2. If the person already has an impression, call `read_impression(name)` first.
+3. Call `write_impression` only when there is a useful update.
+4. Include `evidence_dates` so the memory stays traceable.
+5. Keep the summary balanced: distinguish long-term patterns from recent temporary state.
+
+Do not force an impression update for every diary. No update is better than noisy memory.
+
+### F. Archive or thematic summary
 
 First search the relevant topic. Then read only dates needed to support the summary. Any archive-style output must cite or mention source dates. Never delete original entries.
 
@@ -121,6 +137,24 @@ attach_media(
 )
 ```
 
+Read and update people impressions:
+
+```text
+read_impression(name="admin")
+
+write_impression(
+  name="admin",
+  summary="A concise, evidence-based impression of the person.",
+  traits="direct,detail-oriented",
+  interests="AI,AstrBot,local deployment",
+  preferences="working previews,clear docs",
+  relationship="project owner",
+  evidence_dates="2026-05-13,2026-05-16",
+  confidence=4,
+  notes="Separate stable preferences from temporary frustration."
+)
+```
+
 ## Diary Quality Bar
 
 Before calling `write_diary`, check the draft against this rubric:
@@ -133,6 +167,8 @@ Before calling `write_diary`, check the draft against this rubric:
 - Leaves future retrieval hooks: names, tags, event words, distinctive details.
 
 If the draft fails, improve it before writing.
+
+After writing, decide whether `write_impression` is useful. It is optional.
 
 ## Response Style
 
@@ -157,3 +193,4 @@ I searched all memories and know exactly everything.
 - If `read_diary` returns missing, say that date has no entry.
 - If `write_diary` fails, do not claim it was saved.
 - If `attach_media` fails because the path is inaccessible, ask for or locate an accessible file path.
+- If an impression update would be speculative, skip `write_impression` and say no stable update was needed.
