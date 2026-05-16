@@ -24,6 +24,7 @@ bot 不需要登录网页，也不需要模仿人类点按钮。插件会把 bot
 - 保存小窝服务地址。
 - 保存 bot 专属 API token。
 - 提供 `/小窝状态` 连接检查指令。
+- 提供 `/小窝绑定提醒` 获取定时提示目标会话。
 - 封装写日记、搜日记、读日记、上传媒体、维护人物印象等工具客户端。
 - 提供官方插件内置 `nest-diary` Skill，规范 bot 使用小窝。
 - 不保存大量日记和图片。
@@ -95,9 +96,10 @@ https://nest.example.com
 
 ```text
 /小窝状态
+/小窝绑定提醒
 ```
 
-用于检查 AstrBot 是否能连到小窝服务。
+`/小窝状态` 用于检查 AstrBot 是否能连到小窝服务。
 
 成功时类似：
 
@@ -111,6 +113,8 @@ https://nest.example.com
 - `bot_api_token` 是否和服务端一致。
 - 小窝服务是否已经启动。
 - 防火墙或 Docker 网络是否拦截。
+
+`/小窝绑定提醒` 用于在当前会话里输出 `unified_msg_origin`。把返回值填入插件配置里的 `daily_target_origin` 后，插件才能在固定时间把写日记提示词主动发到这个会话。
 
 ## Bot 可直接调用的工具
 
@@ -139,6 +143,7 @@ body: 日记正文，必须包含 bot 自己的评价、情绪和判断
 mood: 情绪词，多个用逗号分隔，可空
 tags: 标签，多个用逗号分隔，可空
 people: 相关人物，多个用逗号分隔，可空
+media_refs: 图片或媒体引用，每行一个，可空
 reason: 写入原因，例如 nightly_archive、manual_update
 ```
 
@@ -174,6 +179,8 @@ source_path: 文件绝对路径
 date: YYYY-MM-DD
 original_name: 原始文件名，可空
 ```
+
+归档成功后服务端会返回 `url`，可以把这个 URL 填进 `write_diary.media_refs`，日记页面会尝试渲染图片或提供链接。
 
 ### `list_impressions`
 
@@ -228,8 +235,36 @@ data/plugins/astrbot_plugin_nest_diary_connector/skills/nest-diary/SKILL.md
 - 归档必须保留来源日期。
 - 修改内容应通过小窝服务保留修订历史。
 - 人物印象必须基于稳定证据，可选更新，不要制造噪音记忆。
+- 时间线检索优先使用 `YYYY`、`YYYY-MM`、`YYYY-MM-DD`，不要全量读取。
+- 媒体归档后把返回的媒体 URL 写进日记的 `media_refs`。
 
 注意：本插件的 Skill 不会禁用 LLM Tools。Skill 负责告诉 bot “什么时候、怎样使用小窝”，真正读写仍然调用 `write_diary`、`search_diary`、`read_diary`、`attach_media`、`write_impression` 等工具。是否启用这个 Skill，请在 AstrBot 的 Skills 页面里管理。
+
+## 定时提示
+
+插件配置里提供：
+
+```text
+scheduled_prompt_enabled
+daily_target_origin
+daily_write_enabled
+daily_write_time
+daily_write_prompt
+reminder_enabled
+reminder_time
+reminder_prompt
+auto_impression_after_diary
+impression_after_diary_prompt
+```
+
+这里的定时不是绕过 bot 直接写数据库，而是到点向目标会话发送一段提示词，让 bot 根据自身人设、当天上下文和小窝工具自主执行。人物印象也是可选动作：只有日记提供稳定新证据时才更新。
+
+绑定步骤：
+
+1. 在希望接收提示的会话发送 `/小窝绑定提醒`。
+2. 复制返回的 `unified_msg_origin`。
+3. 填到插件配置 `daily_target_origin`。
+4. 设置 `daily_write_time` 和提示词。
 
 ## 推荐部署顺序
 

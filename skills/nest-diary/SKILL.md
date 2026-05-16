@@ -27,6 +27,7 @@ Available tools:
 5. Never bypass the Nest Diary service to write files directly.
 6. Do not use the admin website to perform agent work. Call tools.
 7. Update people impressions only when a diary or conversation provides stable evidence. Do not rewrite a person model from one weak mood signal.
+8. Use date-shaped retrieval when possible. Search `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` before broad semantic searches if the clue is temporal.
 
 ## Decision Workflow
 
@@ -53,6 +54,7 @@ Use `write_diary`. A good entry includes:
 - The agent's judgment and emotion.
 - Relationship or long-term memory implications.
 - Follow-up clues, promises, worries, or unfinished threads.
+- Useful media references when images, screenshots, voice, or files are part of the memory.
 
 Avoid:
 
@@ -62,12 +64,14 @@ Avoid:
 
 ### C. Nightly archive / scheduled diary
 
-When performing the nightly routine:
+When receiving the scheduled diary prompt from the plugin:
 
 1. Gather the day's salient events from current context and available memory.
 2. Write one coherent diary entry with `reason="nightly_archive"`.
 3. Include moods and tags.
-4. If required by the active role or task system, report completion briefly after the write.
+4. If relevant images or files have already been attached, include their returned media URLs in `media_refs`.
+5. After the write, decide whether a person impression update is genuinely needed.
+6. If configured to report completion, report briefly after the write.
 
 The diary is allowed to sound personal. It should not sound like a database row.
 
@@ -81,6 +85,7 @@ After attaching, consider whether the file needs narrative context. If yes, call
 - Why it matters.
 - Who or what it connects to.
 - Any emotional meaning.
+- The media URL returned by `attach_media`, so the diary page can render or link it later.
 
 ### E. Person impression update
 
@@ -123,6 +128,7 @@ write_diary(
   mood="focused,frustrated,relieved",
   tags="diary,AstrBot,memory",
   people="admin,assistant",
+  media_refs="/media/blobs/<sha256>",
   reason="nightly_archive"
 )
 ```
@@ -169,6 +175,18 @@ Before calling `write_diary`, check the draft against this rubric:
 If the draft fails, improve it before writing.
 
 After writing, decide whether `write_impression` is useful. It is optional.
+
+## Storage-Aware Retrieval
+
+The service stores diary files under `diary/YYYY/MM/YYYY-MM-DD.md` and indexes metadata in SQLite. Prefer these retrieval patterns:
+
+```text
+search_diary(query="2026-05", top_k=20)
+search_diary(query="2026-05-13", top_k=5)
+search_diary(query="admin local preview routes", top_k=8)
+```
+
+Never scan raw files directly. The archive is for navigation; tool search is for agent recall.
 
 ## Response Style
 

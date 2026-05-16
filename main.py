@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import aiohttp
+from datetime import datetime
 from urllib.parse import quote
-from astrbot.api.event import AstrMessageEvent, filter
+from zoneinfo import ZoneInfo
+
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
 
@@ -111,6 +115,7 @@ class NestDiaryTools:
         mood: list[str] | None = None,
         tags: list[str] | None = None,
         people: list[str] | None = None,
+        media_refs: list[str] | None = None,
         reason: str = "",
     ) -> dict:
         return await self.client.write_diary(
@@ -120,6 +125,7 @@ class NestDiaryTools:
                 "mood": mood or [],
                 "tags": tags or [],
                 "people": people or [],
+                "media_refs": media_refs or [],
                 "reason": reason,
                 "intent": "write_diary",
                 "source": "bot",
@@ -187,11 +193,25 @@ def _brief_error(exc: Exception) -> str:
     return str(exc)
 
 
+def _split_lines(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def _is_time_now(now: datetime, configured: str) -> bool:
+    try:
+        hour_text, minute_text = configured.strip().split(":", 1)
+        return now.hour == int(hour_text) and now.minute == int(minute_text)
+    except Exception:
+        return False
+
+
 @register(
     PLUGIN_NAME,
     "local",
     "连接独立小窝日记服务的 AstrBot 插件。",
-    "0.1.5",
+    "0.1.6",
 )
 class NestDiaryConnectorPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -203,6 +223,18 @@ class NestDiaryConnectorPlugin(Star):
             timeout_seconds=int(self.config.get("request_timeout_seconds", 30)),
         )
         self.tools = NestDiaryTools(self.client)
+        self._last_daily_sent = ""
+        self._last_reminder_sent = ""
+        self._scheduler_task = None
+        if self.config.get("scheduled_prompt_enabled", True):
+            try:
+                self._scheduler_task = asyncio.create_task(self._scheduled_prompt_loop())
+            except RuntimeError:
+                self._scheduler_task = None
+
+    async def terminate(self):
+        if self._scheduler_task:
+            self._scheduler_task.cancel()
 
     @filter.command("小窝状态")
     async def nest_status(self, event: AstrMessageEvent):
@@ -213,6 +245,14 @@ class NestDiaryConnectorPlugin(Star):
         except Exception as exc:
             message = f"小窝暂时连不上：{_brief_error(exc)}"
         yield event.plain_result(message)
+
+    @filter.command("小窝绑定提醒")
+    async def bind_nest_prompt_origin(self, event: AstrMessageEvent):
+        """显示当前会话 origin，供管理员填入插件配置。"""
+        yield event.plain_result(
+            "把下面这一串填进插件配置 daily_target_origin，定时提示就会发到当前会话：\n"
+            f"{event.unified_msg_origin}"
+        )
 
     @filter.llm_tool(name="nest_status")
     async def nest_status_tool(self, event: AstrMessageEvent):
@@ -233,6 +273,7 @@ class NestDiaryConnectorPlugin(Star):
         mood: str = "",
         tags: str = "",
         people: str = "",
+        media_refs: str = "",
         reason: str = "",
     ):
         """写入或更新某一天的小窝日记。
@@ -243,6 +284,7 @@ class NestDiaryConnectorPlugin(Star):
             mood(string): 情绪词，多个词用逗号分隔。
             tags(string): 标签，多个标签用逗号分隔。
             people(string): 相关人物，多个名字用逗号分隔。
+            media_refs(string): 图片或媒体引用，每行一个 URL 或小窝媒体地址，可为空。
             reason(string): 写入原因，例如 nightly_archive、manual_update、memory整理。
         """
         try:
@@ -252,12 +294,17 @@ class NestDiaryConnectorPlugin(Star):
                 mood=_split_words(mood),
                 tags=_split_words(tags),
                 people=_split_words(people),
+                media_refs=_split_lines(media_refs),
                 reason=reason,
             )
             saved_date = result.get("date", date)
             revision = result.get("revision_id") or result.get("revision")
             suffix = f"，修订号：{revision}" if revision else ""
             message = f"已写入 {saved_date} 的小窝日记{suffix}。"
+            if self.config.get("auto_impression_after_diary", True):
+                prompt = self.config.get("impression_after_diary_prompt", "").strip()
+                if prompt:
+                    message = f"{message}\n\n人物印象自检提示：{prompt}"
         except Exception as exc:
             message = f"写入小窝日记失败：{_brief_error(exc)}"
         return message
@@ -338,6 +385,38 @@ class NestDiaryConnectorPlugin(Star):
         except Exception as exc:
             message = f"归档媒体失败：{_brief_error(exc)}"
         return message
+
+    async def _scheduled_prompt_loop(self):
+        while True:
+            try:
+                await self._send_scheduled_prompts_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+            await asyncio.sleep(60)
+
+    async def _send_scheduled_prompts_once(self):
+        origin = self.config.get("daily_target_origin", "").strip()
+        if not origin:
+            return
+        timezone_name = self.config.get("timezone", "Asia/Shanghai")
+        now = datetime.now(ZoneInfo(timezone_name))
+        today_key = now.strftime("%Y-%m-%d")
+        if self.config.get("daily_write_enabled", True):
+            daily_time = self.config.get("daily_write_time", "03:00")
+            if _is_time_now(now, daily_time) and self._last_daily_sent != today_key:
+                prompt = self.config.get("daily_write_prompt", "").strip()
+                if prompt:
+                    await self.context.send_message(origin, MessageChain().message(prompt))
+                    self._last_daily_sent = today_key
+        if self.config.get("reminder_enabled", False):
+            reminder_time = self.config.get("reminder_time", "23:30")
+            if _is_time_now(now, reminder_time) and self._last_reminder_sent != today_key:
+                prompt = self.config.get("reminder_prompt", "").strip()
+                if prompt:
+                    await self.context.send_message(origin, MessageChain().message(prompt))
+                    self._last_reminder_sent = today_key
 
     @filter.llm_tool(name="list_impressions")
     async def list_impressions_tool(self, event: AstrMessageEvent):

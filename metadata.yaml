@@ -1,6 +1,6 @@
 ﻿name: astrbot_plugin_nest_diary_connector
 desc: 连接独立小窝日记服务的 AstrBot 插件，为 bot 提供日记、搜索、归档和媒体工具入口。
 help: 配置小窝服务地址和 bot API token 后使用。插件只做连接与工具封装，不保存大量日记数据。
-version: v0.1.5
+version: v0.1.6
 author: local
 repo: https://github.com/zzz27578/astrbot-plugin-nest-diary-connector
