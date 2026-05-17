@@ -28,7 +28,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.2.2"
+PLUGIN_VERSION = "0.2.3"
 
 
 class NestDiaryHttpClient:
@@ -434,7 +434,13 @@ class NestDiaryConnectorPlugin(Star):
                 }
             )
 
-        for route in ["/nest-diary/status", "nest-diary/status", "status"]:
+        for route in [
+            f"/{PLUGIN_NAME}/status",
+            f"/{PLUGIN_NAME}/nest-diary/status",
+            "/nest-diary/status",
+            "nest-diary/status",
+            "status",
+        ]:
             try:
                 self.context.register_web_api(route, nest_diary_page_status, ["GET"], "Nest Diary page status")
             except TypeError:

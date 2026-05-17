@@ -16,30 +16,43 @@ class ServiceSettingsStore:
 
     def load(self) -> ServiceUiSettings:
         if not self.path.exists():
-            return ServiceUiSettings()
+            return self._normalize(ServiceUiSettings())
         data = json.loads(self.path.read_text(encoding="utf-8"))
         defaults = asdict(ServiceUiSettings())
         defaults.update(data)
-        return ServiceUiSettings(**defaults)
+        return self._normalize(ServiceUiSettings(**defaults))
 
     def save(self, settings: ServiceUiSettings) -> ServiceUiSettings:
-        settings.enable_diary_module = bool(settings.enable_diary_module)
-        settings.search_default_top_k = max(1, min(int(settings.search_default_top_k), 20))
-        settings.search_snippet_chars = max(80, min(int(settings.search_snippet_chars), 360))
-        if settings.memory_recall_policy not in {"conservative", "active"}:
-            settings.memory_recall_policy = "conservative"
-        if settings.diary_archive_granularity not in {"day", "month", "year"}:
-            settings.diary_archive_granularity = "day"
-        settings.active_frontend_style = settings.active_frontend_style.strip() or "default"
-        settings.enabled_official_modules = [
-            item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
-        ]
-        settings.enabled_custom_modules = [item.strip() for item in settings.enabled_custom_modules if item.strip()]
-        settings.custom_webui_dir = settings.custom_webui_dir.strip()
+        settings = self._normalize(settings)
         self.path.write_text(
             json.dumps(asdict(settings), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        return settings
+
+    def _normalize(self, settings: ServiceUiSettings) -> ServiceUiSettings:
+        settings.enable_diary_module = bool(settings.enable_diary_module)
+        settings.search_default_top_k = max(1, min(int(settings.search_default_top_k), 20))
+        settings.search_snippet_chars = max(80, min(int(settings.search_snippet_chars), 360))
+        settings.memory_recall_enabled = bool(settings.memory_recall_enabled)
+        if settings.memory_recall_policy not in {"conservative", "active"}:
+            settings.memory_recall_policy = "conservative"
+        if settings.diary_archive_granularity not in {"day", "month", "year"}:
+            settings.diary_archive_granularity = "day"
+        settings.allow_media_refs = bool(settings.allow_media_refs)
+        settings.show_impression_prompt = bool(settings.show_impression_prompt)
+        settings.active_frontend_style = (settings.active_frontend_style or "").strip() or "default"
+        if not isinstance(settings.enabled_official_modules, list):
+            settings.enabled_official_modules = ["diary", "impressions", "media", "webui"]
+        if not isinstance(settings.enabled_custom_modules, list):
+            settings.enabled_custom_modules = []
+        settings.enabled_official_modules = [
+            item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
+        ]
+        settings.enabled_custom_modules = [item.strip() for item in settings.enabled_custom_modules if item.strip()]
+        settings.custom_webui_dir = (settings.custom_webui_dir or "").strip()
+        settings.backup_custom_before_update = bool(settings.backup_custom_before_update)
+        settings.impression_prompt = settings.impression_prompt or ""
         return settings
 
 

@@ -11,7 +11,7 @@
 
   const readStatus = async () => {
     if (window.AstrBotPluginPage?.apiGet) {
-      const routes = ["nest-diary/status", "/nest-diary/status", "status"];
+      const routes = ["status", "nest-diary/status"];
       let lastError;
       for (const route of routes) {
         try {
@@ -23,7 +23,12 @@
       throw lastError || new Error("Plugin Page API unavailable");
     }
 
-    const urls = ["/api/plugin/nest-diary/status", "/api/plugin/status"];
+    const urls = [
+      "/api/plugin/astrbot_plugin_nest_diary_connector/status",
+      "/api/plugin/astrbot_plugin_nest_diary_connector/nest-diary/status",
+      "/api/plugin/nest-diary/status",
+      "/api/plugin/status",
+    ];
     let lastError;
     for (const url of urls) {
       try {
@@ -38,7 +43,8 @@
   };
 
   try {
-    const status = await readStatus();
+    const payload = await readStatus();
+    const status = payload?.data || payload;
     const host = status.web_host === "0.0.0.0" ? window.location.hostname : status.web_host;
     const webuiUrl = `http://${host}:${status.web_port}`;
 

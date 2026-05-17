@@ -19,7 +19,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.3"
 settings = load_settings()
 app = FastAPI(title="Nest Diary Service", version=APP_VERSION)
 paths = NestPaths(settings.data_dir)

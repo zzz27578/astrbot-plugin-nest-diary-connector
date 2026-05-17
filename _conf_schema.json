@@ -1,8 +1,8 @@
 {
   "nest_mode": {
-    "description": "小窝运行模式。embedded 表示插件内置 WebUI 和数据核心；standalone 表示兼容旧的独立小窝服务。",
+    "description": "运行模式",
     "type": "string",
-    "hint": "推荐 embedded。只有继续使用旧独立服务容器时才选 standalone。",
+    "hint": "推荐 embedded。standalone 仅用于继续连接旧独立小窝服务。",
     "options": [
       "embedded",
       "standalone"
@@ -10,118 +10,132 @@
     "default": "embedded"
   },
   "enable_diary_module": {
-    "description": "是否启用小窝日记模块。关闭后 bot 不会执行写入、读取、搜索日记或媒体归档。",
+    "description": "启用日记模块",
     "type": "bool",
+    "hint": "关闭后 bot 不会执行日记读写、检索或媒体归档。",
     "default": true
   },
   "enable_webui": {
-    "description": "是否启用插件内置小窝 WebUI。embedded 模式下默认启用。",
+    "description": "启用内置 WebUI",
     "type": "bool",
+    "hint": "embedded 模式下会启动小窝网页后台。",
     "default": true
   },
   "web_host": {
-    "description": "小窝 WebUI 监听地址。公网访问建议配合反向代理和防火墙。",
+    "description": "WebUI 监听地址",
     "type": "string",
+    "hint": "公网访问建议保持 0.0.0.0 并配合反向代理、防火墙和管理员密码。",
     "default": "0.0.0.0"
   },
   "web_port": {
-    "description": "小窝 WebUI 监听端口。",
+    "description": "WebUI 端口",
     "type": "int",
     "default": 28080
   },
   "admin_password": {
-    "description": "小窝 WebUI 管理员密码。初始建议改掉默认值。",
+    "description": "管理员密码",
     "type": "string",
+    "hint": "小窝 WebUI 登录密码，默认 12345678，安装后建议修改。",
     "default": "12345678"
   },
   "nest_data_dir": {
-    "description": "小窝数据根目录。留空时默认使用官方插件数据目录 /AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector；本地开发时使用插件目录下 data。",
+    "description": "数据根目录",
     "type": "string",
+    "hint": "留空使用 /AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector。本地开发回退到插件目录 data。",
     "default": ""
   },
   "custom_webui_dir": {
-    "description": "自定义前端主题和模块目录。更新官方插件时不会覆盖这里；留空使用数据目录下 user_custom/webui。",
+    "description": "自定义前端目录",
     "type": "string",
+    "hint": "留空使用数据目录 user_custom/webui。官方更新不会覆盖这里。",
     "default": ""
   },
   "backup_custom_before_update": {
-    "description": "更新官方模块前是否建议备份自定义前端和自定义模块。",
+    "description": "更新前备份自定义内容",
     "type": "bool",
     "default": true
   },
   "service_url": {
-    "description": "仅 standalone 兼容模式使用：独立小窝服务地址，例如 http://nest-diary:28080。",
+    "description": "独立服务地址",
     "type": "string",
+    "hint": "仅 standalone 模式使用，例如 http://nest-diary:28080。",
     "default": "http://nest-diary:28080"
   },
   "bot_api_token": {
-    "description": "standalone 模式下的小窝 API token；embedded 模式下只作为初始外部 API Key 写入小窝设置，插件内部工具不依赖它。",
+    "description": "外部 API Key",
     "type": "string",
+    "hint": "standalone 模式用于连接独立服务；embedded 模式只作为外部 API 初始 Key，插件内部工具不依赖它。",
     "default": ""
   },
   "request_timeout_seconds": {
-    "description": "standalone 模式请求独立小窝服务的超时时间，单位秒。",
+    "description": "请求超时秒数",
     "type": "int",
     "default": 30
   },
   "timezone": {
-    "description": "定时提示使用的时区。",
+    "description": "定时时区",
     "type": "string",
     "default": "Asia/Shanghai"
   },
   "scheduled_prompt_enabled": {
-    "description": "是否启用插件侧定时提示循环。启用后会按 daily_target_origin 主动发送提示词。",
+    "description": "启用定时提示",
     "type": "bool",
+    "hint": "按配置时间向 daily_target_origin 发送提示词，让 bot 自主调用工具。",
     "default": true
   },
   "daily_target_origin": {
-    "description": "定时提示发送到哪个会话。请在目标会话发送 /小窝绑定提醒 获取并填入。",
+    "description": "定时目标会话",
     "type": "string",
+    "hint": "在目标会话发送 /小窝绑定提醒，把返回值填入这里。",
     "default": ""
   },
   "daily_write_enabled": {
-    "description": "是否启用每日写日记提示。",
+    "description": "启用每日归档",
     "type": "bool",
     "default": true
   },
   "daily_write_time": {
-    "description": "每日写日记提示时间，24 小时制 HH:MM。",
+    "description": "每日归档时间",
     "type": "string",
+    "hint": "24 小时制 HH:MM。",
     "default": "03:00"
   },
   "daily_write_prompt": {
-    "description": "到点发给 bot 的写日记提示词。它会让 bot 根据自身人设、当天上下文和小窝工具自主写入。",
+    "description": "每日归档提示词",
     "type": "text",
     "default": "现在执行小窝每日归档。请根据你的角色设定、今天可用的对话上下文、重要事件和情绪变化，自主整理今天的日记，并调用 write_diary 写入。请自拟一个能概括当天意义的标题，不要把日期当标题。正文需要包含：发生了什么、为什么重要、你的主观评价和情感、相关人物、未来线索或未完成事项。请填写 mood、tags、people；如果有媒体证据，先通过 attach_media 归档，再把返回的媒体引用写入 media_refs。写完后判断是否需要更新人物印象：只有今天提供了稳定新证据时才调用 write_impression；没有新变化就不要更新。"
   },
   "notify_after_write": {
-    "description": "每日写入完成后是否由 bot 在会话内反馈完成。这只是提示词约束，实际行为由 bot 执行。",
+    "description": "归档后反馈",
     "type": "bool",
+    "hint": "这是提示词约束，实际反馈由 bot 决定。",
     "default": true
   },
   "reminder_enabled": {
-    "description": "是否启用普通提醒提示。",
+    "description": "启用普通提醒",
     "type": "bool",
     "default": false
   },
   "reminder_time": {
-    "description": "普通提醒时间，24 小时制 HH:MM。",
+    "description": "普通提醒时间",
     "type": "string",
     "default": "23:30"
   },
   "reminder_prompt": {
-    "description": "普通提醒发给 bot 的提示词。",
+    "description": "普通提醒提示词",
     "type": "text",
     "default": "请检查今天是否有值得写入小窝的事情。如果有，请主动整理并调用小窝工具保存；如果没有明确材料，不要强行写入。"
   },
   "memory_recall_enabled": {
-    "description": "是否启用主动回忆规则。开启后，skills 会要求 bot 在上下文不足、用户提到过去事件时优先调用 search_diary 检索片段。",
+    "description": "启用主动回忆",
     "type": "bool",
+    "hint": "开启后，skills 会要求 bot 在上下文不足且提到过去事件时先调用 search_diary。",
     "default": true
   },
   "memory_recall_policy": {
-    "description": "主动回忆策略。conservative 表示上下文不足时再查；active 表示遇到过去线索更积极地查。",
+    "description": "主动回忆策略",
     "type": "string",
+    "hint": "conservative 更谨慎；active 遇到过去线索更积极检索。",
     "options": [
       "conservative",
       "active"
@@ -129,22 +143,24 @@
     "default": "conservative"
   },
   "memory_recall_top_k": {
-    "description": "bot 主动检索最多返回多少条片段。建议 3 到 5，避免上下文过大。",
+    "description": "主动检索条数",
     "type": "int",
+    "hint": "建议 3 到 5，避免上下文过大。",
     "default": 5
   },
   "memory_recall_snippet_chars": {
-    "description": "每条检索结果返回的片段长度。建议 120 到 220。",
+    "description": "检索片段长度",
     "type": "int",
+    "hint": "建议 120 到 220。",
     "default": 180
   },
   "auto_impression_after_diary": {
-    "description": "write_diary 工具返回后，是否附带人物印象自检提示，帮助 bot 自主决定是否更新印象。",
+    "description": "日记后印象自检",
     "type": "bool",
     "default": true
   },
   "impression_after_diary_prompt": {
-    "description": "写完日记后的印象自检提示。不是系统提示，只是工具结果里给 bot 的行动提醒。",
+    "description": "印象自检提示词",
     "type": "text",
     "default": "请严格依据你的角色设定和刚写入的日记判断：是否出现了关于某个人的稳定新认识，例如性格、兴趣、偏好、关系变化、长期需求或重要边界。如果有，先读旧印象再写入更新，并填写证据日期；如果没有，不要调用 write_impression。"
   }
