@@ -308,7 +308,7 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .diary-list {
@@ -317,10 +317,7 @@ button:disabled {
 }
 
 .diary-article {
-  height: calc(100vh - 156px);
-  min-height: 420px;
-  overflow: auto;
-  overscroll-behavior: contain;
+  min-height: calc(100vh - 156px);
 }
 
 .article-body {
