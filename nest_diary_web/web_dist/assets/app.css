@@ -59,6 +59,12 @@ a {
   align-items: center;
   gap: 14px;
   color: inherit;
+  width: 100%;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
   text-decoration: none;
 }
 
@@ -95,11 +101,14 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   min-height: 42px;
   padding: 0 12px;
   color: inherit;
   text-decoration: none;
   border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
 }
 
 .nav-link.active {
@@ -246,12 +255,14 @@ button:disabled {
 .row {
   display: grid;
   gap: 6px;
+  width: 100%;
   padding: 14px 16px;
   color: inherit;
   text-decoration: none;
   border-bottom: 1px solid rgba(39, 35, 29, 0.16);
   background: transparent;
   text-align: left;
+  cursor: pointer;
 }
 
 .row:hover,

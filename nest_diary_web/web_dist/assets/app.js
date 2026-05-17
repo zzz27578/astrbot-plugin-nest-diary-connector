@@ -10,6 +10,7 @@ const state = {
   error: "",
 };
 
+const APP_VERSION = "0.3.1";
 const app = document.getElementById("app");
 
 const navItems = [
@@ -35,6 +36,7 @@ function parseRoute() {
 }
 
 function navigate(path) {
+  if (path === window.location.pathname + window.location.search) return;
   history.pushState({}, "", path);
   state.route = parseRoute();
   state.notice = "";
@@ -48,11 +50,13 @@ window.addEventListener("popstate", () => {
 });
 
 document.addEventListener("click", (event) => {
-  const link = event.target.closest("a[data-link]");
-  if (!link) return;
+  const target = event.target.closest("[data-route], a[data-link]");
+  if (!target) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  navigate(link.getAttribute("href"));
-});
+  event.stopPropagation();
+  navigate(target.dataset.route || target.getAttribute("href"));
+}, true);
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -93,31 +97,42 @@ function splitWords(value = "") {
     .filter(Boolean);
 }
 
-function renderShell(content) {
-  const active = state.route.name;
+function ensureShell() {
+  if (document.getElementById("view")) return;
   app.innerHTML = `
-    <div class="app">
+    <div class="app" data-app-version="${APP_VERSION}">
       <aside class="nav">
-        <a class="brand" href="/" data-link>
+        <button class="brand" data-route="/" type="button">
           <span class="brand-mark">小</span>
           <span><strong>小窝</strong><small>Private Nest</small></span>
-        </a>
+        </button>
         <nav class="nav-links">
           ${navItems
-            .map(([key, href, label, meta]) => `<a class="nav-link ${active === key ? "active" : ""}" href="${href}" data-link>${label}<span>${meta}</span></a>`)
+            .map(([key, href, label, meta]) => `<button class="nav-link" data-nav="${key}" data-route="${href}" type="button">${label}<span>${meta}</span></button>`)
             .join("")}
         </nav>
         <div class="nav-footer">
-          <div>v${state.bootstrap?.version || ""}</div>
-          <div>${state.bootstrap?.search?.backend || "local index"}</div>
+          <div id="app-version"></div>
+          <div id="search-backend"></div>
         </div>
       </aside>
-      <main class="main">
-        ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
-        ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
-        ${content}
-      </main>
+      <main class="main" id="view"></main>
     </div>
+  `;
+}
+
+function renderShell(content) {
+  ensureShell();
+  const active = state.route.name;
+  document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === active));
+  const versionNode = document.getElementById("app-version");
+  if (versionNode) versionNode.textContent = `v${state.bootstrap?.version || ""} · app ${APP_VERSION}`;
+  const backendNode = document.getElementById("search-backend");
+  if (backendNode) backendNode.textContent = state.bootstrap?.search?.backend || "local index";
+  document.getElementById("view").innerHTML = `
+    ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+    ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
+    ${content}
   `;
 }
 
@@ -192,11 +207,11 @@ function renderDashboard() {
 
 function entryRow(entry) {
   return `
-    <a class="row ${state.diary.selected?.date === entry.date ? "active" : ""}" href="/diary/${encodeURIComponent(entry.date)}" data-link>
+    <button class="row ${state.diary.selected?.date === entry.date ? "active" : ""}" data-route="/diary/${encodeURIComponent(entry.date)}" type="button">
       <span>${escapeHtml(entry.date)}</span>
       <strong>${escapeHtml(entry.title || entry.date)}</strong>
       <em>${escapeHtml((entry.body || "").slice(0, 96))}</em>
-    </a>
+    </button>
   `;
 }
 
@@ -221,7 +236,7 @@ function renderDiary() {
           selected
             ? `<div class="card-head">
                 <div><p class="eyebrow">${escapeHtml(selected.date)}</p><h2>${escapeHtml(selected.title)}</h2></div>
-                <div class="actions"><a class="button" href="/write?date=${encodeURIComponent(selected.date)}" data-link>编辑</a><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
+                <div class="actions"><button class="button" data-route="/write?date=${encodeURIComponent(selected.date)}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
               </div>
               <div class="card-body">
                 <div class="meta">重要度 ${selected.importance} · ${escapeHtml(selected.source || "")}</div>
@@ -314,7 +329,7 @@ function renderSearch() {
       <div class="list">
         ${
           state.search.results.length
-            ? state.search.results.map((item) => `<a class="row" href="/diary/${encodeURIComponent(item.date)}" data-link><span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></a>`).join("")
+            ? state.search.results.map((item) => `<button class="row" data-route="/diary/${encodeURIComponent(item.date)}" type="button"><span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></button>`).join("")
             : `<div class="card-body muted">输入关键词后，只返回片段，不会整本翻日记。</div>`
         }
       </div>

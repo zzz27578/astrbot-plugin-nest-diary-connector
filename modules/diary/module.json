@@ -1,7 +1,7 @@
 {
   "id": "diary",
   "name": "Nest Diary",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "日记写入、读取、检索、归档和媒体引用工具模块。",
   "data_roots": [
     "modules/diary/entries",
