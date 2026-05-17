@@ -1,8 +1,12 @@
+const APP_VERSION = "0.3.3";
+
 const state = {
-  route: parseRoute(),
+  view: initialViewFromLocation(),
+  selectedDate: initialDateFromLocation(),
+  editingDate: initialEditDateFromLocation(),
   bootstrap: null,
   diary: { items: [], archive: [], selected: null },
-  search: { query: "", results: [], backend: "" },
+  search: { query: initialSearchFromLocation(), results: [], backend: "" },
   impressions: [],
   media: [],
   settings: null,
@@ -10,53 +14,81 @@ const state = {
   error: "",
 };
 
-const APP_VERSION = "0.3.2";
 const app = document.getElementById("app");
 
 const navItems = [
-  ["dashboard", "/", "总览", "Home"],
-  ["diary", "/diary", "日记", "Entries"],
-  ["write", "/write", "写入", "Write"],
-  ["search", "/search", "搜索", "Recall"],
-  ["impressions", "/impressions", "印象", "People"],
-  ["media", "/media", "媒体", "Media"],
-  ["settings", "/settings", "设置", "Config"],
+  ["dashboard", "总览", "Home"],
+  ["diary", "日记", "Entries"],
+  ["write", "写入", "Write"],
+  ["search", "检索", "Recall"],
+  ["impressions", "印象", "People"],
+  ["media", "媒体", "Media"],
+  ["settings", "设置", "Config"],
 ];
 
-function parseRoute() {
+function initialViewFromLocation() {
   const path = window.location.pathname;
-  if (path.startsWith("/diary/")) return { name: "diary", date: decodeURIComponent(path.split("/").pop()) };
-  if (path === "/diary") return { name: "diary" };
-  if (path === "/write") return { name: "write" };
-  if (path === "/search") return { name: "search", query: new URLSearchParams(location.search).get("q") || "" };
-  if (path === "/impressions") return { name: "impressions" };
-  if (path === "/media") return { name: "media" };
-  if (path === "/settings") return { name: "settings" };
-  return { name: "dashboard" };
+  if (path.startsWith("/diary")) return "diary";
+  if (path === "/write") return "write";
+  if (path === "/search") return "search";
+  if (path === "/impressions") return "impressions";
+  if (path === "/media") return "media";
+  if (path === "/settings") return "settings";
+  return "dashboard";
 }
 
-function navigate(path) {
-  if (path === window.location.pathname + window.location.search) return;
-  history.pushState({}, "", path);
-  state.route = parseRoute();
-  state.notice = "";
+function initialDateFromLocation() {
+  const path = window.location.pathname;
+  if (!path.startsWith("/diary/")) return "";
+  return decodeURIComponent(path.split("/").filter(Boolean).pop() || "");
+}
+
+function initialEditDateFromLocation() {
+  if (window.location.pathname !== "/write") return "";
+  return new URLSearchParams(window.location.search).get("date") || "";
+}
+
+function initialSearchFromLocation() {
+  if (window.location.pathname !== "/search") return "";
+  return new URLSearchParams(window.location.search).get("q") || "";
+}
+
+function setView(view, options = {}) {
+  state.view = view;
+  state.notice = options.keepNotice ? state.notice : "";
   state.error = "";
-  loadRoute();
+  if (Object.prototype.hasOwnProperty.call(options, "date")) state.selectedDate = options.date || "";
+  if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
+  if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
+  loadView();
 }
 
-window.addEventListener("popstate", () => {
-  state.route = parseRoute();
-  loadRoute();
-});
-
-document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], a[data-link]");
-  if (!target) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  event.stopPropagation();
-  navigate(target.dataset.route || target.getAttribute("href"));
-}, true);
+document.addEventListener(
+  "click",
+  (event) => {
+    const target = event.target.closest("[data-view], [data-date], [data-edit-date], [data-search-query]");
+    if (!target) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (target.dataset.view) {
+      setView(target.dataset.view);
+      return;
+    }
+    if (target.dataset.date) {
+      setView("diary", { date: target.dataset.date });
+      return;
+    }
+    if (target.dataset.editDate) {
+      setView("write", { editDate: target.dataset.editDate });
+      return;
+    }
+    if (target.dataset.searchQuery) {
+      setView("search", { query: target.dataset.searchQuery });
+    }
+  },
+  true
+);
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -66,7 +98,7 @@ async function api(path, options = {}) {
   });
   if (response.status === 401) {
     location.href = "/login";
-    return;
+    return null;
   }
   if (!response.ok) {
     let detail = response.statusText;
@@ -90,8 +122,7 @@ function escapeHtml(value = "") {
 
 function splitWords(value = "") {
   return String(value)
-    .replaceAll("，", ",")
-    .replaceAll("、", ",")
+    .replace(/[，、；;]/g, ",")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -102,14 +133,12 @@ function ensureShell() {
   app.innerHTML = `
     <div class="app" data-app-version="${APP_VERSION}">
       <aside class="nav">
-        <button class="brand" data-route="/" type="button">
-          <span class="brand-mark">小</span>
+        <button class="brand" data-view="dashboard" type="button">
+          <span class="brand-mark">窝</span>
           <span><strong>小窝</strong><small>Private Nest</small></span>
         </button>
         <nav class="nav-links">
-          ${navItems
-            .map(([key, href, label, meta]) => `<button class="nav-link" data-nav="${key}" data-route="${href}" type="button">${label}<span>${meta}</span></button>`)
-            .join("")}
+          ${navItems.map(([key, label, meta]) => `<button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}<span>${meta}</span></button>`).join("")}
         </nav>
         <div class="nav-footer">
           <div id="app-version"></div>
@@ -123,10 +152,9 @@ function ensureShell() {
 
 function renderShell(content) {
   ensureShell();
-  const active = state.route.name;
-  document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === active));
+  document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === state.view));
   const versionNode = document.getElementById("app-version");
-  if (versionNode) versionNode.textContent = `v${state.bootstrap?.version || ""} · app ${APP_VERSION}`;
+  if (versionNode) versionNode.textContent = `服务 v${state.bootstrap?.version || ""} · 前端 ${APP_VERSION}`;
   const backendNode = document.getElementById("search-backend");
   if (backendNode) backendNode.textContent = state.bootstrap?.search?.backend || "local index";
   document.getElementById("view").innerHTML = `
@@ -139,26 +167,25 @@ function renderShell(content) {
 function pageHead(eyebrow, title, actions = "") {
   return `
     <header class="topbar">
-      <div class="page-title"><p>${eyebrow}</p><h1>${title}</h1></div>
+      <div class="page-title"><p>${escapeHtml(eyebrow)}</p><h1>${escapeHtml(title)}</h1></div>
       <div class="actions">${actions}</div>
     </header>
   `;
 }
 
 async function loadBootstrap() {
-  if (!state.bootstrap) {
-    state.bootstrap = await api("/api/ui/bootstrap");
-  }
+  if (!state.bootstrap) state.bootstrap = await api("/api/ui/bootstrap");
 }
 
-async function loadRoute() {
+async function loadView() {
   try {
     await loadBootstrap();
-    if (state.route.name === "diary") await loadDiary(state.route.date);
-    if (state.route.name === "search") await loadSearch(state.route.query);
-    if (state.route.name === "impressions") await loadImpressions();
-    if (state.route.name === "media") await loadMedia();
-    if (state.route.name === "settings") await loadSettings();
+    if (state.view === "diary") await loadDiary(state.selectedDate);
+    if (state.view === "write" && state.editingDate) await loadDiary(state.editingDate);
+    if (state.view === "search") await loadSearch(state.search.query);
+    if (state.view === "impressions") await loadImpressions();
+    if (state.view === "media") await loadMedia();
+    if (state.view === "settings") await loadSettings();
     render();
   } catch (err) {
     state.error = err.message;
@@ -167,12 +194,12 @@ async function loadRoute() {
 }
 
 function render() {
-  if (state.route.name === "diary") return renderDiary();
-  if (state.route.name === "write") return renderWrite();
-  if (state.route.name === "search") return renderSearch();
-  if (state.route.name === "impressions") return renderImpressions();
-  if (state.route.name === "media") return renderMedia();
-  if (state.route.name === "settings") return renderSettings();
+  if (state.view === "diary") return renderDiary();
+  if (state.view === "write") return renderWrite();
+  if (state.view === "search") return renderSearch();
+  if (state.view === "impressions") return renderImpressions();
+  if (state.view === "media") return renderMedia();
+  if (state.view === "settings") return renderSettings();
   return renderDashboard();
 }
 
@@ -188,15 +215,15 @@ function renderDashboard() {
     </section>
     <section class="grid two" style="margin-top:16px">
       <article class="card">
-        <div class="card-head"><h2>最近日记</h2><a href="/diary" data-link>查看全部</a></div>
+        <div class="card-head"><h2>最近日记</h2><button class="text-button" data-view="diary" type="button">查看全部</button></div>
         <div class="list">${recent.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`}</div>
       </article>
       <article class="card">
-        <div class="card-head"><h2>回忆检索</h2><span class="meta">${state.bootstrap.search.backend}</span></div>
+        <div class="card-head"><h2>回忆检索</h2><span class="meta">${escapeHtml(state.bootstrap.search.backend)}</span></div>
         <div class="card-body">
           <form class="searchbar" data-action="quick-search">
-            <input name="q" placeholder="关键词、人物、事情、情绪" />
-            <button class="primary">搜索</button>
+            <input name="q" placeholder="关键词、人物、事件或情绪" />
+            <button class="primary">检索</button>
           </form>
         </div>
       </article>
@@ -207,11 +234,24 @@ function renderDashboard() {
 
 function entryRow(entry) {
   return `
-    <button class="row ${state.diary.selected?.date === entry.date ? "active" : ""}" data-route="/diary/${encodeURIComponent(entry.date)}" type="button">
+    <button class="row ${state.diary.selected?.date === entry.date ? "active" : ""}" data-date="${escapeHtml(entry.date)}" type="button">
       <span>${escapeHtml(entry.date)}</span>
       <strong>${escapeHtml(entry.title || entry.date)}</strong>
       <em>${escapeHtml((entry.body || "").slice(0, 96))}</em>
     </button>
+  `;
+}
+
+function archiveOptions() {
+  const dates = state.diary.items.map((entry) => entry.date).filter(Boolean);
+  const years = [...new Set(dates.map((date) => date.slice(0, 4)))];
+  const months = [...new Set(dates.map((date) => date.slice(0, 7)))];
+  return `
+    <div class="archive-picker">
+      <label>年份<select data-jump-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}">${year}</option>`).join("")}</select></label>
+      <label>月份<select data-jump-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}">${month}</option>`).join("")}</select></label>
+      <label>日期<select data-jump-level="date"><option value="">选择日记</option>${dates.map((date) => `<option value="${date}" ${date === state.diary.selected?.date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
+    </div>
   `;
 }
 
@@ -221,46 +261,64 @@ async function loadDiary(date) {
     state.diary.items = payload.items;
     state.diary.archive = payload.archive;
   }
-  const selectedDate = date || state.diary.items[0]?.date;
+  const selectedDate = date || state.diary.selected?.date || state.diary.items[0]?.date;
+  state.selectedDate = selectedDate || "";
   state.diary.selected = selectedDate ? await api(`/api/ui/diary/${encodeURIComponent(selectedDate)}`) : null;
 }
 
 function renderDiary() {
   const selected = state.diary.selected;
   renderShell(`
-    ${pageHead("Entries", "日记", `<a class="button primary" href="/write" data-link>写一篇</a>`)}
+    ${pageHead("Entries", "日记", `<button class="button primary" data-view="write" type="button">写一篇</button>`)}
     <section class="diary-layout">
-      <aside class="card diary-list"><div class="list">${state.diary.items.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`}</div></aside>
+      <aside class="card diary-list">
+        ${archiveOptions()}
+        <div class="list">${state.diary.items.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`}</div>
+      </aside>
       <article class="card diary-article">
         ${
           selected
             ? `<div class="card-head">
                 <div><p class="eyebrow">${escapeHtml(selected.date)}</p><h2>${escapeHtml(selected.title)}</h2></div>
-                <div class="actions"><button class="button" data-route="/write?date=${encodeURIComponent(selected.date)}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
+                <div class="actions"><button class="button" data-edit-date="${escapeHtml(selected.date)}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
               </div>
               <div class="card-body">
                 <div class="meta">重要度 ${selected.importance} · ${escapeHtml(selected.source || "")}</div>
                 <div class="chips">${[...(selected.mood || []), ...(selected.tags || []), ...(selected.people || [])].map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
-                <div class="article-body" style="margin-top:18px">${escapeHtml(selected.body)}</div>
+                <div class="article-body">${escapeHtml(selected.body)}</div>
+                ${(selected.media_refs || []).length ? `<div class="media-refs"><h3>媒体引用</h3>${selected.media_refs.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}</div>` : ""}
               </div>`
             : `<div class="card-body muted">选择一篇日记。</div>`
         }
       </article>
     </section>
   `);
+  bindDiaryActions();
+}
+
+function bindDiaryActions() {
   document.querySelector("[data-delete]")?.addEventListener("click", async (event) => {
     const date = event.currentTarget.dataset.delete;
     if (!confirm(`删除 ${date} 的日记？`)) return;
     await api(`/api/ui/diary/${encodeURIComponent(date)}`, { method: "DELETE" });
     state.diary.items = [];
+    state.diary.selected = null;
+    state.selectedDate = "";
     state.notice = "日记已删除。";
-    navigate("/diary");
+    setView("diary", { keepNotice: true });
+  });
+  document.querySelectorAll("[data-jump-level]").forEach((node) => {
+    node.addEventListener("change", (event) => {
+      const value = event.currentTarget.value;
+      if (!value) return;
+      const match = state.diary.items.find((entry) => entry.date.startsWith(value));
+      if (match) setView("diary", { date: match.date });
+    });
   });
 }
 
 function renderWrite() {
-  const query = new URLSearchParams(location.search);
-  const editing = query.get("date");
+  const editing = state.editingDate;
   const selected = editing && state.diary.selected?.date === editing ? state.diary.selected : null;
   renderShell(`
     ${pageHead("Write", editing ? "编辑日记" : "写入日记")}
@@ -268,15 +326,15 @@ function renderWrite() {
       <form class="card-body form" data-action="write-diary">
         <div class="form-grid">
           <label>日期<input name="date" type="date" value="${escapeHtml(editing || new Date().toISOString().slice(0, 10))}" required></label>
-          <label>标题<input name="title" value="${escapeHtml(selected?.title || "")}" placeholder="由 bot 或你总结，不要只写日期"></label>
+          <label>标题<input name="title" value="${escapeHtml(selected?.title || "")}" placeholder="由 bot 或管理员概括，不要只写日期"></label>
           <label>情绪<input name="mood" value="${escapeHtml((selected?.mood || []).join(","))}"></label>
           <label>标签<input name="tags" value="${escapeHtml((selected?.tags || []).join(","))}"></label>
           <label>人物<input name="people" value="${escapeHtml((selected?.people || []).join(","))}"></label>
           <label>重要度<input name="importance" type="number" min="1" max="5" value="${selected?.importance || 3}"></label>
         </div>
         <label>正文<textarea name="body" required>${escapeHtml(selected?.body || "")}</textarea></label>
-        <label>媒体引用<textarea name="media_refs">${escapeHtml((selected?.media_refs || []).join("\\n"))}</textarea></label>
-        <div class="actions"><button class="primary">保存日记</button></div>
+        <label>媒体引用<textarea name="media_refs" placeholder="每行一个图片、语音或附件引用">${escapeHtml((selected?.media_refs || []).join("\n"))}</textarea></label>
+        <div class="actions"><button class="primary">保存日记</button><button class="button" data-view="diary" type="button">返回日记</button></div>
       </form>
     </section>
   `);
@@ -300,8 +358,9 @@ async function saveDiary(event) {
   };
   const result = await api("/api/ui/diary", { method: "POST", body: JSON.stringify(payload) });
   state.diary.items = [];
+  state.editingDate = "";
   state.notice = "日记已保存。";
-  navigate(`/diary/${encodeURIComponent(result.entry.date)}`);
+  setView("diary", { date: result.entry.date, keepNotice: true });
 }
 
 async function loadSearch(query = "") {
@@ -317,20 +376,20 @@ async function loadSearch(query = "") {
 
 function renderSearch() {
   renderShell(`
-    ${pageHead("Recall", "搜索")}
+    ${pageHead("Recall", "检索")}
     <section class="card">
       <div class="card-body">
         <form class="searchbar" data-action="search">
-          <input name="q" value="${escapeHtml(state.search.query)}" placeholder="关键词、人物、事情、情绪" />
-          <button class="primary">搜索</button>
+          <input name="q" value="${escapeHtml(state.search.query)}" placeholder="关键词、人物、事件或情绪" />
+          <button class="primary">检索</button>
         </form>
         <p class="muted">当前检索：${escapeHtml(state.search.backend || state.bootstrap.search.backend)}</p>
       </div>
       <div class="list">
         ${
           state.search.results.length
-            ? state.search.results.map((item) => `<button class="row" data-route="/diary/${encodeURIComponent(item.date)}" type="button"><span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></button>`).join("")
-            : `<div class="card-body muted">输入关键词后，只返回片段，不会整本翻日记。</div>`
+            ? state.search.results.map((item) => `<button class="row" data-date="${escapeHtml(item.date)}" type="button"><span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></button>`).join("")
+            : `<div class="card-body muted">输入关键词后只返回相关片段，不会把整本日记翻进上下文。</div>`
         }
       </div>
     </section>
@@ -338,7 +397,7 @@ function renderSearch() {
   document.querySelector('[data-action="search"]').addEventListener("submit", (event) => {
     event.preventDefault();
     const q = new FormData(event.currentTarget).get("q");
-    navigate(`/search?q=${encodeURIComponent(q)}`);
+    setView("search", { query: q });
   });
 }
 
@@ -346,7 +405,7 @@ function bindQuickSearch() {
   document.querySelector('[data-action="quick-search"]')?.addEventListener("submit", (event) => {
     event.preventDefault();
     const q = new FormData(event.currentTarget).get("q");
-    navigate(`/search?q=${encodeURIComponent(q)}`);
+    setView("search", { query: q });
   });
 }
 
@@ -356,10 +415,10 @@ async function loadImpressions() {
 
 function renderImpressions() {
   renderShell(`
-    ${pageHead("People", "印象")}
+    ${pageHead("People", "人物印象")}
     <section class="card">
       <div class="list">
-        ${state.impressions.map((item) => `<div class="row"><span>${escapeHtml(item.updated_at || "")}</span><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(item.summary)}</em><div class="chips">${[...(item.traits || []), ...(item.interests || [])].map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div></div>`).join("") || `<div class="card-body muted">还没有人物印象。</div>`}
+        ${state.impressions.map((item) => `<div class="row static"><span>${escapeHtml(item.updated_at || "")}</span><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(item.summary)}</em><div class="chips">${[...(item.traits || []), ...(item.interests || [])].map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div></div>`).join("") || `<div class="card-body muted">还没有人物印象。</div>`}
       </div>
     </section>
   `);
@@ -373,7 +432,7 @@ function renderMedia() {
   renderShell(`
     ${pageHead("Media", "媒体")}
     <section class="grid">
-      ${state.media.map((manifest) => `<article class="card"><div class="card-head"><h2>${escapeHtml(manifest.date)}</h2><span class="meta">${manifest.assets?.length || 0} 个文件</span></div><div class="card-body">${(manifest.assets || []).map((asset) => `<p><a href="${asset.url}" target="_blank">${escapeHtml(asset.original_name || asset.sha256)}</a></p>`).join("")}</div></article>`).join("") || `<article class="card"><div class="card-body muted">还没有媒体归档。</div></article>`}
+      ${state.media.map((manifest) => `<article class="card"><div class="card-head"><h2>${escapeHtml(manifest.date)}</h2><span class="meta">${manifest.assets?.length || 0} 个文件</span></div><div class="card-body">${(manifest.assets || []).map((asset) => `<p><a href="${asset.url}" target="_blank" rel="noreferrer">${escapeHtml(asset.original_name || asset.sha256)}</a></p>`).join("")}</div></article>`).join("") || `<article class="card"><div class="card-body muted">还没有媒体归档。</div></article>`}
     </section>
   `);
 }
@@ -395,11 +454,11 @@ function renderSettings() {
         </div>
         <div class="card-body form">
           <div class="setting-line">
-            <div><strong>日记模块</strong><p class="muted">允许 bot 和网页写入、读取、检索日记。</p></div>
+            <div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>
             ${switchControl("enable_diary_module", settings.enable_diary_module)}
           </div>
           <div class="setting-line">
-            <div><strong>主动回忆</strong><p class="muted">当上下文不足又提到过去的事时，优先检索片段。</p></div>
+            <div><strong>主动回忆</strong><p class="muted">当上下文不足且提到过去事件时，引导 bot 优先检索日记片段。</p></div>
             ${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}
           </div>
           <div class="form-grid compact">
@@ -407,13 +466,13 @@ function renderSettings() {
             <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
           </div>
           <details>
-            <summary>检索与日记进阶</summary>
+            <summary>检索、归档与印象提示</summary>
             <div class="form-grid compact">
               <label>片段长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
               <label>归档粒度<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>年月日</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>年月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>年</option></select></label>
             </div>
             ${check("allow_media_refs", "允许媒体引用", settings.allow_media_refs)}
-            ${check("show_impression_prompt", "显示人物印象提示", settings.show_impression_prompt)}
+            ${check("show_impression_prompt", "启用人物印象提示", settings.show_impression_prompt)}
             <label>人物印象提示词<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
           </details>
         </div>
@@ -427,7 +486,7 @@ function renderSettings() {
         <div class="card-body form">
           <div class="form-grid compact">
             <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(style.kind)}</option>`).join("")}</select></label>
-            <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}"></label>
+            <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空则使用插件数据目录下的 user_custom/webui"></label>
           </div>
           <details>
             <summary>模块选择</summary>
@@ -442,7 +501,7 @@ function renderSettings() {
 
       <div class="sticky-save">
         <button class="primary">保存小窝设置</button>
-        <span class="muted">常用项在外面，低频项已收进折叠区。</span>
+        <span class="muted">常用项在外层，低频项已收进折叠区。</span>
       </div>
     </form>
 
@@ -450,7 +509,7 @@ function renderSettings() {
       <article class="card">
         <div class="card-head">
           <div><p class="eyebrow">Access</p><h2>访问与备份</h2></div>
-          <span class="meta">插件内部工具不依赖 API Key</span>
+          <span class="meta">插件内部工具不依赖外部 API Key</span>
         </div>
         <form class="card-body form" data-action="save-security">
           <div class="form-grid compact">
@@ -472,7 +531,7 @@ function renderSettings() {
 }
 
 function check(name, label, checked) {
-  return `<label class="check"><input name="${name}" type="checkbox" ${checked ? "checked" : ""}>${label}</label>`;
+  return `<label class="check"><input name="${name}" type="checkbox" ${checked ? "checked" : ""}>${escapeHtml(label)}</label>`;
 }
 
 function switchControl(name, checked) {
@@ -480,7 +539,7 @@ function switchControl(name, checked) {
 }
 
 function moduleChecks(title, modules, enabled, name) {
-  return `<h3>${title}</h3>${modules.length ? modules.map((module) => `<label class="check"><input name="${name}" value="${escapeHtml(module.id)}" type="checkbox" ${enabled.includes(module.id) ? "checked" : ""}>${escapeHtml(module.name)} <span class="muted">${escapeHtml(module.description || module.path || "")}</span></label>`).join("") : `<p class="muted">暂无。</p>`}`;
+  return `<h3>${escapeHtml(title)}</h3>${modules.length ? modules.map((module) => `<label class="check"><input name="${name}" value="${escapeHtml(module.id)}" type="checkbox" ${enabled.includes(module.id) ? "checked" : ""}>${escapeHtml(module.name)} <span class="muted">${escapeHtml(module.description || module.path || "")}</span></label>`).join("") : `<p class="muted">暂无。</p>`}`;
 }
 
 async function saveSettings(event) {
@@ -527,4 +586,4 @@ async function saveSecurity(event) {
 }
 
 renderShell(`<div class="loading">正在进入小窝...</div>`);
-loadRoute();
+loadView();

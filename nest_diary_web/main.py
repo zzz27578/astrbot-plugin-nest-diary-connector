@@ -22,7 +22,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"
 settings = load_settings()
 app = FastAPI(title="Nest Diary Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"

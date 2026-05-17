@@ -191,6 +191,15 @@ button.primary {
   background: var(--ink);
 }
 
+.text-button {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font-weight: 700;
+}
+
 .button.danger,
 button.danger {
   color: #fffaf0;
@@ -270,6 +279,14 @@ button:disabled {
   background: #f1e7d5;
 }
 
+.row.static {
+  cursor: default;
+}
+
+.row.static:hover {
+  background: transparent;
+}
+
 .row span,
 .meta,
 .muted {
@@ -299,9 +316,41 @@ button:disabled {
 }
 
 .article-body {
+  margin-top: 18px;
   white-space: pre-wrap;
   line-height: 1.9;
   font-size: 16px;
+}
+
+.media-refs {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(39, 35, 29, 0.16);
+}
+
+.media-refs p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.archive-picker {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.archive-picker label {
+  gap: 5px;
+}
+
+.archive-picker select {
+  min-height: 34px;
+  padding: 6px 8px;
 }
 
 .chips {

@@ -3,7 +3,7 @@ display_name: 小窝日记
 short_desc: 给 bot 使用的私有日记、小窝 WebUI 和人物印象工具。
 desc: 内置小窝 WebUI 与日记核心模块的 AstrBot 插件，为 bot 提供日记、搜索、归档、媒体和人物印象工具。
 help: 默认使用 embedded 模式，插件会启动小窝 WebUI 并使用插件数据目录；standalone 模式可兼容旧独立服务。
-version: v0.3.2
+version: v0.3.3
 author: local
 repo: https://github.com/zzz27578/astrbot-plugin-nest-diary-connector
 astrbot_version: ">=4.0.0"
