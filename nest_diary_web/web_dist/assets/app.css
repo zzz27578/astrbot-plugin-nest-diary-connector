@@ -136,6 +136,10 @@ a {
   padding: 28px;
 }
 
+.view-panel[hidden] {
+  display: none !important;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -304,6 +308,7 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   gap: 16px;
+  align-items: start;
 }
 
 .diary-list {
@@ -312,7 +317,10 @@ button:disabled {
 }
 
 .diary-article {
-  min-height: calc(100vh - 156px);
+  height: calc(100vh - 156px);
+  min-height: 420px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .article-body {

@@ -1,7 +1,7 @@
 {
   "id": "diary",
   "name": "日记",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "小窝的日记模块，负责写入、读取、检索、归档和媒体引用。",
   "data_roots": [
     "modules/diary/entries",

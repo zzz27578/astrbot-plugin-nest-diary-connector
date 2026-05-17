@@ -1,20 +1,20 @@
-const APP_VERSION = "0.3.4";
+const APP_VERSION = "0.3.5";
 
+const app = document.getElementById("app");
 const state = {
   view: initialViewFromLocation(),
   selectedDate: initialDateFromLocation(),
   editingDate: initialEditDateFromLocation(),
   bootstrap: null,
-  diary: { items: [], archive: [], selected: null },
+  diary: { items: [], archive: [], selected: null, loaded: false },
   search: { query: initialSearchFromLocation(), results: [], backend: "" },
   impressions: [],
   media: [],
   settings: null,
   notice: "",
   error: "",
+  rendered: new Set(),
 };
-
-const app = document.getElementById("app");
 
 const navItems = [
   ["dashboard", "总览", "Home"],
@@ -52,43 +52,6 @@ function initialSearchFromLocation() {
   if (window.location.pathname !== "/search") return "";
   return new URLSearchParams(window.location.search).get("q") || "";
 }
-
-function setView(view, options = {}) {
-  state.view = view;
-  state.notice = options.keepNotice ? state.notice : "";
-  state.error = "";
-  if (Object.prototype.hasOwnProperty.call(options, "date")) state.selectedDate = options.date || "";
-  if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
-  if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
-  loadView();
-}
-
-document.addEventListener(
-  "click",
-  (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-edit-date], [data-search-query]");
-    if (!target) return;
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (target.dataset.view) {
-      setView(target.dataset.view);
-      return;
-    }
-    if (target.dataset.date) {
-      setView("diary", { date: target.dataset.date });
-      return;
-    }
-    if (target.dataset.editDate) {
-      setView("write", { editDate: target.dataset.editDate });
-      return;
-    }
-    if (target.dataset.searchQuery) {
-      setView("search", { query: target.dataset.searchQuery });
-    }
-  },
-  true
-);
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -129,7 +92,7 @@ function splitWords(value = "") {
 }
 
 function ensureShell() {
-  if (document.getElementById("view")) return;
+  if (document.getElementById("view-diary")) return;
   app.innerHTML = `
     <div class="app" data-app-version="${APP_VERSION}">
       <aside class="nav">
@@ -145,22 +108,38 @@ function ensureShell() {
           <div id="search-backend"></div>
         </div>
       </aside>
-      <main class="main" id="view"></main>
+      <main class="main" id="view">
+        <div id="notice-slot"></div>
+        <section class="view-panel" id="view-dashboard" data-panel="dashboard"></section>
+        <section class="view-panel" id="view-diary" data-panel="diary"></section>
+        <section class="view-panel" id="view-write" data-panel="write"></section>
+        <section class="view-panel" id="view-search" data-panel="search"></section>
+        <section class="view-panel" id="view-impressions" data-panel="impressions"></section>
+        <section class="view-panel" id="view-media" data-panel="media"></section>
+        <section class="view-panel" id="view-settings" data-panel="settings"></section>
+      </main>
     </div>
   `;
 }
 
-function renderShell(content) {
+function panel(name) {
+  return document.getElementById(`view-${name}`);
+}
+
+function updateShell() {
   ensureShell();
   document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === state.view));
+  document.querySelectorAll("[data-panel]").forEach((node) => {
+    node.hidden = node.dataset.panel !== state.view;
+  });
   const versionNode = document.getElementById("app-version");
   if (versionNode) versionNode.textContent = `服务 v${state.bootstrap?.version || ""} · 前端 ${APP_VERSION}`;
   const backendNode = document.getElementById("search-backend");
   if (backendNode) backendNode.textContent = state.bootstrap?.search?.backend || "local index";
-  document.getElementById("view").innerHTML = `
+  const notice = document.getElementById("notice-slot");
+  notice.innerHTML = `
     ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
     ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
-    ${content}
   `;
 }
 
@@ -177,36 +156,67 @@ async function loadBootstrap() {
   if (!state.bootstrap) state.bootstrap = await api("/api/ui/bootstrap");
 }
 
+async function setView(view, options = {}) {
+  state.view = view;
+  state.notice = options.keepNotice ? state.notice : "";
+  state.error = "";
+  if (Object.prototype.hasOwnProperty.call(options, "date")) state.selectedDate = options.date || "";
+  if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
+  if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
+  await loadView();
+}
+
+document.addEventListener(
+  "click",
+  (event) => {
+    const target = event.target.closest("[data-view], [data-date], [data-edit-date], [data-search-query]");
+    if (!target) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (target.dataset.view) {
+      setView(target.dataset.view);
+      return;
+    }
+    if (target.dataset.date) {
+      selectDiary(target.dataset.date);
+      return;
+    }
+    if (target.dataset.editDate) {
+      setView("write", { editDate: target.dataset.editDate });
+      return;
+    }
+    if (target.dataset.searchQuery) {
+      setView("search", { query: target.dataset.searchQuery });
+    }
+  },
+  true
+);
+
 async function loadView() {
   try {
+    ensureShell();
     await loadBootstrap();
-    if (state.view === "diary") await loadDiary(state.selectedDate);
-    if (state.view === "write" && state.editingDate) await loadDiary(state.editingDate);
-    if (state.view === "search") await loadSearch(state.search.query);
-    if (state.view === "impressions") await loadImpressions();
-    if (state.view === "media") await loadMedia();
-    if (state.view === "settings") await loadSettings();
-    render();
+    if (state.view === "dashboard") renderDashboard();
+    if (state.view === "diary") await renderDiary();
+    if (state.view === "write") await renderWrite();
+    if (state.view === "search") await renderSearch();
+    if (state.view === "impressions") await renderImpressions();
+    if (state.view === "media") await renderMedia();
+    if (state.view === "settings") await renderSettings();
+    updateShell();
   } catch (err) {
     state.error = err.message;
-    renderShell(`<div class="loading">加载失败：${escapeHtml(err.message)}</div>`);
+    updateShell();
+    panel(state.view).innerHTML = `<div class="loading">加载失败：${escapeHtml(err.message)}</div>`;
   }
 }
 
-function render() {
-  if (state.view === "diary") return renderDiary();
-  if (state.view === "write") return renderWrite();
-  if (state.view === "search") return renderSearch();
-  if (state.view === "impressions") return renderImpressions();
-  if (state.view === "media") return renderMedia();
-  if (state.view === "settings") return renderSettings();
-  return renderDashboard();
-}
-
 function renderDashboard() {
+  const target = panel("dashboard");
   const stats = state.bootstrap.stats;
   const recent = state.bootstrap.recent_entries || [];
-  renderShell(`
+  target.innerHTML = `
     ${pageHead("Nest", "小窝")}
     <section class="grid three">
       <article class="card stat"><span>日记</span><strong>${stats.entries}</strong></article>
@@ -228,7 +238,7 @@ function renderDashboard() {
         </div>
       </article>
     </section>
-  `);
+  `;
   bindQuickSearch();
 }
 
@@ -242,85 +252,125 @@ function entryRow(entry) {
   `;
 }
 
-function archiveOptions() {
+async function ensureDiaryList(force = false) {
+  if (state.diary.loaded && !force) return;
+  const payload = await api("/api/ui/diary");
+  state.diary.items = payload.items;
+  state.diary.archive = payload.archive;
+  state.diary.loaded = true;
+}
+
+async function loadDiaryEntry(date) {
+  await ensureDiaryList();
+  const selectedDate = date || state.diary.selected?.date || state.diary.items[0]?.date;
+  state.selectedDate = selectedDate || "";
+  state.diary.selected = selectedDate ? await api(`/api/ui/diary/${encodeURIComponent(selectedDate)}`) : null;
+}
+
+async function renderDiary() {
+  await loadDiaryEntry(state.selectedDate);
+  if (!state.rendered.has("diary")) {
+    panel("diary").innerHTML = `
+      ${pageHead("Entries", "日记", `<button class="button primary" data-view="write" type="button">写一篇</button>`)}
+      <section class="diary-layout">
+        <aside class="card diary-list">
+          <div id="diary-archive"></div>
+          <div class="list" id="diary-list"></div>
+        </aside>
+        <article class="card diary-article" id="diary-article"></article>
+      </section>
+    `;
+    state.rendered.add("diary");
+  }
+  updateDiaryArchive();
+  updateDiaryList();
+  updateDiaryArticle({ preserveScroll: false });
+}
+
+async function selectDiary(date) {
+  if (state.view !== "diary") {
+    await setView("diary", { date });
+    return;
+  }
+  state.error = "";
+  state.notice = "";
+  const article = document.getElementById("diary-article");
+  const previousScroll = article ? article.scrollTop : 0;
+  await loadDiaryEntry(date);
+  updateDiaryList();
+  updateDiaryArchive();
+  updateDiaryArticle({ preserveScroll: true, previousScroll });
+  updateShell();
+}
+
+function updateDiaryArchive() {
+  const target = document.getElementById("diary-archive");
+  if (!target) return;
   const dates = state.diary.items.map((entry) => entry.date).filter(Boolean);
   const years = [...new Set(dates.map((date) => date.slice(0, 4)))];
   const months = [...new Set(dates.map((date) => date.slice(0, 7)))];
-  return `
+  target.innerHTML = `
     <div class="archive-picker">
       <label>年份<select data-jump-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}">${year}</option>`).join("")}</select></label>
       <label>月份<select data-jump-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}">${month}</option>`).join("")}</select></label>
       <label>日期<select data-jump-level="date"><option value="">选择日记</option>${dates.map((date) => `<option value="${date}" ${date === state.diary.selected?.date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
     </div>
   `;
-}
-
-async function loadDiary(date) {
-  if (!state.diary.items.length) {
-    const payload = await api("/api/ui/diary");
-    state.diary.items = payload.items;
-    state.diary.archive = payload.archive;
-  }
-  const selectedDate = date || state.diary.selected?.date || state.diary.items[0]?.date;
-  state.selectedDate = selectedDate || "";
-  state.diary.selected = selectedDate ? await api(`/api/ui/diary/${encodeURIComponent(selectedDate)}`) : null;
-}
-
-function renderDiary() {
-  const selected = state.diary.selected;
-  renderShell(`
-    ${pageHead("Entries", "日记", `<button class="button primary" data-view="write" type="button">写一篇</button>`)}
-    <section class="diary-layout">
-      <aside class="card diary-list">
-        ${archiveOptions()}
-        <div class="list">${state.diary.items.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`}</div>
-      </aside>
-      <article class="card diary-article">
-        ${
-          selected
-            ? `<div class="card-head">
-                <div><p class="eyebrow">${escapeHtml(selected.date)}</p><h2>${escapeHtml(selected.title)}</h2></div>
-                <div class="actions"><button class="button" data-edit-date="${escapeHtml(selected.date)}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
-              </div>
-              <div class="card-body">
-                <div class="meta">重要度 ${selected.importance} · ${escapeHtml(selected.source || "")}</div>
-                <div class="chips">${[...(selected.mood || []), ...(selected.tags || []), ...(selected.people || [])].map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
-                <div class="article-body">${escapeHtml(selected.body)}</div>
-                ${(selected.media_refs || []).length ? `<div class="media-refs"><h3>媒体引用</h3>${selected.media_refs.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}</div>` : ""}
-              </div>`
-            : `<div class="card-body muted">选择一篇日记。</div>`
-        }
-      </article>
-    </section>
-  `);
-  bindDiaryActions();
-}
-
-function bindDiaryActions() {
-  document.querySelector("[data-delete]")?.addEventListener("click", async (event) => {
-    const date = event.currentTarget.dataset.delete;
-    if (!confirm(`删除 ${date} 的日记？`)) return;
-    await api(`/api/ui/diary/${encodeURIComponent(date)}`, { method: "DELETE" });
-    state.diary.items = [];
-    state.diary.selected = null;
-    state.selectedDate = "";
-    state.notice = "日记已删除。";
-    setView("diary", { keepNotice: true });
-  });
-  document.querySelectorAll("[data-jump-level]").forEach((node) => {
+  target.querySelectorAll("[data-jump-level]").forEach((node) => {
     node.addEventListener("change", (event) => {
       const value = event.currentTarget.value;
       if (!value) return;
       const match = state.diary.items.find((entry) => entry.date.startsWith(value));
-      if (match) setView("diary", { date: match.date });
+      if (match) selectDiary(match.date);
     });
   });
 }
 
-function renderWrite() {
+function updateDiaryList() {
+  const target = document.getElementById("diary-list");
+  if (!target) return;
+  target.innerHTML = state.diary.items.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`;
+}
+
+function updateDiaryArticle({ preserveScroll = false, previousScroll = 0 } = {}) {
+  const target = document.getElementById("diary-article");
+  if (!target) return;
+  const selected = state.diary.selected;
+  target.innerHTML = selected
+    ? `<div class="card-head">
+        <div><p class="eyebrow">${escapeHtml(selected.date)}</p><h2>${escapeHtml(selected.title)}</h2></div>
+        <div class="actions"><button class="button" data-edit-date="${escapeHtml(selected.date)}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
+      </div>
+      <div class="card-body">
+        <div class="meta">重要度 ${selected.importance} · ${escapeHtml(selected.source || "")}</div>
+        <div class="chips">${[...(selected.mood || []), ...(selected.tags || []), ...(selected.people || [])].map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
+        <div class="article-body">${escapeHtml(selected.body)}</div>
+        ${(selected.media_refs || []).length ? `<div class="media-refs"><h3>媒体引用</h3>${selected.media_refs.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}</div>` : ""}
+      </div>`
+    : `<div class="card-body muted">选择一篇日记。</div>`;
+  bindDiaryArticleActions();
+  if (preserveScroll) target.scrollTop = Math.min(previousScroll, target.scrollHeight);
+}
+
+function bindDiaryArticleActions() {
+  document.querySelector("[data-delete]")?.addEventListener("click", async (event) => {
+    const date = event.currentTarget.dataset.delete;
+    if (!confirm(`删除 ${date} 的日记？`)) return;
+    await api(`/api/ui/diary/${encodeURIComponent(date)}`, { method: "DELETE" });
+    state.diary.loaded = false;
+    state.diary.selected = null;
+    state.selectedDate = "";
+    state.notice = "日记已删除。";
+    await renderDiary();
+    updateShell();
+  });
+}
+
+async function renderWrite() {
+  if (state.editingDate) await loadDiaryEntry(state.editingDate);
   const editing = state.editingDate;
   const selected = editing && state.diary.selected?.date === editing ? state.diary.selected : null;
-  renderShell(`
+  panel("write").innerHTML = `
     ${pageHead("Write", editing ? "编辑日记" : "写入日记")}
     <section class="card">
       <form class="card-body form" data-action="write-diary">
@@ -337,8 +387,8 @@ function renderWrite() {
         <div class="actions"><button class="primary">保存日记</button><button class="button" data-view="diary" type="button">返回日记</button></div>
       </form>
     </section>
-  `);
-  document.querySelector('[data-action="write-diary"]').addEventListener("submit", saveDiary);
+  `;
+  panel("write").querySelector('[data-action="write-diary"]').addEventListener("submit", saveDiary);
 }
 
 async function saveDiary(event) {
@@ -357,10 +407,10 @@ async function saveDiary(event) {
     reason: "web_app_update",
   };
   const result = await api("/api/ui/diary", { method: "POST", body: JSON.stringify(payload) });
-  state.diary.items = [];
+  state.diary.loaded = false;
   state.editingDate = "";
   state.notice = "日记已保存。";
-  setView("diary", { date: result.entry.date, keepNotice: true });
+  await setView("diary", { date: result.entry.date, keepNotice: true });
 }
 
 async function loadSearch(query = "") {
@@ -374,8 +424,9 @@ async function loadSearch(query = "") {
   state.search.backend = payload.search.backend;
 }
 
-function renderSearch() {
-  renderShell(`
+async function renderSearch() {
+  await loadSearch(state.search.query);
+  panel("search").innerHTML = `
     ${pageHead("Recall", "检索")}
     <section class="card">
       <div class="card-body">
@@ -393,8 +444,8 @@ function renderSearch() {
         }
       </div>
     </section>
-  `);
-  document.querySelector('[data-action="search"]').addEventListener("submit", (event) => {
+  `;
+  panel("search").querySelector('[data-action="search"]').addEventListener("submit", (event) => {
     event.preventDefault();
     const q = new FormData(event.currentTarget).get("q");
     setView("search", { query: q });
@@ -402,65 +453,47 @@ function renderSearch() {
 }
 
 function bindQuickSearch() {
-  document.querySelector('[data-action="quick-search"]')?.addEventListener("submit", (event) => {
+  panel("dashboard")?.querySelector('[data-action="quick-search"]')?.addEventListener("submit", (event) => {
     event.preventDefault();
     const q = new FormData(event.currentTarget).get("q");
     setView("search", { query: q });
   });
 }
 
-async function loadImpressions() {
+async function renderImpressions() {
   state.impressions = (await api("/api/ui/impressions")).items;
-}
-
-function renderImpressions() {
-  renderShell(`
+  panel("impressions").innerHTML = `
     ${pageHead("People", "人物印象")}
     <section class="card">
       <div class="list">
         ${state.impressions.map((item) => `<div class="row static"><span>${escapeHtml(item.updated_at || "")}</span><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(item.summary)}</em><div class="chips">${[...(item.traits || []), ...(item.interests || [])].map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div></div>`).join("") || `<div class="card-body muted">还没有人物印象。</div>`}
       </div>
     </section>
-  `);
+  `;
 }
 
-async function loadMedia() {
+async function renderMedia() {
   state.media = (await api("/api/ui/media")).items;
-}
-
-function renderMedia() {
-  renderShell(`
+  panel("media").innerHTML = `
     ${pageHead("Media", "媒体")}
     <section class="grid">
       ${state.media.map((manifest) => `<article class="card"><div class="card-head"><h2>${escapeHtml(manifest.date)}</h2><span class="meta">${manifest.assets?.length || 0} 个文件</span></div><div class="card-body">${(manifest.assets || []).map((asset) => `<p><a href="${asset.url}" target="_blank" rel="noreferrer">${escapeHtml(asset.original_name || asset.sha256)}</a></p>`).join("")}</div></article>`).join("") || `<article class="card"><div class="card-body muted">还没有媒体归档。</div></article>`}
     </section>
-  `);
+  `;
 }
 
-async function loadSettings() {
-  state.settings = await api("/api/ui/settings");
-}
-
-function renderSettings() {
-  const payload = state.settings;
+async function renderSettings() {
+  const payload = await api("/api/ui/settings");
+  state.settings = payload;
   const settings = payload.settings;
-  renderShell(`
+  panel("settings").innerHTML = `
     ${pageHead("Config", "设置")}
     <form class="settings-sections" data-action="save-settings">
       <article class="card">
-        <div class="card-head">
-          <div><p class="eyebrow">Core</p><h2>日记与回忆</h2></div>
-          <span class="meta">${escapeHtml(payload.search.backend)}</span>
-        </div>
+        <div class="card-head"><div><p class="eyebrow">Core</p><h2>日记与回忆</h2></div><span class="meta">${escapeHtml(payload.search.backend)}</span></div>
         <div class="card-body form">
-          <div class="setting-line">
-            <div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>
-            ${switchControl("enable_diary_module", settings.enable_diary_module)}
-          </div>
-          <div class="setting-line">
-            <div><strong>主动回忆</strong><p class="muted">当上下文不足且提到过去事件时，引导 bot 优先检索日记片段。</p></div>
-            ${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}
-          </div>
+          <div class="setting-line"><div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
+          <div class="setting-line"><div><strong>主动回忆</strong><p class="muted">当上下文不足且提到过去事件时，引导 bot 优先检索日记片段。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
           <div class="form-grid compact">
             <label>回忆策略<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>谨慎</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>积极</option></select></label>
             <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
@@ -477,12 +510,8 @@ function renderSettings() {
           </details>
         </div>
       </article>
-
       <article class="card">
-        <div class="card-head">
-          <div><p class="eyebrow">Appearance</p><h2>外观与模块</h2></div>
-          <span class="meta">framework/user_custom/webui</span>
-        </div>
+        <div class="card-head"><div><p class="eyebrow">Appearance</p><h2>外观与模块</h2></div><span class="meta">framework/user_custom/webui</span></div>
         <div class="card-body form">
           <div class="form-grid compact">
             <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(style.kind)}</option>`).join("")}</select></label>
@@ -498,36 +527,24 @@ function renderSettings() {
           ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
         </div>
       </article>
-
-      <div class="sticky-save">
-        <button class="primary">保存小窝设置</button>
-        <span class="muted">常用项在外层，低频项已收进折叠区。</span>
-      </div>
+      <div class="sticky-save"><button class="primary">保存小窝设置</button><span class="muted">常用项在外层，低频项已收进折叠区。</span></div>
     </form>
-
     <section class="settings-sections">
       <article class="card">
-        <div class="card-head">
-          <div><p class="eyebrow">Access</p><h2>访问与备份</h2></div>
-          <span class="meta">插件内部工具不依赖外部 API Key</span>
-        </div>
+        <div class="card-head"><div><p class="eyebrow">Access</p><h2>访问与备份</h2></div><span class="meta">插件内部工具不依赖外部 API Key</span></div>
         <form class="card-body form" data-action="save-security">
           <div class="form-grid compact">
             <label>新管理员密码<input name="admin_password" type="password" placeholder="留空则不修改"></label>
             <label>外部 API Key<input name="bot_api_token" value="${escapeHtml(payload.security.bot_api_token || "")}"></label>
           </div>
-          <details>
-            <summary>外部 API 选项</summary>
-            ${check("generate_bot_api_token", "保存时生成新的外部 API Key", false)}
-            ${check("external_api_enabled", "启用外部 API", payload.security.external_api_enabled)}
-          </details>
+          <details><summary>外部 API 选项</summary>${check("generate_bot_api_token", "保存时生成新的外部 API Key", false)}${check("external_api_enabled", "启用外部 API", payload.security.external_api_enabled)}</details>
           <div class="actions"><button class="primary">保存访问密钥</button><a class="button" href="/settings/export">导出备份</a></div>
         </form>
       </article>
     </section>
-  `);
-  document.querySelector('[data-action="save-settings"]').addEventListener("submit", saveSettings);
-  document.querySelector('[data-action="save-security"]').addEventListener("submit", saveSecurity);
+  `;
+  panel("settings").querySelector('[data-action="save-settings"]').addEventListener("submit", saveSettings);
+  panel("settings").querySelector('[data-action="save-security"]').addEventListener("submit", saveSecurity);
 }
 
 function check(name, label, checked) {
@@ -564,8 +581,8 @@ async function saveSettings(event) {
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
   state.notice = "设置已保存。";
   state.bootstrap = null;
-  await loadSettings();
-  renderSettings();
+  await renderSettings();
+  updateShell();
 }
 
 async function saveSecurity(event) {
@@ -581,9 +598,10 @@ async function saveSecurity(event) {
     }),
   });
   state.notice = "访问密钥已保存。";
-  await loadSettings();
-  renderSettings();
+  await renderSettings();
+  updateShell();
 }
 
-renderShell(`<div class="loading">正在进入小窝...</div>`);
+ensureShell();
+panel(state.view).innerHTML = `<div class="loading">正在进入小窝...</div>`;
 loadView();
