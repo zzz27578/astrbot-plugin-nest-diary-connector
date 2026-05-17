@@ -151,6 +151,9 @@ docs/modular-nest.md
 
 ```text
 skills/nest-diary/SKILL.md
+skills/nest-webui-customization/SKILL.md
 ```
 
-Skill 约束 bot 使用工具，不模拟人操作网页；查记忆先搜索；写日记要有标题、主观评价、情绪和检索线索；人物印象只在有稳定证据时更新。
+`nest-diary` 约束 bot 使用工具，不模拟人操作网页；查记忆先搜索；写日记要有标题、主观评价、情绪和检索线索；人物印象只在有稳定证据时更新。
+
+`nest-webui-customization` 约束 bot 做小窝前端自定义时只改数据目录下的 `user_custom/webui/`，不直接改插件内置默认页面；同时要求按钮、路由、表单都必须对应真实功能，避免做出不能用的假界面。
