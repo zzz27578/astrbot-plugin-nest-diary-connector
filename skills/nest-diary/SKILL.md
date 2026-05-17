@@ -5,7 +5,7 @@ description: Use this skill whenever the agent needs to remember, search, write,
 
 # Nest Diary
 
-Operate a private memory diary through tools, not through the web UI. The web UI is for authorized human administration. The agent interface is the tool layer.
+Operate a private memory diary through tools, not through the web UI. The web UI is for authorized administration and theme/module management. The agent interface is the tool layer.
 
 Available tools:
 
@@ -28,6 +28,7 @@ Available tools:
 6. Do not use the admin website to perform agent work. Call tools.
 7. Update people impressions only when a diary or conversation provides stable evidence. Do not rewrite a person model from one weak mood signal.
 8. Use date-shaped retrieval when possible. Search `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` before broad semantic searches if the clue is temporal.
+9. Respect module switches. If the diary module is disabled, do not attempt diary writes, reads, searches, or media attachment.
 
 ## Decision Workflow
 
@@ -182,7 +183,7 @@ After writing, decide whether `write_impression` is useful. It is optional.
 
 ## Storage-Aware Retrieval
 
-The service stores diary files under `diary/YYYY/MM/YYYY-MM-DD.md` and indexes metadata in SQLite. Prefer these retrieval patterns:
+The modular storage layout stores diary files under `modules/diary/entries/YYYY/MM/YYYY-MM-DD.md` and indexes metadata in `modules/diary/index/`. Older standalone deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
 
 ```text
 search_diary(query="2026-05", top_k=20)

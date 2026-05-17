@@ -1,15 +1,17 @@
-# AstrBot 小窝日记连接插件
+# AstrBot 小窝日记插件
 
-版本：`0.1.8`
+版本：`0.1.9`
 
-这是小窝日记系统的 AstrBot 连接层。插件不保存大量日记、图片和索引，只负责给 bot 提供可调用工具、内置 Skill、定时提示和服务门牌号。
+这是小窝系统的 AstrBot 插件入口。目标架构是：插件提供 bot 原生工具、模块注册、默认 WebUI、定时提示和内置 Skill；小窝网页是插件的 WebUI 端，而不是让 bot 模拟人操作网页。
 
-## 它解决什么
+当前版本仍兼容“插件 + 独立小窝服务”的部署方式，所以 `service_url` 和 `bot_api_token` 暂时保留。后续合并为插件内置 WebUI 后，外部 API Key 将只在小窝 WebUI 设置中管理。
 
-- 让 bot 通过工具直接写入、读取、搜索小窝日记。
-- 让 bot 归档图片、语音或附件，并把媒体引用写进日记。
-- 让 bot 维护人物印象，但只在有稳定证据时更新。
-- 通过插件配置定时向指定会话发送“写日记提示”，由 bot 根据人设和当天上下文自主执行。
+## 本轮模块化方向
+
+- 插件配置负责 AstrBot 侧能力：模块启用、WebUI 端口、数据目录、定时提示。
+- 小窝 WebUI 设置负责小窝自身：管理员密码、外部 API Key、前端样式、模块管理、导入导出、备份。
+- 官方更新不覆盖用户自定义前端和自定义模块。
+- 每个模块都提供 `module.json`，声明工具、路由、数据目录和 schema 版本。
 
 ## 安装
 
@@ -19,15 +21,31 @@
 /AstrBot/data/plugins/astrbot_plugin_nest_diary_connector
 ```
 
-然后在 AstrBot 插件管理页启用插件，并填写配置：
+然后在 AstrBot 插件管理页启用插件。
+
+## 插件配置
+
+核心配置：
 
 ```text
-service_url: 小窝本体服务地址，例如 http://nest-diary:28080
-bot_api_token: 小窝设置页中的 Bot API Token
-daily_target_origin: 定时提示要发送到的会话 origin
+enable_diary_module: 是否启用日记模块
+enable_webui: 是否启用小窝 WebUI
+web_host: WebUI 监听地址
+web_port: WebUI 监听端口
+nest_data_dir: 小窝数据根目录，留空则使用插件数据目录
+custom_webui_dir: 自定义前端目录，更新不会覆盖
+backup_custom_before_update: 更新官方模块前备份自定义模块
+daily_target_origin: 定时提示发送到哪个会话
 ```
 
-`bot_api_token` 必须和小窝本体设置页里的 Bot API Token 一致。管理员网页密码只用于登录网站，不是插件 token。
+兼容独立服务模式：
+
+```text
+service_url: 独立小窝服务地址，例如 http://nest-diary:28080
+bot_api_token: 独立服务模式下的小窝 API token
+```
+
+`bot_api_token` 不是管理员网页密码。未来插件内置模式下，外部 API Key 只在小窝 WebUI 设置里管理。
 
 ## 命令
 
@@ -35,7 +53,7 @@ daily_target_origin: 定时提示要发送到的会话 origin
 /小窝状态
 ```
 
-检查小窝服务是否可用。
+检查小窝连接状态，并显示日记模块是否启用。
 
 ```text
 /小窝绑定提醒
@@ -45,15 +63,9 @@ daily_target_origin: 定时提示要发送到的会话 origin
 
 ## LLM 工具
 
-### `nest_status`
-
-检查服务是否在线。
-
 ### `write_diary`
 
-写入或更新某一天的小窝日记。
-
-参数：
+写入或更新某一天的小窝日记。日记模块关闭时不会执行。
 
 ```text
 date: YYYY-MM-DD
@@ -78,19 +90,9 @@ reason: 写入原因，例如 nightly_archive、manual_update
 
 把 AstrBot 容器内可访问的图片、语音或附件归档到小窝媒体库。
 
-参数：
-
-```text
-source_path: 文件绝对路径
-date: YYYY-MM-DD
-original_name: 原始文件名，可空
-```
-
-归档成功后，把返回的媒体地址写进 `write_diary.media_refs`。
-
 ### `list_impressions` / `read_impression` / `write_impression`
 
-管理人物印象。只有日记或对话提供稳定新证据时才调用 `write_impression`，不要每次写日记都强制更新。
+管理人物印象。只有日记或对话提供稳定新证据时才调用 `write_impression`。
 
 ## 内置 Skill
 
@@ -100,38 +102,26 @@ original_name: 原始文件名，可空
 skills/nest-diary/SKILL.md
 ```
 
-AstrBot 会把插件 `skills/` 目录中的合法 Skill 纳入 Skill Manager。这个 Skill 负责规范 bot：
+Skill 负责约束 bot：
 
 - 查记忆先搜索，不全量读取。
 - 写日记必须有自拟标题、主观评价、情绪和检索线索。
-- 通过工具调用小窝服务，不模拟人操作网页。
+- 使用工具，不模拟人操作网页。
+- 尊重模块开关。
 - 媒体先归档，再把媒体引用写进日记。
 - 人物印象只在有稳定证据时更新。
 
-## 定时提示
+## 模块清单
 
-插件侧定时不是直接写数据库，而是按配置时间向目标会话发送提示词。bot 收到提示后，根据自身人设、当天上下文和小窝工具自主写入。
-
-常用配置：
+当前已有模块清单：
 
 ```text
-scheduled_prompt_enabled: 是否启用定时循环
-daily_write_enabled: 是否启用每日写日记提示
-daily_write_time: 每日提示时间
-daily_write_prompt: 到点发给 bot 的写日记提示词
-reminder_enabled: 是否启用普通提醒
-reminder_time: 普通提醒时间
-impression_after_diary_prompt: 写完日记后的人物印象自检提示
+modules/diary/module.json
+modules/webui/module.json
 ```
 
-## 数据边界
-
-插件只保存配置，不保存大量日记和图片。正式数据由小窝本体服务保存：
+更多约定见：
 
 ```text
-diary/       Markdown 日记
-memory/      人物印象
-media/       媒体文件
-indexes/     SQLite 检索索引
-settings/    网站与 token 设置
+docs/modular-nest.md
 ```

@@ -1,0 +1,24 @@
+{
+  "id": "diary",
+  "name": "Nest Diary",
+  "version": "0.1.0",
+  "description": "日记写入、读取、检索、归档和媒体引用工具模块。",
+  "data_roots": [
+    "modules/diary/entries",
+    "modules/diary/index",
+    "modules/diary/settings.json"
+  ],
+  "tools": [
+    "write_diary",
+    "read_diary",
+    "search_diary",
+    "attach_media"
+  ],
+  "web_routes": [
+    "/diary",
+    "/write",
+    "/search"
+  ],
+  "depends_on": [],
+  "schema_version": 1
+}

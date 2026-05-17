@@ -11,7 +11,7 @@ from astrbot.api.star import Context, Star, register
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.1.8"
+PLUGIN_VERSION = "0.1.9"
 
 
 class NestDiaryClient:
@@ -210,6 +210,7 @@ class NestDiaryConnectorPlugin(Star):
             timeout_seconds=int(self.config.get("request_timeout_seconds", 30)),
         )
         self.tools = NestDiaryTools(self.client)
+        self.diary_module_enabled = bool(self.config.get("enable_diary_module", True))
         self._last_daily_sent = ""
         self._last_reminder_sent = ""
         self._scheduler_task = None
@@ -244,9 +245,13 @@ class NestDiaryConnectorPlugin(Star):
     async def _status_message(self) -> str:
         try:
             status = await self.client.status()
-            return f"小窝在线：{status.get('status', 'unknown')}"
+            mode = "日记模块已启用" if self.diary_module_enabled else "日记模块已关闭"
+            return f"小窝在线：{status.get('status', 'unknown')}，{mode}"
         except Exception as exc:
             return f"小窝暂时连接失败：{_brief_error(exc)}"
+
+    def _module_disabled_message(self, module_name: str) -> str:
+        return f"{module_name} 模块当前已在插件配置中关闭，未执行工具调用。"
 
     @filter.llm_tool(name="write_diary")
     async def write_diary_tool(
@@ -272,6 +277,8 @@ class NestDiaryConnectorPlugin(Star):
             media_refs(string): 图片或媒体引用，每行一个 URL 或小窝媒体地址，可为空。
             reason(string): 写入原因，例如 nightly_archive、manual_update、memory整理。
         """
+        if not self.diary_module_enabled:
+            return self._module_disabled_message("日记")
         try:
             result = await self.tools.write_diary(
                 date=date,
@@ -302,6 +309,8 @@ class NestDiaryConnectorPlugin(Star):
         Args:
             date(string): 要读取的日期，格式 YYYY-MM-DD。
         """
+        if not self.diary_module_enabled:
+            return self._module_disabled_message("日记")
         try:
             result = await self.tools.read_diary(date)
             content = result.get("body") or result.get("content") or result.get("text") or ""
@@ -318,6 +327,8 @@ class NestDiaryConnectorPlugin(Star):
             query(string): 搜索关键词、日期、人名、事件或情绪线索。
             top_k(number): 最多返回多少条结果，默认 8。
         """
+        if not self.diary_module_enabled:
+            return self._module_disabled_message("日记")
         try:
             result = await self.tools.search_diary(query, top_k=int(top_k))
             items = result.get("items") or result.get("results") or []
@@ -349,6 +360,8 @@ class NestDiaryConnectorPlugin(Star):
             date(string): 归档到哪一天，格式 YYYY-MM-DD。
             original_name(string): 原始文件名，可为空。
         """
+        if not self.diary_module_enabled:
+            return self._module_disabled_message("日记")
         try:
             result = await self.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None)
             asset = result.get("asset") or {}
@@ -375,7 +388,7 @@ class NestDiaryConnectorPlugin(Star):
         timezone_name = self.config.get("timezone", "Asia/Shanghai")
         now = datetime.now(ZoneInfo(timezone_name))
         today_key = now.strftime("%Y-%m-%d")
-        if self.config.get("daily_write_enabled", True):
+        if self.diary_module_enabled and self.config.get("daily_write_enabled", True):
             daily_time = self.config.get("daily_write_time", "03:00")
             if _is_time_now(now, daily_time) and self._last_daily_sent != today_key:
                 prompt = self.config.get("daily_write_prompt", "").strip()

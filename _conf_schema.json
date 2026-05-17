@@ -1,11 +1,46 @@
 {
+  "enable_diary_module": {
+    "description": "是否启用小窝日记模块。关闭后不建议让 bot 调用写入、读取、搜索日记工具。",
+    "type": "bool",
+    "default": true
+  },
+  "enable_webui": {
+    "description": "是否启用插件内置小窝 WebUI。当前版本仍以独立服务 WebUI 为主，此开关作为合并架构预留。",
+    "type": "bool",
+    "default": true
+  },
+  "web_host": {
+    "description": "小窝 WebUI 监听地址。公网访问通常配合反向代理使用。",
+    "type": "string",
+    "default": "0.0.0.0"
+  },
+  "web_port": {
+    "description": "小窝 WebUI 监听端口。",
+    "type": "int",
+    "default": 28080
+  },
+  "nest_data_dir": {
+    "description": "小窝数据根目录。留空时使用 AstrBot 插件数据目录；也可以填写外置目录避免大量日记和媒体挤占插件代码目录。",
+    "type": "string",
+    "default": ""
+  },
+  "custom_webui_dir": {
+    "description": "自定义前端主题和模块目录。更新官方插件时不会覆盖这里。",
+    "type": "string",
+    "default": ""
+  },
+  "backup_custom_before_update": {
+    "description": "更新官方模块前是否建议备份自定义前端和自定义模块。",
+    "type": "bool",
+    "default": true
+  },
   "service_url": {
-    "description": "小窝日记服务地址，例如 http://nest-diary:28080。",
+    "description": "兼容独立服务模式的小窝日记服务地址，例如 http://nest-diary:28080。未来内置 WebUI 模式下可不使用。",
     "type": "string",
     "default": "http://nest-diary:28080"
   },
   "bot_api_token": {
-    "description": "小窝服务中配置的 bot 专属 API token。",
+    "description": "兼容独立服务模式的小窝 API token。未来内置模式下，外部 API Key 只在小窝 WebUI 设置里管理。",
     "type": "string",
     "default": ""
   },
