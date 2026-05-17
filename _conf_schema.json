@@ -114,6 +114,30 @@
     "type": "text",
     "default": "请检查今天是否有值得写入小窝的事情。如果有，请主动整理并调用小窝工具保存；如果没有明确材料，不要强行写入。"
   },
+  "memory_recall_enabled": {
+    "description": "是否启用主动回忆规则。开启后，skills 会要求 bot 在上下文不足、用户提到过去事件时优先调用 search_diary 检索片段。",
+    "type": "bool",
+    "default": true
+  },
+  "memory_recall_policy": {
+    "description": "主动回忆策略。conservative 表示上下文不足时再查；active 表示遇到过去线索更积极地查。",
+    "type": "string",
+    "options": [
+      "conservative",
+      "active"
+    ],
+    "default": "conservative"
+  },
+  "memory_recall_top_k": {
+    "description": "bot 主动检索最多返回多少条片段。建议 3 到 5，避免上下文过大。",
+    "type": "int",
+    "default": 5
+  },
+  "memory_recall_snippet_chars": {
+    "description": "每条检索结果返回的片段长度。建议 120 到 220。",
+    "type": "int",
+    "default": 180
+  },
   "auto_impression_after_diary": {
     "description": "write_diary 工具返回后，是否附带人物印象自检提示，帮助 bot 自主决定是否更新印象。",
     "type": "bool",

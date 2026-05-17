@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>设置 - 小窝</title>
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
   {% from "_shell.html" import nav, alerts %}
@@ -66,8 +67,19 @@
         <form class="editor-form" method="post" action="/settings">
           <div class="form-grid">
             <label>
-              默认搜索条数
-              <input name="search_default_top_k" type="number" min="1" max="50" value="{{ settings.search_default_top_k }}">
+              默认检索条数
+              <input name="search_default_top_k" type="number" min="1" max="20" value="{{ settings.search_default_top_k }}">
+            </label>
+            <label>
+              片段长度
+              <input name="search_snippet_chars" type="number" min="80" max="360" value="{{ settings.search_snippet_chars }}">
+            </label>
+            <label>
+              主动回忆策略
+              <select name="memory_recall_policy">
+                <option value="conservative" {{ 'selected' if settings.memory_recall_policy == 'conservative' else '' }}>谨慎：上下文不足时再查</option>
+                <option value="active" {{ 'selected' if settings.memory_recall_policy == 'active' else '' }}>积极：遇到过去线索主动查</option>
+              </select>
             </label>
             <label>
               归档粒度
@@ -79,7 +91,13 @@
             </label>
             <label>
               当前前端样式
-              <input name="active_frontend_style" value="{{ settings.active_frontend_style }}" placeholder="default">
+              <select name="active_frontend_style">
+                {% for style in frontend_styles %}
+                <option value="{{ style.id }}" {{ 'selected' if settings.active_frontend_style == style.id else '' }}>
+                  {{ style.name }}{% if style.kind == 'custom' %}（自定义）{% elif style.kind == 'missing' %}（目录不存在）{% else %}（官方）{% endif %}
+                </option>
+                {% endfor %}
+              </select>
             </label>
             <label>
               自定义前端目录
@@ -89,6 +107,10 @@
           <label class="check-row">
             <input name="enable_diary_module" type="checkbox" {{ 'checked' if settings.enable_diary_module else '' }}>
             启用日记模块
+          </label>
+          <label class="check-row">
+            <input name="memory_recall_enabled" type="checkbox" {{ 'checked' if settings.memory_recall_enabled else '' }}>
+            启用 bot 主动回忆规则
           </label>
           <label class="check-row">
             <input name="allow_media_refs" type="checkbox" {{ 'checked' if settings.allow_media_refs else '' }}>
@@ -106,6 +128,16 @@
             人物印象提示词
             <textarea name="impression_prompt">{{ settings.impression_prompt }}</textarea>
           </label>
+          {% for module_id in settings.enabled_official_modules %}
+          <input type="hidden" name="enabled_official_modules" value="{{ module_id }}">
+          {% endfor %}
+          {% for module_id in settings.enabled_custom_modules %}
+          <input type="hidden" name="enabled_custom_modules" value="{{ module_id }}">
+          {% endfor %}
+          <div class="settings-table">
+            <div><span>当前检索后端</span><strong>{{ search_status.backend if search_status else 'unknown' }}</strong></div>
+            <div><span>FTS5</span><strong>{{ '可用' if search_status and search_status.fts5 else '不可用，已降级为 LIKE 检索' }}</strong></div>
+          </div>
           <div class="form-actions">
             <button type="submit">保存模块设置</button>
             <span class="muted">保存到 system/settings/service-ui.json。</span>
@@ -184,12 +216,54 @@
             <h2>前端样式与模块</h2>
           </div>
         </div>
-        <p class="muted">默认自定义目录是 user_custom/webui。新建样式时建议只覆盖需要改的模板或 CSS，缺失文件会回退到官方默认 WebUI。官方更新不直接覆盖 user_custom。</p>
+        <p class="muted">默认自定义目录是 user_custom/webui。样式目录使用 themes/&lt;样式名&gt;/style.css；缺失文件会回退到官方默认 WebUI。</p>
         <div class="settings-table">
           <div><span>主题目录</span><strong>user_custom/webui/themes/{{ settings.active_frontend_style }}</strong></div>
           <div><span>模块目录</span><strong>user_custom/webui/modules</strong></div>
-          <div><span>官方模块</span><strong>modules/diary、modules/impressions、modules/media、modules/webui</strong></div>
         </div>
+        <form class="editor-form" method="post" action="/settings">
+          <input type="hidden" name="search_default_top_k" value="{{ settings.search_default_top_k }}">
+          <input type="hidden" name="search_snippet_chars" value="{{ settings.search_snippet_chars }}">
+          <input type="hidden" name="memory_recall_policy" value="{{ settings.memory_recall_policy }}">
+          <input type="hidden" name="diary_archive_granularity" value="{{ settings.diary_archive_granularity }}">
+          <input type="hidden" name="active_frontend_style" value="{{ settings.active_frontend_style }}">
+          <input type="hidden" name="custom_webui_dir" value="{{ settings.custom_webui_dir }}">
+          <input type="hidden" name="impression_prompt" value="{{ settings.impression_prompt }}">
+          {% if settings.enable_diary_module %}<input type="hidden" name="enable_diary_module" value="on">{% endif %}
+          {% if settings.memory_recall_enabled %}<input type="hidden" name="memory_recall_enabled" value="on">{% endif %}
+          {% if settings.allow_media_refs %}<input type="hidden" name="allow_media_refs" value="on">{% endif %}
+          {% if settings.show_impression_prompt %}<input type="hidden" name="show_impression_prompt" value="on">{% endif %}
+          {% if settings.backup_custom_before_update %}<input type="hidden" name="backup_custom_before_update" value="on">{% endif %}
+
+          <div class="module-picker">
+            <div>
+              <h3>官方模块</h3>
+              {% for module in module_catalog.official %}
+              <label class="check-row">
+                <input name="enabled_official_modules" value="{{ module.id }}" type="checkbox" {{ 'checked' if module.id in settings.enabled_official_modules else '' }}>
+                {{ module.name }} <span class="muted">{{ module.description }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            <div>
+              <h3>自定义模块</h3>
+              {% if module_catalog.custom %}
+                {% for module in module_catalog.custom %}
+                <label class="check-row">
+                  <input name="enabled_custom_modules" value="{{ module.id }}" type="checkbox" {{ 'checked' if module.id in settings.enabled_custom_modules else '' }}>
+                  {{ module.name }} <span class="muted">{{ module.path }}</span>
+                </label>
+                {% endfor %}
+              {% else %}
+                <p class="muted">还没有发现自定义模块。放到 user_custom/webui/modules/&lt;module-id&gt;/ 后会显示在这里。</p>
+              {% endif %}
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit">保存前端与模块选择</button>
+            <span class="muted">这里只保存真实存在的官方模块和扫描到的自定义模块。</span>
+          </div>
+        </form>
       </section>
     </section>
   </main>

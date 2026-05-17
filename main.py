@@ -28,7 +28,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.2.1"
+PLUGIN_VERSION = "0.2.2"
 
 
 class NestDiaryHttpClient:
@@ -64,11 +64,11 @@ class NestDiaryHttpClient:
                 response.raise_for_status()
                 return await response.json()
 
-    async def search_diary(self, query: str, top_k: int = 8) -> dict:
+    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
                 f"{self.service_url}/api/v1/diary/search",
-                params={"q": query, "top_k": top_k},
+                params={"q": query, "top_k": top_k, "snippet_chars": snippet_chars},
                 headers=self._headers(),
             ) as response:
                 response.raise_for_status()
@@ -167,10 +167,14 @@ class EmbeddedNestClient:
             "body": entry.body,
         }
 
-    async def search_diary(self, query: str, top_k: int = 8) -> dict:
+    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
         if not self.service_settings.load().enable_diary_module:
             raise RuntimeError("Diary module is disabled")
-        return {"query": query, "results": self.diary_service.search(query, top_k=top_k)}
+        return {
+            "query": query,
+            "results": self.diary_service.search(query, top_k=top_k, snippet_chars=snippet_chars),
+            "search": self.diary_service.search_status(),
+        }
 
     async def attach_media(self, payload: dict) -> dict:
         if not self.service_settings.load().enable_diary_module:
@@ -246,8 +250,8 @@ class NestDiaryTools:
     async def read_diary(self, date: str) -> dict:
         return await self.client.read_diary(date)
 
-    async def search_diary(self, query: str, top_k: int = 8) -> dict:
-        return await self.client.search_diary(query, top_k=top_k)
+    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
+        return await self.client.search_diary(query, top_k=top_k, snippet_chars=snippet_chars)
 
     async def attach_media(self, source_path: str, date: str, original_name: str | None = None) -> dict:
         return await self.client.attach_media(
@@ -430,15 +434,13 @@ class NestDiaryConnectorPlugin(Star):
                 }
             )
 
-        try:
-            self.context.register_web_api(
-                "/nest-diary/status",
-                nest_diary_page_status,
-                ["GET"],
-                "Nest Diary page status",
-            )
-        except TypeError:
-            self.context.register_web_api("/nest-diary/status", nest_diary_page_status, ["GET"])
+        for route in ["/nest-diary/status", "nest-diary/status", "status"]:
+            try:
+                self.context.register_web_api(route, nest_diary_page_status, ["GET"], "Nest Diary page status")
+            except TypeError:
+                self.context.register_web_api(route, nest_diary_page_status, ["GET"])
+            except Exception:
+                continue
 
     def _seed_embedded_settings(self, client: EmbeddedNestClient) -> None:
         if client.service_settings.path.exists():
@@ -446,6 +448,10 @@ class NestDiaryConnectorPlugin(Star):
         client.service_settings.save(
             ServiceUiSettings(
                 enable_diary_module=self.diary_module_enabled,
+                search_default_top_k=int(self.config.get("memory_recall_top_k", 5)),
+                search_snippet_chars=int(self.config.get("memory_recall_snippet_chars", 180)),
+                memory_recall_enabled=bool(self.config.get("memory_recall_enabled", True)),
+                memory_recall_policy=self.config.get("memory_recall_policy", "conservative"),
                 custom_webui_dir=str(self.config.get("custom_webui_dir", "")).strip(),
                 backup_custom_before_update=bool(self.config.get("backup_custom_before_update", True)),
             )
@@ -522,6 +528,7 @@ class NestDiaryConnectorPlugin(Star):
         try:
             status = await self.client.status()
             module = "日记模块已启用" if self.diary_module_enabled else "日记模块已关闭"
+            recall = "主动回忆已启用" if self.config.get("memory_recall_enabled", True) else "主动回忆已关闭"
             if self._webui_started:
                 webui = f"WebUI 已启用：http://{self.config.get('web_host', '0.0.0.0')}:{int(self.config.get('web_port', 28080))}"
             elif self._webui_error:
@@ -530,7 +537,7 @@ class NestDiaryConnectorPlugin(Star):
                 webui = "WebUI 未由插件内置启动"
             return (
                 f"小窝在线：{status.get('status', 'unknown')}，"
-                f"模式：{self.mode}，{module}，{webui}，数据目录：{self.data_dir}"
+                f"模式：{self.mode}，{module}，{recall}，{webui}，数据目录：{self.data_dir}"
             )
         except Exception as exc:
             return f"小窝暂时连接失败：{_brief_error(exc)}"
@@ -606,26 +613,33 @@ class NestDiaryConnectorPlugin(Star):
         return message
 
     @filter.llm_tool(name="search_diary")
-    async def search_diary_tool(self, event: AstrMessageEvent, query: str, top_k: int = 8):
+    async def search_diary_tool(self, event: AstrMessageEvent, query: str, top_k: int = 5):
         """按关键词搜索小窝日记，避免一次性读取全部日记。
         Args:
             query(string): 搜索关键词、日期、人名、事件或情绪线索。
-            top_k(number): 最多返回多少条结果，默认 8。
+            top_k(number): 最多返回多少条结果，默认 5。工具会返回片段摘要，不会返回整篇日记。
         """
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
         try:
-            result = await self.tools.search_diary(query, top_k=int(top_k))
+            limit = max(1, min(int(top_k), int(self.config.get("memory_recall_top_k", 5))))
+            snippet_chars = int(self.config.get("memory_recall_snippet_chars", 180))
+            result = await self.tools.search_diary(query, top_k=limit, snippet_chars=snippet_chars)
             items = result.get("items") or result.get("results") or []
             if not items:
                 message = f"没有搜到和“{query}”相关的小窝日记。"
             else:
-                lines = [f"搜到 {len(items)} 条和“{query}”相关的小窝日记："]
+                search_info = result.get("search") or {}
+                backend = search_info.get("backend", "unknown")
+                lines = [f"搜到 {len(items)} 条和“{query}”相关的小窝日记（检索：{backend}）："]
                 for item in items:
                     item_date = item.get("date", "未知日期")
                     item_title = item.get("title", "")
                     snippet = item.get("snippet") or item.get("summary") or item.get("body") or ""
-                    lines.append(f"- {item_date}《{item_title}》：{snippet}")
+                    tags = "，".join(item.get("tags") or [])
+                    people = "，".join(item.get("people") or [])
+                    meta = "；".join(part for part in [f"人物：{people}" if people else "", f"标签：{tags}" if tags else ""] if part)
+                    lines.append(f"- {item_date}《{item_title}》：{snippet}" + (f"（{meta}）" if meta else ""))
                 message = "\n".join(lines)
         except Exception as exc:
             message = f"搜索小窝日记失败：{_brief_error(exc)}"

@@ -42,6 +42,56 @@ def create_web_router(
     def require_login(request: Request):
         return auth.redirect_if_missing(request.cookies.get("nest_session"))
 
+    def load_ui_settings() -> ServiceUiSettings:
+        return settings_store.load() if settings_store else ServiceUiSettings()
+
+    def custom_webui_root(settings: ServiceUiSettings | None = None) -> Path:
+        loaded = settings or load_ui_settings()
+        configured = loaded.custom_webui_dir.strip()
+        if configured:
+            return Path(configured).expanduser()
+        if CUSTOM_WEBUI_DIR:
+            return CUSTOM_WEBUI_DIR
+        if runtime_settings:
+            return Path(runtime_settings.data_dir) / "user_custom" / "webui"
+        return Path("user_custom") / "webui"
+
+    def discover_frontend_styles(settings: ServiceUiSettings) -> list[dict]:
+        themes_dir = custom_webui_root(settings) / "themes"
+        styles = [{"id": "default", "name": "官方默认", "kind": "official"}]
+        if themes_dir.exists():
+            for path in sorted(themes_dir.iterdir()):
+                if path.is_dir():
+                    styles.append({"id": path.name, "name": path.name, "kind": "custom"})
+        if settings.active_frontend_style not in {item["id"] for item in styles}:
+            styles.append({"id": settings.active_frontend_style, "name": settings.active_frontend_style, "kind": "missing"})
+        return styles
+
+    def discover_modules(settings: ServiceUiSettings) -> dict:
+        official = [
+            {"id": "diary", "name": "日记", "description": "写入、读取、归档和检索"},
+            {"id": "impressions", "name": "人物印象", "description": "长期人物认识"},
+            {"id": "media", "name": "媒体", "description": "图片、语音和附件归档"},
+            {"id": "webui", "name": "WebUI", "description": "网页后台与设置页"},
+        ]
+        custom_modules = []
+        modules_dir = custom_webui_root(settings) / "modules"
+        if modules_dir.exists():
+            for path in sorted(modules_dir.iterdir()):
+                if path.is_dir():
+                    custom_modules.append({"id": path.name, "name": path.name, "path": str(path)})
+        return {"official": official, "custom": custom_modules}
+
+    @router.get("/theme.css")
+    async def active_theme_css():
+        settings = load_ui_settings()
+        if settings.active_frontend_style == "default":
+            return Response("", media_type="text/css")
+        css_path = custom_webui_root(settings) / "themes" / settings.active_frontend_style / "style.css"
+        if not css_path.exists():
+            return Response("", media_type="text/css")
+        return Response(css_path.read_text(encoding="utf-8"), media_type="text/css")
+
     @router.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
         redirect = require_login(request)
@@ -90,7 +140,7 @@ def create_web_router(
         redirect = require_login(request)
         if redirect:
             return redirect
-        ui_settings = settings_store.load() if settings_store else ServiceUiSettings()
+        ui_settings = load_ui_settings()
         if not ui_settings.enable_diary_module:
             return templates.TemplateResponse(
                 request,
@@ -126,9 +176,9 @@ def create_web_router(
         redirect = require_login(request)
         if redirect:
             return redirect
-        ui_settings = settings_store.load() if settings_store else ServiceUiSettings()
+        ui_settings = load_ui_settings()
         results = (
-            diary_service.search(q, top_k=ui_settings.search_default_top_k)
+            diary_service.search(q, top_k=ui_settings.search_default_top_k, snippet_chars=ui_settings.search_snippet_chars)
             if q and diary_service and ui_settings.enable_diary_module
             else []
         )
@@ -143,7 +193,7 @@ def create_web_router(
         redirect = require_login(request)
         if redirect:
             return redirect
-        ui_settings = settings_store.load() if settings_store else ServiceUiSettings()
+        ui_settings = load_ui_settings()
         if not ui_settings.enable_diary_module:
             return templates.TemplateResponse(
                 request,
@@ -215,14 +265,18 @@ def create_web_router(
         redirect = require_login(request)
         if redirect:
             return redirect
+        settings = load_ui_settings()
         return templates.TemplateResponse(
             request,
             "settings.html",
             {
-                "settings": settings_store.load() if settings_store else ServiceUiSettings(),
+                "settings": settings,
                 "security": security_store.load() if security_store else None,
                 "runtime_settings": runtime_settings,
                 "version_service": version_service,
+                "search_status": diary_service.search_status() if diary_service else {},
+                "frontend_styles": discover_frontend_styles(settings),
+                "module_catalog": discover_modules(settings),
                 "version_message": version_message,
                 "version_current": version_current,
                 "version_latest": version_latest,
@@ -322,12 +376,17 @@ def create_web_router(
     @router.post("/settings")
     async def save_settings(
         request: Request,
-        search_default_top_k: int = Form(20),
+        search_default_top_k: int = Form(5),
+        search_snippet_chars: int = Form(180),
+        memory_recall_enabled: str = Form(""),
+        memory_recall_policy: str = Form("conservative"),
         enable_diary_module: str = Form(""),
         diary_archive_granularity: str = Form("day"),
         allow_media_refs: str = Form(""),
         show_impression_prompt: str = Form(""),
         active_frontend_style: str = Form("default"),
+        enabled_official_modules: list[str] = Form(default=[]),
+        enabled_custom_modules: list[str] = Form(default=[]),
         custom_webui_dir: str = Form(""),
         backup_custom_before_update: str = Form(""),
         impression_prompt: str = Form(""),
@@ -341,10 +400,15 @@ def create_web_router(
             ServiceUiSettings(
                 enable_diary_module=enable_diary_module == "on",
                 search_default_top_k=search_default_top_k,
+                search_snippet_chars=search_snippet_chars,
+                memory_recall_enabled=memory_recall_enabled == "on",
+                memory_recall_policy=memory_recall_policy,
                 diary_archive_granularity=diary_archive_granularity,
                 allow_media_refs=allow_media_refs == "on",
                 show_impression_prompt=show_impression_prompt == "on",
                 active_frontend_style=active_frontend_style.strip() or "default",
+                enabled_official_modules=enabled_official_modules,
+                enabled_custom_modules=enabled_custom_modules,
                 custom_webui_dir=custom_webui_dir.strip(),
                 backup_custom_before_update=backup_custom_before_update == "on",
                 impression_prompt=impression_prompt.strip(),

@@ -19,7 +19,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 settings = load_settings()
 app = FastAPI(title="Nest Diary Service", version=APP_VERSION)
 paths = NestPaths(settings.data_dir)
@@ -123,10 +123,15 @@ async def write_diary(
 async def search_diary(
     q: str,
     top_k: int = 8,
+    snippet_chars: int = 180,
     _auth: None = Depends(require_bot_token),
     _module: None = Depends(require_diary_module_enabled),
 ):
-    return {"query": q, "results": diary_service.search(q, top_k=top_k)}
+    return {
+        "query": q,
+        "results": diary_service.search(q, top_k=top_k, snippet_chars=snippet_chars),
+        "search": diary_service.search_status(),
+    }
 
 
 @app.get("/api/v1/diary/archive")

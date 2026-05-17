@@ -24,10 +24,17 @@ class ServiceSettingsStore:
 
     def save(self, settings: ServiceUiSettings) -> ServiceUiSettings:
         settings.enable_diary_module = bool(settings.enable_diary_module)
-        settings.search_default_top_k = max(1, min(int(settings.search_default_top_k), 50))
+        settings.search_default_top_k = max(1, min(int(settings.search_default_top_k), 20))
+        settings.search_snippet_chars = max(80, min(int(settings.search_snippet_chars), 360))
+        if settings.memory_recall_policy not in {"conservative", "active"}:
+            settings.memory_recall_policy = "conservative"
         if settings.diary_archive_granularity not in {"day", "month", "year"}:
             settings.diary_archive_granularity = "day"
         settings.active_frontend_style = settings.active_frontend_style.strip() or "default"
+        settings.enabled_official_modules = [
+            item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
+        ]
+        settings.enabled_custom_modules = [item.strip() for item in settings.enabled_custom_modules if item.strip()]
         settings.custom_webui_dir = settings.custom_webui_dir.strip()
         self.path.write_text(
             json.dumps(asdict(settings), ensure_ascii=False, indent=2),

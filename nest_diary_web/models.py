@@ -37,11 +37,16 @@ class PersonImpression:
 @dataclass
 class ServiceUiSettings:
     enable_diary_module: bool = True
-    search_default_top_k: int = 20
+    search_default_top_k: int = 5
+    search_snippet_chars: int = 180
+    memory_recall_enabled: bool = True
+    memory_recall_policy: str = "conservative"
     diary_archive_granularity: str = "day"
     allow_media_refs: bool = True
     show_impression_prompt: bool = True
     active_frontend_style: str = "default"
+    enabled_official_modules: list[str] = field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
+    enabled_custom_modules: list[str] = field(default_factory=list)
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = (

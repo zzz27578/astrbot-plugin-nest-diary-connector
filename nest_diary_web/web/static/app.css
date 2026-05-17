@@ -549,6 +549,17 @@ label {
   overflow-wrap: anywhere;
 }
 
+.module-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.module-picker h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
 .form-actions {
   display: flex;
   align-items: center;
@@ -662,7 +673,8 @@ label {
   }
 
   .split,
-  .diary-layout {
+  .diary-layout,
+  .module-picker {
     grid-template-columns: 1fr;
   }
 }

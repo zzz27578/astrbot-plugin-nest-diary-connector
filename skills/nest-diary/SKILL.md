@@ -29,6 +29,7 @@ Available tools:
 7. Update people impressions only when a diary or conversation provides stable evidence. Do not rewrite a person model from one weak mood signal.
 8. Use date-shaped retrieval when possible. Search `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` before broad semantic searches if the clue is temporal.
 9. Respect module switches. If the diary module is disabled, do not attempt diary writes, reads, searches, or media attachment.
+10. When active recall is enabled by plugin or WebUI settings, treat phrases like "yesterday", "before", "last time", "what did we do", "do you remember", a known person's name, or a past project clue as a reason to call `search_diary` if current context is insufficient.
 
 ## Decision Workflow
 
@@ -38,8 +39,9 @@ Use this path for: "remember", "diary", "what happened", "did we", "yesterday", 
 
 1. If the user gave an exact date, call `read_diary(date)`.
 2. If the user gave a vague time or topic, call `search_diary(query, top_k=5-8)`.
-3. Read only the most relevant date with `read_diary` when the search result is not enough.
-4. Answer with the evidence level:
+3. Treat `search_diary` results as brief snippets. Do not ask for or paste full diary entries unless details are needed.
+4. Read only the most relevant date with `read_diary` when the search result is not enough.
+5. Answer with the evidence level:
    - Confirmed: diary content directly supports it.
    - Likely: search result points to it but details are incomplete.
    - Unknown: no relevant diary evidence was found.
@@ -108,12 +110,12 @@ First search the relevant topic. Then read only dates needed to support the summ
 
 ## Tool Use Patterns
 
-Search by combining concrete and emotional clues:
+Search by combining concrete and emotional clues. Prefer 3-5 results for active recall unless the user explicitly asks for a broad archive:
 
 ```text
 search_diary(query="avatar design screenshot", top_k=5)
-search_diary(query="study plan frustration encouragement", top_k=8)
-search_diary(query="2026-05 project diary system", top_k=8)
+search_diary(query="study plan frustration encouragement", top_k=5)
+search_diary(query="2026-05 project diary system", top_k=5)
 ```
 
 Read only when date is known:
@@ -183,15 +185,15 @@ After writing, decide whether `write_impression` is useful. It is optional.
 
 ## Storage-Aware Retrieval
 
-The modular storage layout stores diary files under `modules/diary/entries/YYYY/MM/YYYY-MM-DD.md` and indexes metadata in `modules/diary/index/`. Older standalone deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
+The modular storage layout stores diary files under `modules/diary/entries/YYYY/MM/YYYY-MM-DD.md` and indexes metadata in `modules/diary/index/`. Search uses a local SQLite index. When FTS5 is available it ranks results with BM25 and returns snippets; when FTS5 is unavailable it falls back to local LIKE matching. Older standalone deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
 
 ```text
-search_diary(query="2026-05", top_k=20)
+search_diary(query="2026-05", top_k=8)
 search_diary(query="2026-05-13", top_k=5)
-search_diary(query="admin local preview routes", top_k=8)
+search_diary(query="admin local preview routes", top_k=5)
 ```
 
-Never scan raw files directly. The archive is for navigation; tool search is for agent recall.
+Never scan raw files directly. The archive is for navigation; tool search is for agent recall. Search snippets are the first pass; full `read_diary` is the second pass.
 
 ## Response Style
 

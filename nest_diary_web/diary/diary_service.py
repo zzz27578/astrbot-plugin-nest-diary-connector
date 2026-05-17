@@ -44,8 +44,12 @@ class DiaryService:
         self.search_service.delete_entry(date)
         return deleted
 
-    def search(self, query: str, top_k: int = 8) -> list[dict]:
-        return self.search_service.search(query=query, top_k=top_k)
+    def search(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> list[dict]:
+        return self.search_service.search(query=query, top_k=top_k, snippet_chars=snippet_chars)
+
+    def search_status(self) -> dict:
+        capabilities = self.search_service.capabilities
+        return {"backend": capabilities.backend, "fts5": capabilities.fts5}
 
     def list_entries(self) -> list[DiaryEntry]:
         return self.store.list_entries()
