@@ -247,7 +247,6 @@ function entryRow(entry) {
     <button class="row ${state.diary.selected?.date === entry.date ? "active" : ""}" data-date="${escapeHtml(entry.date)}" type="button">
       <span>${escapeHtml(entry.date)}</span>
       <strong>${escapeHtml(entry.title || entry.date)}</strong>
-      <em>${escapeHtml((entry.body || "").slice(0, 96))}</em>
     </button>
   `;
 }
