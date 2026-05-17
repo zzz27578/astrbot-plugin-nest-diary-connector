@@ -1,7 +1,7 @@
 {
   "id": "webui",
   "name": "Nest WebUI",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "小窝网页后台、主题、前端模块和外部扩展入口。",
   "data_roots": [
     "modules/webui/settings.json",

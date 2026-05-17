@@ -386,10 +386,107 @@ textarea {
   gap: 16px;
 }
 
+.form-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setting-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(39, 35, 29, 0.16);
+}
+
+.setting-line strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.setting-line p {
+  margin: 0;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  width: 54px;
+  min-width: 54px;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch span {
+  position: relative;
+  width: 54px;
+  height: 30px;
+  border: 1px solid var(--line);
+  background: #eadcca;
+}
+
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  background: var(--ink);
+  transition: transform 160ms ease;
+}
+
+.switch input:checked + span {
+  background: #d7e7d6;
+}
+
+.switch input:checked + span::after {
+  transform: translateX(24px);
+}
+
+details {
+  border: 1px solid rgba(39, 35, 29, 0.22);
+  background: #fff8ec;
+  padding: 0;
+}
+
+summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
+details[open] {
+  padding-bottom: 14px;
+}
+
+details[open] > *:not(summary) {
+  margin-left: 14px;
+  margin-right: 14px;
+}
+
 .module-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.sticky-save {
+  position: sticky;
+  bottom: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 240, 0.94);
+  box-shadow: var(--shadow);
 }
 
 .loading {
