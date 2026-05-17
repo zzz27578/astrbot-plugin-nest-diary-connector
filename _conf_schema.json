@@ -35,17 +35,17 @@
     "default": true
   },
   "daily_write_time": {
-    "description": "每日写日记提示时间，24小时制 HH:MM。",
+    "description": "每日写日记提示时间，24 小时制 HH:MM。",
     "type": "string",
     "default": "03:00"
   },
   "daily_write_prompt": {
     "description": "到点发给 bot 的写日记提示词。它会让 bot 根据自身人设、当天上下文和小窝工具自主写入。",
     "type": "text",
-    "default": "现在执行小窝每日归档。请根据你自己的角色设定、今天的对话上下文、已经发生的重要事情和情绪变化，调用 write_diary 写入今天的日记。日记必须包含发生了什么、为什么重要、你的主观评价和情感、相关人物、未来线索；不要写成流水账。写完后判断是否需要更新人物印象：如果今天的日记提供了稳定新证据，再调用 write_impression；如果没有新变化，不要硬写。"
+    "default": "现在执行小窝每日归档。请根据你的角色设定、今天可用的对话上下文、重要事件和情绪变化，自主整理今天的日记，并调用 write_diary 写入。请自拟一个能概括当天意义的标题，不要把日期当标题。正文需要包含：发生了什么、为什么重要、你的主观评价和情感、相关人物、未来线索或未完成事项。请填写 mood、tags、people；如果有媒体证据，先通过 attach_media 归档，再把返回的媒体引用写入 media_refs。写完后判断是否需要更新人物印象：只有今天提供了稳定新证据时才调用 write_impression；没有新变化就不要更新。"
   },
   "notify_after_write": {
-    "description": "每日写入完成后是否由 bot 在会话内反馈完成。这个开关只作为提示词约束，实际行为由 bot 执行。",
+    "description": "每日写入完成后是否由 bot 在会话内反馈完成。这只是提示词约束，实际行为由 bot 执行。",
     "type": "bool",
     "default": true
   },
@@ -55,14 +55,14 @@
     "default": false
   },
   "reminder_time": {
-    "description": "普通提醒时间，24小时制 HH:MM。",
+    "description": "普通提醒时间，24 小时制 HH:MM。",
     "type": "string",
     "default": "23:30"
   },
   "reminder_prompt": {
     "description": "普通提醒发给 bot 的提示词。",
     "type": "text",
-    "default": "检查今天是否有值得写入小窝的事情。如果有，请主动整理；如果没有，不要硬写。"
+    "default": "请检查今天是否有值得写入小窝的事情。如果有，请主动整理并调用小窝工具保存；如果没有明确材料，不要强行写入。"
   },
   "auto_impression_after_diary": {
     "description": "write_diary 工具返回后，是否附带人物印象自检提示，帮助 bot 自主决定是否更新印象。",
@@ -72,6 +72,6 @@
   "impression_after_diary_prompt": {
     "description": "写完日记后的印象自检提示。不是系统提示，只是工具结果里给 bot 的行动提醒。",
     "type": "text",
-    "default": "请严格依据你自己的角色设定和刚写入的日记判断：是否出现了关于某个人的稳定新认识，例如性格、兴趣、偏好、关系变化、长期需求或重要边界。如果有，先读旧印象再写入更新，并填写证据日期；如果没有，不要调用 write_impression。"
+    "default": "请严格依据你的角色设定和刚写入的日记判断：是否出现了关于某个人的稳定新认识，例如性格、兴趣、偏好、关系变化、长期需求或重要边界。如果有，先读旧印象再写入更新，并填写证据日期；如果没有，不要调用 write_impression。"
   }
 }

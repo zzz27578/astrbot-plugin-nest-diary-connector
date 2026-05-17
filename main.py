@@ -11,6 +11,7 @@ from astrbot.api.star import Context, Star, register
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
+PLUGIN_VERSION = "0.1.8"
 
 
 class NestDiaryClient:
@@ -20,16 +21,11 @@ class NestDiaryClient:
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
 
     def _headers(self) -> dict[str, str]:
-        if not self.token:
-            return {}
-        return {"Authorization": f"Bearer {self.token}"}
+        return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
     async def status(self) -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
-            async with session.get(
-                f"{self.service_url}/api/v1/status",
-                headers=self._headers(),
-            ) as response:
+            async with session.get(f"{self.service_url}/api/v1/status", headers=self._headers()) as response:
                 response.raise_for_status()
                 return await response.json()
 
@@ -45,10 +41,7 @@ class NestDiaryClient:
 
     async def read_diary(self, date: str) -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
-            async with session.get(
-                f"{self.service_url}/api/v1/diary/{date}",
-                headers=self._headers(),
-            ) as response:
+            async with session.get(f"{self.service_url}/api/v1/diary/{date}", headers=self._headers()) as response:
                 response.raise_for_status()
                 return await response.json()
 
@@ -74,18 +67,14 @@ class NestDiaryClient:
 
     async def list_impressions(self) -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
-            async with session.get(
-                f"{self.service_url}/api/v1/impressions",
-                headers=self._headers(),
-            ) as response:
+            async with session.get(f"{self.service_url}/api/v1/impressions", headers=self._headers()) as response:
                 response.raise_for_status()
                 return await response.json()
 
     async def read_impression(self, name: str) -> dict:
-        safe_name = quote(name, safe="")
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
-                f"{self.service_url}/api/v1/impressions/{safe_name}",
+                f"{self.service_url}/api/v1/impressions/{quote(name, safe='')}",
                 headers=self._headers(),
             ) as response:
                 response.raise_for_status()
@@ -112,6 +101,7 @@ class NestDiaryTools:
         self,
         date: str,
         body: str,
+        title: str = "",
         mood: list[str] | None = None,
         tags: list[str] | None = None,
         people: list[str] | None = None,
@@ -121,6 +111,7 @@ class NestDiaryTools:
         return await self.client.write_diary(
             {
                 "date": date,
+                "title": title or None,
                 "body": body,
                 "mood": mood or [],
                 "tags": tags or [],
@@ -140,11 +131,7 @@ class NestDiaryTools:
 
     async def attach_media(self, source_path: str, date: str, original_name: str | None = None) -> dict:
         return await self.client.attach_media(
-            {
-                "source_path": source_path,
-                "date": date,
-                "original_name": original_name,
-            }
+            {"source_path": source_path, "date": date, "original_name": original_name}
         )
 
     async def list_impressions(self) -> dict:
@@ -187,16 +174,16 @@ def _split_words(value: str | None) -> list[str]:
     return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
-def _brief_error(exc: Exception) -> str:
-    if isinstance(exc, aiohttp.ClientResponseError):
-        return f"HTTP {exc.status}: {exc.message}"
-    return str(exc)
-
-
 def _split_lines(value: str | None) -> list[str]:
     if not value:
         return []
     return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+def _brief_error(exc: Exception) -> str:
+    if isinstance(exc, aiohttp.ClientResponseError):
+        return f"HTTP {exc.status}: {exc.message}"
+    return str(exc)
 
 
 def _is_time_now(now: datetime, configured: str) -> bool:
@@ -211,7 +198,7 @@ def _is_time_now(now: datetime, configured: str) -> bool:
     PLUGIN_NAME,
     "local",
     "连接独立小窝日记服务的 AstrBot 插件。",
-    "0.1.7",
+    PLUGIN_VERSION,
 )
 class NestDiaryConnectorPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -239,12 +226,7 @@ class NestDiaryConnectorPlugin(Star):
     @filter.command("小窝状态")
     async def nest_status(self, event: AstrMessageEvent):
         """检查小窝日记服务是否在线。"""
-        try:
-            status = await self.client.status()
-            message = f"小窝在线：{status.get('status', 'unknown')}"
-        except Exception as exc:
-            message = f"小窝暂时连不上：{_brief_error(exc)}"
-        yield event.plain_result(message)
+        yield event.plain_result(await self._status_message())
 
     @filter.command("小窝绑定提醒")
     async def bind_nest_prompt_origin(self, event: AstrMessageEvent):
@@ -257,18 +239,21 @@ class NestDiaryConnectorPlugin(Star):
     @filter.llm_tool(name="nest_status")
     async def nest_status_tool(self, event: AstrMessageEvent):
         """检查小窝日记服务是否在线。"""
+        return await self._status_message()
+
+    async def _status_message(self) -> str:
         try:
             status = await self.client.status()
-            message = f"小窝在线：{status.get('status', 'unknown')}"
+            return f"小窝在线：{status.get('status', 'unknown')}"
         except Exception as exc:
-            message = f"小窝暂时连不上：{_brief_error(exc)}"
-        return message
+            return f"小窝暂时连接失败：{_brief_error(exc)}"
 
     @filter.llm_tool(name="write_diary")
     async def write_diary_tool(
         self,
         event: AstrMessageEvent,
         date: str,
+        title: str,
         body: str,
         mood: str = "",
         tags: str = "",
@@ -277,12 +262,12 @@ class NestDiaryConnectorPlugin(Star):
         reason: str = "",
     ):
         """写入或更新某一天的小窝日记。
-
         Args:
             date(string): 日记日期，格式 YYYY-MM-DD。
-            body(string): 日记正文，要包含 bot 自己的评价、感受和判断，不能只是流水账。
-            mood(string): 情绪词，多个词用逗号分隔。
-            tags(string): 标签，多个标签用逗号分隔。
+            title(string): bot 自拟的日记标题，用一句话概括当天记忆；不要直接使用日期作为标题。
+            body(string): 日记正文。需要包含事件、意义、主观评价、情绪、相关人物和未来线索，不能只是流水账。
+            mood(string): 情绪词，多个用逗号分隔。
+            tags(string): 检索标签，多个用逗号分隔。
             people(string): 相关人物，多个名字用逗号分隔。
             media_refs(string): 图片或媒体引用，每行一个 URL 或小窝媒体地址，可为空。
             reason(string): 写入原因，例如 nightly_archive、manual_update、memory整理。
@@ -290,6 +275,7 @@ class NestDiaryConnectorPlugin(Star):
         try:
             result = await self.tools.write_diary(
                 date=date,
+                title=title,
                 body=body,
                 mood=_split_words(mood),
                 tags=_split_words(tags),
@@ -298,9 +284,10 @@ class NestDiaryConnectorPlugin(Star):
                 reason=reason,
             )
             saved_date = result.get("date", date)
+            saved_title = result.get("title", title)
             revision = result.get("revision_id") or result.get("revision")
-            suffix = f"，修订号：{revision}" if revision else ""
-            message = f"已写入 {saved_date} 的小窝日记{suffix}。"
+            suffix = f"，快照号：{revision}" if revision else ""
+            message = f"已写入 {saved_date}《{saved_title}》{suffix}。"
             if self.config.get("auto_impression_after_diary", True):
                 prompt = self.config.get("impression_after_diary_prompt", "").strip()
                 if prompt:
@@ -312,17 +299,14 @@ class NestDiaryConnectorPlugin(Star):
     @filter.llm_tool(name="read_diary")
     async def read_diary_tool(self, event: AstrMessageEvent, date: str):
         """读取指定日期的小窝日记。
-
         Args:
             date(string): 要读取的日期，格式 YYYY-MM-DD。
         """
         try:
             result = await self.tools.read_diary(date)
             content = result.get("body") or result.get("content") or result.get("text") or ""
-            if not content:
-                message = f"{date} 没有找到日记。"
-            else:
-                message = f"{date} 的日记：\n{content}"
+            title = result.get("title") or date
+            message = f"{date}《{title}》：\n{content}" if content else f"{date} 没有找到日记。"
         except Exception as exc:
             message = f"读取小窝日记失败：{_brief_error(exc)}"
         return message
@@ -330,7 +314,6 @@ class NestDiaryConnectorPlugin(Star):
     @filter.llm_tool(name="search_diary")
     async def search_diary_tool(self, event: AstrMessageEvent, query: str, top_k: int = 8):
         """按关键词搜索小窝日记，避免一次性读取全部日记。
-
         Args:
             query(string): 搜索关键词、日期、人名、事件或情绪线索。
             top_k(number): 最多返回多少条结果，默认 8。
@@ -344,8 +327,9 @@ class NestDiaryConnectorPlugin(Star):
                 lines = [f"搜到 {len(items)} 条和“{query}”相关的小窝日记："]
                 for item in items:
                     item_date = item.get("date", "未知日期")
+                    item_title = item.get("title", "")
                     snippet = item.get("snippet") or item.get("summary") or item.get("body") or ""
-                    lines.append(f"- {item_date}: {snippet}")
+                    lines.append(f"- {item_date}《{item_title}》：{snippet}")
                 message = "\n".join(lines)
         except Exception as exc:
             message = f"搜索小窝日记失败：{_brief_error(exc)}"
@@ -360,27 +344,15 @@ class NestDiaryConnectorPlugin(Star):
         original_name: str = "",
     ):
         """把图片、语音或附件归档到指定日期的小窝媒体库。
-
         Args:
             source_path(string): AstrBot 容器内可访问的文件绝对路径。
             date(string): 归档到哪一天，格式 YYYY-MM-DD。
             original_name(string): 原始文件名，可为空。
         """
         try:
-            result = await self.tools.attach_media(
-                source_path=source_path,
-                date=date,
-                original_name=original_name or None,
-            )
+            result = await self.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None)
             asset = result.get("asset") or {}
-            media_id = (
-                asset.get("sha256")
-                or asset.get("path")
-                or result.get("media_id")
-                or result.get("sha256")
-                or result.get("path")
-                or ""
-            )
+            media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""
             message = f"已把媒体归档到 {date}。{media_id}"
         except Exception as exc:
             message = f"归档媒体失败：{_brief_error(exc)}"
@@ -429,7 +401,7 @@ class NestDiaryConnectorPlugin(Star):
             else:
                 lines = [f"已有 {len(items)} 条人物印象："]
                 for item in items:
-                    lines.append(f"- {item.get('name', '未知')}: {item.get('summary', '')}")
+                    lines.append(f"- {item.get('name', '未知')}：{item.get('summary', '')}")
                 message = "\n".join(lines)
         except Exception as exc:
             message = f"读取人物印象列表失败：{_brief_error(exc)}"
@@ -438,22 +410,20 @@ class NestDiaryConnectorPlugin(Star):
     @filter.llm_tool(name="read_impression")
     async def read_impression_tool(self, event: AstrMessageEvent, name: str):
         """读取指定人物的长期印象。
-
         Args:
             name(string): 人物名。
         """
         try:
             item = await self.tools.read_impression(name)
-            parts = [
-                f"{item.get('name', name)} 的人物印象：",
-                item.get("summary", ""),
-            ]
+            parts = [f"{item.get('name', name)} 的人物印象：", item.get("summary", "")]
             if item.get("traits"):
                 parts.append("性格：" + "，".join(item["traits"]))
             if item.get("interests"):
                 parts.append("兴趣：" + "，".join(item["interests"]))
             if item.get("preferences"):
                 parts.append("偏好：" + "，".join(item["preferences"]))
+            if item.get("relationship"):
+                parts.append("关系：" + item["relationship"])
             if item.get("evidence_dates"):
                 parts.append("证据日期：" + "，".join(item["evidence_dates"]))
             message = "\n".join(part for part in parts if part)
@@ -476,15 +446,14 @@ class NestDiaryConnectorPlugin(Star):
         notes: str = "",
     ):
         """写入或更新指定人物的长期印象。
-
         Args:
             name(string): 人物名。
-            summary(string): 对这个人的稳定总结，应该基于可追溯证据。
-            traits(string): 性格特征，多个词用逗号分隔。
-            interests(string): 兴趣爱好，多个词用逗号分隔。
-            preferences(string): 偏好或相处方式，多个词用逗号分隔。
+            summary(string): 对这个人的稳定总结，必须基于可追溯证据。
+            traits(string): 性格特征，多个用逗号分隔。
+            interests(string): 兴趣爱好，多个用逗号分隔。
+            preferences(string): 偏好或相处方式，多个用逗号分隔。
             relationship(string): 与 bot 或项目的关系。
-            evidence_dates(string): 支撑这次更新的日记日期，多个日期用逗号分隔。
+            evidence_dates(string): 支撑这次更新的日记日期，多个用逗号分隔。
             confidence(number): 可信度，1 到 5。
             notes(string): 额外备注。
         """

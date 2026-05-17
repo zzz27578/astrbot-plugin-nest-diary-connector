@@ -12,7 +12,7 @@ Available tools:
 - `nest_status`: check whether the Nest Diary service is reachable.
 - `search_diary`: retrieve relevant diary candidates by keyword, person, event, date clue, or emotion.
 - `read_diary`: read one known date.
-- `write_diary`: create or revise one date's diary entry.
+- `write_diary`: create or revise one date's diary entry with an agent-authored title.
 - `attach_media`: archive a file that already exists at an accessible path.
 - `list_impressions`: list known people impressions.
 - `read_impression`: read one person's long-term impression.
@@ -49,6 +49,7 @@ Do not claim certainty from vibes.
 
 Use `write_diary`. A good entry includes:
 
+- A concise title written by the agent. The title summarizes the memory; it must not be just the date.
 - What happened.
 - Why it mattered.
 - The agent's judgment and emotion.
@@ -67,11 +68,12 @@ Avoid:
 When receiving the scheduled diary prompt from the plugin:
 
 1. Gather the day's salient events from current context and available memory.
-2. Write one coherent diary entry with `reason="nightly_archive"`.
-3. Include moods and tags.
-4. If relevant images or files have already been attached, include their returned media URLs in `media_refs`.
-5. After the write, decide whether a person impression update is genuinely needed.
-6. If configured to report completion, report briefly after the write.
+2. Choose a concise title that captures the meaning of the day. Do not use a date as the title.
+3. Write one coherent diary entry with `reason="nightly_archive"`.
+4. Include moods, tags, and people when relevant.
+5. If relevant images or files have already been attached, include their returned media URLs in `media_refs`.
+6. After the write, decide whether a person impression update is genuinely needed.
+7. If configured to report completion, report briefly after the write.
 
 The diary is allowed to sound personal. It should not sound like a database row.
 
@@ -124,6 +126,7 @@ Write with structured intent:
 ```text
 write_diary(
   date="2026-05-13",
+  title="Memory system finally becomes tool-native",
   body="...",
   mood="focused,frustrated,relieved",
   tags="diary,AstrBot,memory",
@@ -166,6 +169,7 @@ write_impression(
 Before calling `write_diary`, check the draft against this rubric:
 
 - Has a date.
+- Has a title that summarizes the memory, not the calendar date.
 - Has at least one concrete event.
 - Has the agent's interpretation, not only facts.
 - Has emotional color.
