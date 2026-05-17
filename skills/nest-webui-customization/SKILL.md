@@ -1,199 +1,146 @@
 ---
 name: nest-webui-customization
-description: Use this skill when the agent is asked to customize, redesign, theme, extend, or repair the Nest WebUI/private home interface. Trigger on requests about 小窝页面, WebUI, frontend style, themes, custom modules, templates, buttons, layout, CSS, visual design, or preserving user-made customization during updates. Modify user_custom files only; do not edit built-in plugin templates unless explicitly maintaining the official default module.
+description: Use this skill when the agent is asked to customize, redesign, theme, extend, or repair the Nest private home interface, including framework-level WebUI, themes, app shell, custom frontends, and module-specific UI. Use this for 小窝页面, WebUI, frontend style, themes, custom modules, buttons, layout, CSS, or update-safe personalization.
 ---
 
 # Nest WebUI Customization
 
-Customize the Nest WebUI as a private home interface while preserving the official plugin as an updateable base.
+Customize 小窝 as a private home framework. Keep official plugin files updateable, and put personal designs in the data directory.
+
+## Storage Roots
+
+Always call `nest_status` first. Use its returned data directory as the root.
+
+Default layout:
+
+```text
+<data_dir>/
+  framework/
+    settings/
+    user_custom/
+      webui/
+        themes/
+        modules/
+        static/
+        templates/
+  modules/
+    diary/
+    impressions/
+    media/
+```
+
+Legacy layouts may still contain `user_custom/webui` or `system/settings`. Prefer the `framework/` layout for new work.
 
 ## Core Rule
 
-Official files are the fallback. User-made design belongs in the data directory.
-
-Do not edit these built-in files for personal customization:
+Official files are the fallback. Personalization belongs in:
 
 ```text
+framework/user_custom/webui/
+```
+
+Do not edit built-in plugin UI files for personal customization unless the task explicitly says to maintain the official default:
+
+```text
+nest_diary_web/web_dist/
 nest_diary_web/web/templates/
 nest_diary_web/web/static/
 ```
 
-Edit or create files under the active data directory instead:
+## Framework vs Module Customization
+
+Use framework-level customization for the shell of 小窝:
 
 ```text
-user_custom/webui/templates/
-user_custom/webui/static/
-user_custom/webui/themes/
-user_custom/webui/modules/
+framework/user_custom/webui/themes/<theme-id>/style.css
+framework/user_custom/webui/static/
+framework/user_custom/webui/templates/
 ```
 
-The WebUI loads templates in this order:
-
-1. `user_custom/webui/templates/<template name>`
-2. built-in `nest_diary_web/web/templates/<template name>`
-
-Custom static assets are served from:
+Use module-level customization when a feature owns its own UI or data:
 
 ```text
-/custom-static/<file>
-```
-
-Built-in static assets remain available from:
-
-```text
-/static/<file>
-```
-
-## First Step
-
-Call `nest_status` before planning a customization. Use the returned data directory as the root for user customization.
-
-If `nest_status` is unavailable, ask for the active Nest data directory. Do not guess a production path when writing files.
-
-## What To Customize
-
-Use template overrides when changing page structure:
-
-```text
-user_custom/webui/templates/dashboard.html
-user_custom/webui/templates/diary.html
-user_custom/webui/templates/write.html
-user_custom/webui/templates/search.html
-user_custom/webui/templates/media.html
-user_custom/webui/templates/impressions.html
-user_custom/webui/templates/settings.html
-user_custom/webui/templates/login.html
-user_custom/webui/templates/_shell.html
-```
-
-Use custom static files for style, images, scripts, and fonts:
-
-```text
-user_custom/webui/static/custom.css
-user_custom/webui/static/custom.js
-user_custom/webui/static/images/
-user_custom/webui/static/fonts/
-```
-
-Custom templates can reference these assets with:
-
-```html
-<link rel="stylesheet" href="/custom-static/custom.css">
-<script src="/custom-static/custom.js"></script>
-```
-
-## Design Constraints
-
-Build the actual admin experience, not a landing page.
-
-Every visible button or navigation item must do one of these:
-
-- link to a real route that exists,
-- submit a real form that exists,
-- call a script that is included in custom static files,
-- clearly be removed until its feature exists.
-
-Do not add fake controls, fake settings, fake routes, or placeholder dashboards that imply a feature works.
-
-## Safe Workflow
-
-1. Read the built-in template that matches the page being customized.
-2. Copy only the template that needs customization into `user_custom/webui/templates/`.
-3. Keep existing form field names, route paths, and required variables unless the backend is updated too.
-4. Put new CSS, images, and scripts under `user_custom/webui/static/`.
-5. Reference custom assets through `/custom-static/...`.
-6. Test login, navigation, forms, diary reading, diary writing, search, settings, import/export, and version actions if those pages changed.
-7. If a change breaks rendering, remove or fix the custom override; the built-in fallback will work when the custom file is absent.
-
-## Template Compatibility
-
-Preserve Jinja variables that the built-in route expects. Common variables include:
-
-- `active`
-- `saved`
-- `error`
-- `entries`
-- `selected_entry`
-- `archive`
-- `manifests`
-- `people`
-- `selected_person`
-- `settings`
-- `security`
-- `runtime_settings`
-- `version_message`
-
-When uncertain, keep the original variable names and form fields from the built-in template.
-
-## Custom Modules
-
-Use `user_custom/webui/modules/<module-id>/` for experimental features, visual widgets, or bot-made additions that should survive plugin updates.
-
-Recommended module layout:
-
-```text
-user_custom/webui/modules/<module-id>/
+framework/user_custom/webui/modules/<module-id>/
   module.json
   templates/
   static/
   notes.md
 ```
 
-Keep module ids lowercase with hyphens, for example:
+Examples:
 
 ```text
+avatar-room
 mood-timeline
 memory-map
-avatar-room
+study-board
 ```
 
-Module notes should record:
+Keep module ids lowercase with hyphens.
 
-- what the module changes,
-- which templates or assets it depends on,
-- whether backend support is required,
-- how to disable it safely.
+## Module Data Rule
+
+If a customization needs persistent data, do not hide it inside a frontend folder. Use a module data folder:
+
+```text
+modules/<module-id>/
+  data/
+  index/
+  snapshots/
+  module.json
+```
+
+For existing official modules:
+
+```text
+modules/diary/
+modules/impressions/
+modules/media/
+```
+
+Frontend files describe the room. Module data stores the memory.
+
+## Real Controls Only
+
+Every visible button, route, switch, form, or menu must be backed by a real route, tool, script, or saved setting.
+
+Remove or hide unfinished controls. Do not create fake dashboards or pretend modules are functional before backend support exists.
+
+## Safe Workflow
+
+1. Call `nest_status` and locate `<data_dir>`.
+2. Decide whether the change is framework-level or module-level.
+3. Work under `framework/user_custom/webui/` for personal UI.
+4. Work under `modules/<module-id>/` only when adding persistent module data.
+5. Keep existing form names, API paths, and route contracts unless backend code is updated too.
+6. Test login, navigation, diary read/write, search, settings, import/export, and any changed module.
+7. Record changes in `notes.md` for custom modules.
 
 ## Update Safety
 
-Before large custom changes, create a backup of:
+Before major customization, back up:
 
 ```text
-user_custom/
-system/settings/
+framework/
 modules/
+imports/
 ```
 
-Plugin updates may replace built-in templates and static files. They must not overwrite `user_custom/`. If a customized page stops working after an update, compare the matching built-in template with the custom override and merge only the required route/form changes.
+Plugin updates may replace official files. They must not overwrite `framework/user_custom/webui/`.
 
-## When Backend Work Is Needed
+If a personal customization becomes broadly useful, recommend opening a PR to the official 小窝 plugin repository. Keep PRs focused:
 
-Frontend-only customization is enough for:
-
-- layout changes,
-- colors and typography,
-- page composition,
-- hiding or reordering existing controls,
-- adding visual-only widgets based on existing page data.
-
-Backend/plugin work is needed for:
-
-- new persistent data,
-- new routes,
-- new forms that save data,
-- new LLM tools,
-- new scheduled actions,
-- new external API behavior.
-
-If backend work is needed, state that clearly before editing templates.
+- one framework improvement,
+- one module improvement,
+- or one theme/module contribution at a time.
 
 ## Response Style
 
 When reporting customization work, include:
 
-- files changed under `user_custom`,
-- routes affected,
-- whether built-in plugin files were left untouched,
+- whether it changed framework UI or a module UI,
+- files changed under `framework/user_custom/webui/` or `modules/<module-id>/`,
+- whether official plugin files were left untouched,
 - what was tested.
 
-Do not describe customization as complete if it was only a visual mockup.
+Do not call a visual mockup complete if it cannot actually run.

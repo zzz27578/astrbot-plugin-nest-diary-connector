@@ -9,6 +9,7 @@ from nest_diary_web.paths import NestPaths
 
 class BackupService:
     allowed_roots = {
+        "framework",
         "system",
         "modules",
         "user_custom",
@@ -27,7 +28,7 @@ class BackupService:
     def export_zip(self) -> bytes:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for root_name in ["system", "modules", "user_custom", "imports"]:
+            for root_name in ["framework", "modules", "imports"]:
                 root = self.paths.root / root_name
                 if not root.exists():
                     continue

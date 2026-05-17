@@ -1,7 +1,7 @@
 {% macro nav(active) -%}
 <aside class="side-nav">
   <a class="brand" href="/">
-    <img src="/static/nest-avatar.png" alt="Nest Diary">
+    <img src="/static/nest-avatar.png" alt="小窝">
     <span>
       <strong>小窝</strong>
       <small>Private Nest</small>
@@ -10,7 +10,7 @@
   <nav>
     <a class="{{ 'active' if active == 'dashboard' else '' }}" href="/">总览</a>
     <a class="{{ 'active' if active == 'write' else '' }}" href="/write">写入</a>
-    <a class="{{ 'active' if active == 'search' else '' }}" href="/search">搜索</a>
+    <a class="{{ 'active' if active == 'search' else '' }}" href="/search">检索</a>
     <a class="{{ 'active' if active == 'diary' else '' }}" href="/diary">日记</a>
     <a class="{{ 'active' if active == 'impressions' else '' }}" href="/impressions">印象</a>
     <a class="{{ 'active' if active == 'media' else '' }}" href="/media">媒体</a>

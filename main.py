@@ -28,7 +28,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.3.3"
+PLUGIN_VERSION = "0.3.4"
 
 
 class NestDiaryHttpClient:
@@ -111,7 +111,7 @@ class NestDiaryHttpClient:
 
 
 class EmbeddedNestClient:
-    """Embedded小窝核心。插件工具默认直接调用这里，不经过HTTP。"""
+    """Embedded 小窝核心。插件工具默认直接调用这里，不经过 HTTP。"""
 
     def __init__(self, data_dir: Path, admin_password: str = "12345678", external_api_key: str = ""):
         self.paths = NestPaths(data_dir)
@@ -128,9 +128,11 @@ class EmbeddedNestClient:
     async def status(self) -> dict:
         return {
             "status": "ok",
-            "service": "embedded-nest-diary",
+            "service": "embedded-nest",
             "mode": "embedded",
             "data_dir": str(self.paths.root),
+            "framework_dir": str(self.paths.framework_dir),
+            "modules_dir": str(self.paths.modules_dir),
         }
 
     async def write_diary(self, payload: dict) -> dict:
@@ -216,7 +218,7 @@ class EmbeddedNestClient:
 
 
 class NestDiaryTools:
-    """Bot-native operations. These call embedded小窝 first unless compatibility mode is selected."""
+    """Bot-native operations. These call embedded 小窝 first unless compatibility mode is selected."""
 
     def __init__(self, client):
         self.client = client
@@ -294,7 +296,7 @@ class NestDiaryTools:
 def _split_words(value: str | None) -> list[str]:
     if not value:
         return []
-    normalized = value.replace("，", ",").replace("、", ",")
+    normalized = value.replace("，", ",").replace("、", ",").replace("；", ",").replace(";", ",")
     return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
@@ -354,7 +356,7 @@ def _copy_missing_tree(source: Path, target: Path) -> None:
 @register(
     PLUGIN_NAME,
     "local",
-    "内置小窝 WebUI 与日记工具的 AstrBot 插件。",
+    "小窝框架插件：内置 WebUI、模块化数据目录，以及给 bot 使用的工具层。",
     PLUGIN_VERSION,
 )
 class NestDiaryConnectorPlugin(Star):
@@ -363,6 +365,7 @@ class NestDiaryConnectorPlugin(Star):
         self.config = config or {}
         self.mode = self.config.get("nest_mode", "embedded")
         self.data_dir = _configured_data_dir(self.config)
+        self.paths = NestPaths(self.data_dir)
         self.diary_module_enabled = bool(self.config.get("enable_diary_module", True))
         self.webui_enabled = bool(self.config.get("enable_webui", True))
         self._last_daily_sent = ""
@@ -414,7 +417,7 @@ class NestDiaryConnectorPlugin(Star):
         except Exception:
             return
 
-        async def nest_diary_page_status():
+        async def nest_page_status():
             return jsonify(
                 {
                     "plugin": PLUGIN_NAME,
@@ -427,24 +430,29 @@ class NestDiaryConnectorPlugin(Star):
                     "web_host": self.config.get("web_host", "0.0.0.0"),
                     "web_port": int(self.config.get("web_port", 28080)),
                     "data_dir": str(self.data_dir),
+                    "framework_dir": str(self.paths.framework_dir),
+                    "modules_dir": str(self.paths.modules_dir),
                     "custom_webui_dir": (
                         str(self.config.get("custom_webui_dir", "")).strip()
-                        or str(self.data_dir / "user_custom" / "webui")
+                        or str(self.paths.user_custom_dir / "webui")
                     ),
                 }
             )
 
         for route in [
             f"/{PLUGIN_NAME}/status",
+            f"/{PLUGIN_NAME}/nest/status",
             f"/{PLUGIN_NAME}/nest-diary/status",
+            "/nest/status",
+            "nest/status",
             "/nest-diary/status",
             "nest-diary/status",
             "status",
         ]:
             try:
-                self.context.register_web_api(route, nest_diary_page_status, ["GET"], "Nest Diary page status")
+                self.context.register_web_api(route, nest_page_status, ["GET"], "Nest page status")
             except TypeError:
-                self.context.register_web_api(route, nest_diary_page_status, ["GET"])
+                self.context.register_web_api(route, nest_page_status, ["GET"])
             except Exception:
                 continue
 
@@ -485,7 +493,7 @@ class NestDiaryConnectorPlugin(Star):
 
         custom_webui_dir = (
             str(self.config.get("custom_webui_dir", "")).strip()
-            or str(self.data_dir / "user_custom" / "webui")
+            or str(self.paths.user_custom_dir / "webui")
         )
         Path(custom_webui_dir).mkdir(parents=True, exist_ok=True)
 
@@ -527,7 +535,7 @@ class NestDiaryConnectorPlugin(Star):
 
     @filter.llm_tool(name="nest_status")
     async def nest_status_tool(self, event: AstrMessageEvent):
-        """检查小窝日记模块和 WebUI 状态。"""
+        """检查小窝框架、日记模块和 WebUI 状态。"""
         return await self._status_message()
 
     async def _status_message(self) -> str:
@@ -542,8 +550,9 @@ class NestDiaryConnectorPlugin(Star):
             else:
                 webui = "WebUI 未由插件内置启动"
             return (
-                f"小窝在线：{status.get('status', 'unknown')}，"
-                f"模式：{self.mode}，{module}，{recall}，{webui}，数据目录：{self.data_dir}"
+                f"小窝在线：{status.get('status', 'unknown')}；"
+                f"模式：{self.mode}；{module}；{recall}；{webui}；"
+                f"数据目录：{self.data_dir}；框架目录：{self.paths.framework_dir}；模块目录：{self.paths.modules_dir}"
             )
         except Exception as exc:
             return f"小窝暂时连接失败：{_brief_error(exc)}"
@@ -564,16 +573,17 @@ class NestDiaryConnectorPlugin(Star):
         media_refs: str = "",
         reason: str = "",
     ):
-        """写入或更新某一天的小窝日记。
+        """写入或更新某一天的日记模块记录。
+
         Args:
             date(string): 日记日期，格式 YYYY-MM-DD。
-            title(string): bot 自拟的日记标题，用一句话概括当天记忆；不要直接使用日期作为标题。
-            body(string): 日记正文。需要包含事件、意义、主观评价、情绪、相关人物和未来线索，不能只是流水账。
+            title(string): bot 自拟标题，用一句话概括当天记忆，不要直接使用日期。
+            body(string): 日记正文，要包含事件、意义、主观评价、情绪、相关人物和未来线索。
             mood(string): 情绪词，多个用逗号分隔。
             tags(string): 检索标签，多个用逗号分隔。
-            people(string): 相关人物，多个名字用逗号分隔。
-            media_refs(string): 图片或媒体引用，每行一个 URL 或小窝媒体地址，可为空。
-            reason(string): 写入原因，例如 nightly_archive、manual_update、memory整理。
+            people(string): 相关人物，多个用逗号分隔。
+            media_refs(string): 图片、语音或附件引用，每行一个，可为空。
+            reason(string): 写入原因，例如 nightly_archive、manual_update、memory_review。
         """
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
@@ -598,12 +608,13 @@ class NestDiaryConnectorPlugin(Star):
                 if prompt:
                     message = f"{message}\n\n人物印象自检提示：{prompt}"
         except Exception as exc:
-            message = f"写入小窝日记失败：{_brief_error(exc)}"
+            message = f"写入日记模块失败：{_brief_error(exc)}"
         return message
 
     @filter.llm_tool(name="read_diary")
     async def read_diary_tool(self, event: AstrMessageEvent, date: str):
-        """读取指定日期的小窝日记。
+        """读取指定日期的日记。
+
         Args:
             date(string): 要读取的日期，格式 YYYY-MM-DD。
         """
@@ -615,15 +626,16 @@ class NestDiaryConnectorPlugin(Star):
             title = result.get("title") or date
             message = f"{date}《{title}》：\n{content}" if content else f"{date} 没有找到日记。"
         except Exception as exc:
-            message = f"读取小窝日记失败：{_brief_error(exc)}"
+            message = f"读取日记模块失败：{_brief_error(exc)}"
         return message
 
     @filter.llm_tool(name="search_diary")
     async def search_diary_tool(self, event: AstrMessageEvent, query: str, top_k: int = 5):
-        """按关键词搜索小窝日记，避免一次性读取全部日记。
+        """按关键词搜索日记模块，避免一次性读取全部日记。
+
         Args:
-            query(string): 搜索关键词、日期、人名、事件或情绪线索。
-            top_k(number): 最多返回多少条结果，默认 5。工具会返回片段摘要，不会返回整篇日记。
+            query(string): 搜索关键词、日期、人物、事件或情绪线索。
+            top_k(number): 最多返回多少条结果。工具只返回片段摘要，不返回整篇日记。
         """
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
@@ -633,11 +645,11 @@ class NestDiaryConnectorPlugin(Star):
             result = await self.tools.search_diary(query, top_k=limit, snippet_chars=snippet_chars)
             items = result.get("items") or result.get("results") or []
             if not items:
-                message = f"没有搜到和“{query}”相关的小窝日记。"
+                message = f"没有搜到和“{query}”相关的日记。"
             else:
                 search_info = result.get("search") or {}
                 backend = search_info.get("backend", "unknown")
-                lines = [f"搜到 {len(items)} 条和“{query}”相关的小窝日记（检索：{backend}）："]
+                lines = [f"搜到 {len(items)} 条和“{query}”相关的日记（检索：{backend}）："]
                 for item in items:
                     item_date = item.get("date", "未知日期")
                     item_title = item.get("title", "")
@@ -648,7 +660,7 @@ class NestDiaryConnectorPlugin(Star):
                     lines.append(f"- {item_date}《{item_title}》：{snippet}" + (f"（{meta}）" if meta else ""))
                 message = "\n".join(lines)
         except Exception as exc:
-            message = f"搜索小窝日记失败：{_brief_error(exc)}"
+            message = f"搜索日记模块失败：{_brief_error(exc)}"
         return message
 
     @filter.llm_tool(name="attach_media")
@@ -659,7 +671,8 @@ class NestDiaryConnectorPlugin(Star):
         date: str,
         original_name: str = "",
     ):
-        """把图片、语音或附件归档到指定日期的小窝媒体库。
+        """把图片、语音或附件归档到指定日期的媒体库。
+
         Args:
             source_path(string): AstrBot 容器内可访问的文件绝对路径。
             date(string): 归档到哪一天，格式 YYYY-MM-DD。
@@ -671,7 +684,7 @@ class NestDiaryConnectorPlugin(Star):
             result = await self.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None)
             asset = result.get("asset") or {}
             media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""
-            message = f"已把媒体归档到 {date}。{media_id}"
+            message = f"已把媒体归档到 {date}：{media_id}"
         except Exception as exc:
             message = f"归档媒体失败：{_brief_error(exc)}"
         return message
@@ -728,6 +741,7 @@ class NestDiaryConnectorPlugin(Star):
     @filter.llm_tool(name="read_impression")
     async def read_impression_tool(self, event: AstrMessageEvent, name: str):
         """读取指定人物的长期印象。
+
         Args:
             name(string): 人物名。
         """
@@ -764,6 +778,7 @@ class NestDiaryConnectorPlugin(Star):
         notes: str = "",
     ):
         """写入或更新指定人物的长期印象。
+
         Args:
             name(string): 人物名。
             summary(string): 对这个人的稳定总结，必须基于可追溯证据。

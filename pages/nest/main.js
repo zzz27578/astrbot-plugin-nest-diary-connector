@@ -11,7 +11,7 @@
 
   const readStatus = async () => {
     if (window.AstrBotPluginPage?.apiGet) {
-      const routes = ["status", "nest-diary/status"];
+      const routes = ["status", "nest/status", "nest-diary/status"];
       let lastError;
       for (const route of routes) {
         try {
@@ -25,7 +25,9 @@
 
     const urls = [
       "/api/plugin/astrbot_plugin_nest_diary_connector/status",
+      "/api/plugin/astrbot_plugin_nest_diary_connector/nest/status",
       "/api/plugin/astrbot_plugin_nest_diary_connector/nest-diary/status",
+      "/api/plugin/nest/status",
       "/api/plugin/nest-diary/status",
       "/api/plugin/status",
     ];

@@ -1,4 +1,4 @@
-const APP_VERSION = "0.3.3";
+const APP_VERSION = "0.3.4";
 
 const state = {
   view: initialViewFromLocation(),
@@ -207,7 +207,7 @@ function renderDashboard() {
   const stats = state.bootstrap.stats;
   const recent = state.bootstrap.recent_entries || [];
   renderShell(`
-    ${pageHead("Nest Diary", "小窝")}
+    ${pageHead("Nest", "小窝")}
     <section class="grid three">
       <article class="card stat"><span>日记</span><strong>${stats.entries}</strong></article>
       <article class="card stat"><span>媒体</span><strong>${stats.media}</strong></article>
@@ -481,12 +481,12 @@ function renderSettings() {
       <article class="card">
         <div class="card-head">
           <div><p class="eyebrow">Appearance</p><h2>外观与模块</h2></div>
-          <span class="meta">user_custom/webui</span>
+          <span class="meta">framework/user_custom/webui</span>
         </div>
         <div class="card-body form">
           <div class="form-grid compact">
             <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(style.kind)}</option>`).join("")}</select></label>
-            <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空则使用插件数据目录下的 user_custom/webui"></label>
+            <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空则使用小窝数据目录下的 framework/user_custom/webui"></label>
           </div>
           <details>
             <summary>模块选择</summary>

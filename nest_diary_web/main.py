@@ -22,9 +22,9 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.4"
 settings = load_settings()
-app = FastAPI(title="Nest Diary Service", version=APP_VERSION)
+app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
 paths = NestPaths(settings.data_dir)
 diary_service = DiaryService(paths)
@@ -133,8 +133,7 @@ def _custom_webui_root(ui_settings: ServiceUiSettings | None = None) -> Path:
     configured = loaded.custom_webui_dir.strip()
     if configured:
         return Path(configured).expanduser()
-    custom_env = settings.data_dir / "user_custom" / "webui"
-    return custom_env
+    return paths.user_custom_dir / "webui"
 
 
 def _frontend_styles(ui_settings: ServiceUiSettings) -> list[dict]:
@@ -198,9 +197,11 @@ def require_diary_module_enabled() -> None:
 async def status(_auth: None = Depends(require_bot_token)):
     return {
         "status": "ok",
-        "service": "nest-diary",
+        "service": "nest",
         "version": APP_VERSION,
         "data_dir": str(settings.data_dir),
+        "framework_dir": str(paths.framework_dir),
+        "modules_dir": str(paths.modules_dir),
     }
 
 
@@ -383,7 +384,7 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
     people = impression_service.list_people()
     return {
         "version": APP_VERSION,
-        "service": "nest-diary",
+        "service": "nest",
         "stats": {
             "entries": len(entries),
             "media": sum(len(item.get("assets", [])) for item in media),
@@ -397,6 +398,8 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
         "frontend_styles": _frontend_styles(ui_settings),
         "module_catalog": _module_catalog(ui_settings),
         "data_dir": str(settings.data_dir),
+        "framework_dir": str(paths.framework_dir),
+        "modules_dir": str(paths.modules_dir),
     }
 
 
@@ -502,6 +505,9 @@ async def ui_get_settings(_session: None = Depends(require_web_session)):
         "module_catalog": _module_catalog(ui_settings),
         "runtime": {
             "data_dir": str(settings.data_dir),
+            "framework_dir": str(paths.framework_dir),
+            "modules_dir": str(paths.modules_dir),
+            "custom_webui_dir": str(_custom_webui_root(ui_settings)),
             "port": settings.port,
             "self_update": settings.enable_self_update,
         },

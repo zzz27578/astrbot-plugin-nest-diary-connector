@@ -53,8 +53,8 @@ def create_web_router(
         if CUSTOM_WEBUI_DIR:
             return CUSTOM_WEBUI_DIR
         if runtime_settings:
-            return Path(runtime_settings.data_dir) / "user_custom" / "webui"
-        return Path("user_custom") / "webui"
+            return Path(runtime_settings.data_dir) / "framework" / "user_custom" / "webui"
+        return Path("framework") / "user_custom" / "webui"
 
     def discover_frontend_styles(settings: ServiceUiSettings) -> list[dict]:
         themes_dir = custom_webui_root(settings) / "themes"
@@ -486,7 +486,7 @@ def create_web_router(
         return Response(
             content,
             media_type="application/zip",
-            headers={"Content-Disposition": 'attachment; filename="nest-diary-backup.zip"'},
+            headers={"Content-Disposition": 'attachment; filename="nest-backup.zip"'},
         )
 
     @router.post("/settings/import")

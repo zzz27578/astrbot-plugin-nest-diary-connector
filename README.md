@@ -1,19 +1,19 @@
-# AstrBot 小窝日记插件
+# AstrBot 小窝插件
 
-版本：`0.3.3`
+版本：`0.3.4`
 
-小窝现在已经合并进插件仓库。默认模式下，插件自己提供：
+小窝是给 bot 使用的私有空间框架。日记只是第一个官方模块，不再把整个插件定义成“小窝日记”。
 
+默认 embedded 模式下，插件自己提供：
+
+- 小窝 WebUI
 - bot 原生工具
-- 日记、搜索、媒体、人物印象核心模块
-- 密码保护 WebUI
+- 框架级设置和管理员密码
 - 模块化数据目录
-- 内置 Skill
-- 定时写日记提示
-
-旧的独立小窝服务仍可兼容，但不再是默认路径。
-
-`v0.3.0` 起，小窝 WebUI 默认由内置 App Shell 接管。日记、搜索、写入、印象、媒体和设置都通过 `/api/ui/*` 局部加载，不再在切换日记时整页刷新。旧模板路由仍保留为兼容兜底。
+- 日记、媒体、人物印象等官方模块
+- 自定义前端和自定义模块目录
+- 内置 skills
+- 定时提示，让 bot 自主调用工具
 
 ## 默认运行方式
 
@@ -26,125 +26,136 @@ web_port=28080
 admin_password=12345678
 ```
 
-启动插件后，小窝 WebUI 会由插件内置启动：
+启动后访问：
 
 ```text
 http://服务器IP:28080
 ```
 
-默认数据目录：
+默认数据根目录：
 
 ```text
 /AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector
 ```
 
-本地开发时，如果没有 `/AstrBot`，会落到插件目录下的 `data/`。
+本地开发时，如果没有 `/AstrBot`，会回退到插件目录下的 `data/`。
 
-如果旧版本曾经使用过 `/AstrBot/data/plugins_data/astrbot_plugin_nest_diary_connector`，插件会在启动时把缺失文件复制到新的官方数据目录。
-
-## AstrBot 插件页面
-
-插件提供官方 Plugin Page：
-
-```text
-pages/nest/
-```
-
-这个页面只作为 AstrBot Dashboard 内的状态入口和门牌号，真正的小窝 WebUI 仍然由插件内置服务提供，并使用独立管理员密码登录。
-
-## 数据结构
+## 正式数据结构
 
 ```text
 data/
-  system/settings/
-  modules/diary/entries/
-  modules/diary/index/
-  modules/diary/snapshots/
-  modules/impressions/people/
-  modules/media/blobs/
-  modules/media/by-date/
-  user_custom/webui/templates/
-  user_custom/webui/static/
-  user_custom/webui/themes/
-  user_custom/webui/modules/
+  framework/
+    settings/
+      security.json
+      service-ui.json
+    cache/
+    logs/
+    user_custom/
+      webui/
+        themes/
+        modules/
+        static/
+        templates/
+  modules/
+    diary/
+      entries/
+      index/
+      snapshots/
+      drafts/
+    impressions/
+      people/
+      topics/
+      events/
+    media/
+      blobs/
+      variants/
+      by-date/
+  imports/
 ```
 
-`user_custom/` 是用户或 bot 自己修改前端、主题、模块的地方。官方更新不应覆盖这里。
+规则：
 
-## 检索机制
+- `framework/` 是小窝框架本体的数据区，放管理员密码、WebUI 设置、个性化前端、框架缓存等。
+- `modules/<module-id>/` 是功能模块自己的数据区。日记、媒体、人物印象都按模块隔离。
+- `framework/user_custom/webui/` 是用户或 bot 自定义小窝外观、主题和前端模块的位置，官方更新不应覆盖这里。
+- 旧目录 `system/settings/`、`user_custom/`、`diary/`、`memory/`、`media/` 会在启动时复制到新布局中，保持兼容。
 
-小窝默认使用本地 SQLite 索引检索，不需要外部 API。
+## WebUI
 
-- 优先使用 SQLite FTS5 + BM25 排序。
-- 搜索结果默认只返回日期、标题、命中片段、标签、人物和检索后端。
-- 如果运行环境没有 FTS5，会自动降级为本地 LIKE 检索。
-- `read_diary` 只在需要读取某一天全文时使用。
-
-插件和 WebUI 都提供主动回忆开关。开启后，skills 会要求 bot 在上下文不足、用户提到“昨天 / 之前 / 上次 / 记得吗 / 某个过去项目”时先调用 `search_diary`，而不是全量读取日记。
-
-## 自定义 WebUI
-
-默认应用在插件代码内：
+默认 App Shell 位于：
 
 ```text
 nest_diary_web/web_dist/
 ```
 
-旧模板仍保留在：
+兼容模板仍保留在：
 
 ```text
 nest_diary_web/web/templates/
 nest_diary_web/web/static/
 ```
 
-个性化页面放到数据目录：
+个性化前端请放到数据目录：
 
 ```text
-user_custom/webui/templates/
-user_custom/webui/static/
+framework/user_custom/webui/
 ```
 
-渲染时会先找 `user_custom/webui/templates` 中的同名模板，找不到再回退官方默认模板。自定义模板里的资源可以放在 `user_custom/webui/static`，并用 `/custom-static/文件名` 引用。
-
-这样更新插件时只更新官方默认模块，不会覆盖 bot 自己改出来的小窝外观。
-
-## API Key
-
-embedded 模式下，插件内部工具不需要 API Key。
-
-小窝 WebUI 设置中的外部 API Key 只给这些场景使用：
-
-- MCP
-- 外部脚本
-- 第三方网页
-- 其他 bot
-- 兼容 standalone 模式
-
-## 兼容独立服务模式
-
-如果还想继续使用旧的小窝服务容器：
+主题建议：
 
 ```text
-nest_mode=standalone
-service_url=http://nest-diary:28080
-bot_api_token=独立服务里的外部 API Key
+framework/user_custom/webui/themes/<theme-id>/style.css
 ```
 
-此时插件工具通过 HTTP 调用独立服务。
-
-## 常用命令
+自定义模块建议：
 
 ```text
-/小窝状态
+framework/user_custom/webui/modules/<module-id>/
+  module.json
+  templates/
+  static/
+  notes.md
 ```
 
-查看小窝模式、日记模块状态、WebUI 地址和数据目录。
+如果个性化内容做得通用，建议整理成 PR 提交到本项目，而不是长期只保存在本地。
+
+## 模块规范
+
+每个功能模块都应该有独立目录：
 
 ```text
-/小窝绑定提醒
+modules/<module-id>/
+  module.json
+  data/
+  index/
+  snapshots/
 ```
 
-在目标会话发送，复制返回的 `unified_msg_origin`，填入插件配置 `daily_target_origin`。
+模块约束：
+
+- 模块只读写自己的数据目录。
+- 跨模块引用使用稳定 ID、日期、URL 或工具返回值，不直接偷改别的模块文件。
+- 需要被 bot 调用的能力必须注册为工具。
+- 需要被网页使用的能力必须提供真实 API 或真实前端脚本，不做假按钮。
+- 重要数据写入前尽量保留快照或可追溯记录。
+
+## 日记模块
+
+日记数据路径：
+
+```text
+modules/diary/entries/YYYY/MM/YYYY-MM-DD.md
+modules/diary/index/
+modules/diary/snapshots/
+```
+
+检索机制：
+
+- 默认使用本地 SQLite 索引，不需要外部 API。
+- 优先使用 SQLite FTS5 + BM25 排序。
+- 环境不支持 FTS5 时自动降级为本地 LIKE 检索。
+- `search_diary` 只返回日期、标题、命中片段、标签、人物和检索后端，避免整本日记滚入上下文。
+- `read_diary` 只在需要读取某一天全文时使用。
 
 ## LLM 工具
 
@@ -160,31 +171,54 @@ bot_api_token=独立服务里的外部 API Key
 `write_diary` 必须提供 bot 自拟标题：
 
 ```text
-title: 用一句话概括当天记忆，不要直接使用日期
+title: 用一句话概括当天记忆，不要直接使用日期。
 ```
 
-## 模块清单
+## 常用命令
 
 ```text
-modules/diary/module.json
-modules/webui/module.json
+/小窝状态
 ```
 
-模块化约定见：
+查看小窝模式、日记模块状态、WebUI 地址和数据目录。
 
 ```text
-docs/modular-nest.md
+/小窝绑定提醒
 ```
 
-## Skill
+在目标会话发送，复制返回的 `unified_msg_origin`，填入插件配置 `daily_target_origin`。
 
-内置 Skill：
+## API Key
+
+embedded 模式下，插件内部工具不需要 API Key。
+
+WebUI 设置里的外部 API Key 只给这些场景使用：
+
+- MCP
+- 外部脚本
+- 第三方网页
+- 其他 bot
+- 兼容 standalone 模式
+
+## Skills
+
+内置 skills：
 
 ```text
 skills/nest-diary/SKILL.md
 skills/nest-webui-customization/SKILL.md
 ```
 
-`nest-diary` 约束 bot 使用工具，不模拟人操作网页；查记忆先搜索；写日记要有标题、主观评价、情绪和检索线索；人物印象只在有稳定证据时更新。
+`nest-diary` 约束 bot 使用工具操作日记模块：先搜索再读取，写日记要有标题、主观评价、情绪和检索线索，人物印象只在有稳定证据时更新。
 
-`nest-webui-customization` 约束 bot 做小窝前端自定义时只改数据目录下的 `user_custom/webui/`，不直接改插件内置默认页面；同时要求按钮、路由、表单都必须对应真实功能，避免做出不能用的假界面。
+`nest-webui-customization` 约束 bot 做小窝个性化：区分框架前端和模块前端，只改 `framework/user_custom/webui/` 或对应模块目录；按钮、路由、表单必须对应真实功能；通用改进建议提交 PR。
+
+## Plugin Page
+
+AstrBot Dashboard 内的插件页面位于：
+
+```text
+pages/nest/
+```
+
+它只作为状态入口和门牌号。真正的小窝 WebUI 由内置服务提供，并使用独立管理员密码登录。

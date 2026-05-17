@@ -1,15 +1,15 @@
 ---
 name: nest-diary
-description: Use this skill whenever the agent needs to remember, search, write, revise, archive, or attach media for a private Nest Diary memory system. Trigger on requests involving diaries, memories, past events, today/yesterday, people, emotions, screenshots/images/voice/files worth preserving, scheduled diary routines, or questions like "what happened before?" Use Nest Diary tools directly; do not browse the admin website or read all diary files.
+description: Use this skill whenever the agent needs to remember, search, write, revise, archive, or attach media through the diary module of the Nest private home framework. Trigger on requests involving diaries, memories, past events, today/yesterday, people, emotions, screenshots/images/voice/files worth preserving, scheduled diary routines, or questions like "what happened before?" Use Nest tools directly; do not browse the admin website or read all diary files.
 ---
 
-# Nest Diary
+# Nest Diary Module
 
-Operate a private memory diary through tools, not through the web UI. The web UI is for authorized administration and theme/module management. The agent interface is the tool layer.
+Operate the diary module inside 小窝 through tools, not through the web UI. 小窝 is the framework; diary is only one module in it. The web UI is for authorized administration, theme work, and module management. The agent interface is the tool layer.
 
 Available tools:
 
-- `nest_status`: check whether the Nest Diary module and WebUI are reachable.
+- `nest_status`: check whether 小窝, the diary module, and WebUI are reachable.
 - `search_diary`: retrieve relevant diary candidates by keyword, person, event, date clue, or emotion.
 - `read_diary`: read one known date.
 - `write_diary`: create or revise one date's diary entry with an agent-authored title.
@@ -24,7 +24,7 @@ Available tools:
 2. Search before reading unless the date is explicit. Never load the whole diary corpus.
 3. Treat each diary entry as subjective memory, not a log dump. Preserve emotion, evaluation, relationship context, and future clues.
 4. Keep all writes traceable to a date. Use `YYYY-MM-DD`.
-5. Never bypass Nest Diary tools to write files directly.
+5. Never bypass 小窝 tools to write files directly.
 6. Do not use the admin website to perform agent work. Call tools.
 7. Update people impressions only when a diary or conversation provides stable evidence. Do not rewrite a person model from one weak mood signal.
 8. Use date-shaped retrieval when possible. Search `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` before broad semantic searches if the clue is temporal.
@@ -185,7 +185,15 @@ After writing, decide whether `write_impression` is useful. It is optional.
 
 ## Storage-Aware Retrieval
 
-The modular storage layout stores diary files under `modules/diary/entries/YYYY/MM/YYYY-MM-DD.md` and indexes metadata in `modules/diary/index/`. Search uses a local SQLite index. When FTS5 is available it ranks results with BM25 and returns snippets; when FTS5 is unavailable it falls back to local LIKE matching. Older standalone deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
+The 小窝 framework keeps framework-level settings and personalization under `framework/`. Diary data belongs to the diary module only:
+
+```text
+modules/diary/entries/YYYY/MM/YYYY-MM-DD.md
+modules/diary/index/
+modules/diary/snapshots/
+```
+
+Search uses a local SQLite index. When FTS5 is available it ranks results with BM25 and returns snippets; when FTS5 is unavailable it falls back to local LIKE matching. Older deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
 
 ```text
 search_diary(query="2026-05", top_k=8)
@@ -213,7 +221,7 @@ I searched all memories and know exactly everything.
 
 ## Failure Handling
 
-- If `nest_status` fails, report that Nest Diary is unreachable and do not pretend the diary was checked.
+- If `nest_status` fails, report that 小窝 is unreachable and do not pretend the diary was checked.
 - If `search_diary` returns nothing, try one narrower or alternate query if the user gave enough clues.
 - If `read_diary` returns missing, say that date has no entry.
 - If `write_diary` fails, do not claim it was saved.

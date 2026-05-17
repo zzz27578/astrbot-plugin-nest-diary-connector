@@ -14,7 +14,19 @@ class NestPaths:
 
     @property
     def system_dir(self) -> Path:
-        return self.root / "system"
+        return self.framework_dir
+
+    @property
+    def framework_dir(self) -> Path:
+        return self.root / "framework"
+
+    @property
+    def framework_settings_dir(self) -> Path:
+        return self.framework_dir / "settings"
+
+    @property
+    def framework_user_custom_dir(self) -> Path:
+        return self.framework_dir / "user_custom"
 
     @property
     def modules_dir(self) -> Path:
@@ -22,7 +34,13 @@ class NestPaths:
 
     @property
     def user_custom_dir(self) -> Path:
-        return self.root / "user_custom"
+        return self.framework_user_custom_dir
+
+    def module_dir(self, module_id: str) -> Path:
+        return self.modules_dir / module_id
+
+    def module_data_dir(self, module_id: str) -> Path:
+        return self.module_dir(module_id) / "data"
 
     @property
     def diary_dir(self) -> Path:
@@ -46,7 +64,7 @@ class NestPaths:
 
     @property
     def settings_dir(self) -> Path:
-        return self.system_dir / "settings"
+        return self.framework_settings_dir
 
     def diary_file(self, date: str) -> Path:
         year, month, _day = date.split("-")
@@ -54,7 +72,10 @@ class NestPaths:
 
     def ensure_all(self) -> None:
         for path in [
-            self.system_dir,
+            self.framework_dir,
+            self.framework_settings_dir,
+            self.framework_dir / "cache",
+            self.framework_dir / "logs",
             self.modules_dir,
             self.user_custom_dir / "webui" / "themes",
             self.user_custom_dir / "webui" / "modules",
@@ -70,7 +91,6 @@ class NestPaths:
             self.modules_dir / "diary" / "drafts",
             self.revisions_dir,
             self.root / "imports",
-            self.root / "logs",
             self.settings_dir,
             self.index_dir,
         ]:
@@ -83,7 +103,9 @@ class NestPaths:
             (self.root / "memory", self.memory_dir),
             (self.root / "media", self.media_dir),
             (self.root / "index", self.index_dir),
+            (self.root / "system" / "settings", self.settings_dir),
             (self.root / "settings", self.settings_dir),
+            (self.root / "user_custom", self.user_custom_dir),
             (self.root / "revisions" / "diary", self.revisions_dir),
         ]
         for source, target in legacy_pairs:
