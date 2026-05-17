@@ -4,11 +4,16 @@ import aiohttp
 import asyncio
 import os
 import socket
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
+
+PLUGIN_DIR = Path(__file__).resolve().parent
+if str(PLUGIN_DIR) not in sys.path:
+    sys.path.insert(0, str(PLUGIN_DIR))
 
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
