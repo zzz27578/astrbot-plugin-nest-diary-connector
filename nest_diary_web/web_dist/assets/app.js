@@ -17,7 +17,7 @@ const state = {
 };
 
 const navItems = [
-  ["dashboard", "总览", "Home"],
+  ["dashboard", "首页", "Home"],
   ["diary", "日记", "Entries"],
   ["write", "写入", "Write"],
   ["search", "检索", "Recall"],
@@ -217,18 +217,33 @@ function renderDashboard() {
   const stats = state.bootstrap.stats;
   const recent = state.bootstrap.recent_entries || [];
   target.innerHTML = `
-    ${pageHead("Nest", "小窝")}
-    <section class="grid three">
-      <article class="card stat"><span>日记</span><strong>${stats.entries}</strong></article>
-      <article class="card stat"><span>媒体</span><strong>${stats.media}</strong></article>
-      <article class="card stat"><span>人物印象</span><strong>${stats.people}</strong></article>
+    <section class="home-hero">
+      <div class="home-hero-copy">
+        <p class="eyebrow">Private Nest</p>
+        <h1>小窝首页</h1>
+        <p class="home-lead">把今天安放好，旧事也能被轻轻找回来。</p>
+        <div class="home-actions">
+          <button class="button primary" data-view="write" type="button">写日记</button>
+          <button class="button" data-view="diary" type="button">看日记</button>
+          <button class="button ghost" data-view="search" type="button">检索回忆</button>
+        </div>
+      </div>
+      <div class="home-status">
+        <div class="home-stat"><span>日记</span><strong>${stats.entries}</strong></div>
+        <div class="home-stat"><span>媒体</span><strong>${stats.media}</strong></div>
+        <div class="home-stat"><span>人物印象</span><strong>${stats.people}</strong></div>
+        <div class="home-status-foot">
+          <span>${escapeHtml(state.bootstrap.search.backend)}</span>
+          <span>v${escapeHtml(state.bootstrap.version || APP_VERSION)}</span>
+        </div>
+      </div>
     </section>
-    <section class="grid two" style="margin-top:16px">
+    <section class="home-grid">
       <article class="card">
         <div class="card-head"><h2>最近日记</h2><button class="text-button" data-view="diary" type="button">查看全部</button></div>
         <div class="list">${recent.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`}</div>
       </article>
-      <article class="card">
+      <article class="card home-search-card">
         <div class="card-head"><h2>回忆检索</h2><span class="meta">${escapeHtml(state.bootstrap.search.backend)}</span></div>
         <div class="card-body">
           <form class="searchbar" data-action="quick-search">
