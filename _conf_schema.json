@@ -2,6 +2,11 @@
   "nest_mode": {
     "description": "小窝运行模式。embedded 表示插件内置 WebUI 和数据核心；standalone 表示兼容旧的独立小窝服务。",
     "type": "string",
+    "hint": "推荐 embedded。只有继续使用旧独立服务容器时才选 standalone。",
+    "options": [
+      "embedded",
+      "standalone"
+    ],
     "default": "embedded"
   },
   "enable_diary_module": {
@@ -30,7 +35,7 @@
     "default": "12345678"
   },
   "nest_data_dir": {
-    "description": "小窝数据根目录。留空时默认使用 /AstrBot/data/plugins_data/astrbot_plugin_nest_diary_connector；本地开发时使用插件目录下 data。",
+    "description": "小窝数据根目录。留空时默认使用官方插件数据目录 /AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector；本地开发时使用插件目录下 data。",
     "type": "string",
     "default": ""
   },

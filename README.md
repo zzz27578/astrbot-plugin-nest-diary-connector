@@ -1,6 +1,6 @@
 # AstrBot 小窝日记插件
 
-版本：`0.2.0`
+版本：`0.2.1`
 
 小窝现在已经合并进插件仓库。默认模式下，插件自己提供：
 
@@ -33,10 +33,22 @@ http://服务器IP:28080
 默认数据目录：
 
 ```text
-/AstrBot/data/plugins_data/astrbot_plugin_nest_diary_connector
+/AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector
 ```
 
 本地开发时，如果没有 `/AstrBot`，会落到插件目录下的 `data/`。
+
+如果旧版本曾经使用过 `/AstrBot/data/plugins_data/astrbot_plugin_nest_diary_connector`，插件会在启动时把缺失文件复制到新的官方数据目录。
+
+## AstrBot 插件页面
+
+插件提供官方 Plugin Page：
+
+```text
+pages/nest/
+```
+
+这个页面只作为 AstrBot Dashboard 内的状态入口和门牌号，真正的小窝 WebUI 仍然由插件内置服务提供，并使用独立管理员密码登录。
 
 ## 数据结构
 

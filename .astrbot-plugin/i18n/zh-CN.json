@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "name": "小窝日记",
+    "description": "给 bot 使用的私有日记、小窝 WebUI 和人物印象工具"
+  },
+  "commands": {
+    "status": "小窝状态",
+    "bind_reminder": "小窝绑定提醒"
+  },
+  "pages": {
+    "nest": {
+      "title": "小窝日记"
+    }
+  }
+}

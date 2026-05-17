@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>小窝日记</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">AstrBot Plugin Page</p>
+          <h1>小窝日记</h1>
+          <p class="lead">这里是 AstrBot 官方插件页面入口。真正的小窝 WebUI 仍由插件内置服务提供，并使用独立管理员密码保护。</p>
+        </div>
+        <a id="open-webui" class="button" href="#" target="_blank" rel="noreferrer">打开小窝 WebUI</a>
+      </section>
+
+      <section class="grid">
+        <article>
+          <span>运行模式</span>
+          <strong id="mode">读取中</strong>
+        </article>
+        <article>
+          <span>WebUI</span>
+          <strong id="webui">读取中</strong>
+        </article>
+        <article>
+          <span>数据目录</span>
+          <strong id="data-dir">读取中</strong>
+        </article>
+        <article>
+          <span>自定义前端</span>
+          <strong id="custom-dir">读取中</strong>
+        </article>
+      </section>
+
+      <p id="error" class="error" hidden></p>
+    </main>
+
+    <script src="./main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "metadata": {
+    "name": "Nest Diary",
+    "description": "Private diary, Nest WebUI, and person impression tools for the bot"
+  },
+  "commands": {
+    "status": "Nest status",
+    "bind_reminder": "Bind Nest reminder"
+  },
+  "pages": {
+    "nest": {
+      "title": "Nest Diary"
+    }
+  }
+}

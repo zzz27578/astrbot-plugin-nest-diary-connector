@@ -3,6 +3,7 @@ from __future__ import annotations
 import aiohttp
 import asyncio
 import os
+import shutil
 import socket
 import sys
 import threading
@@ -27,7 +28,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.2.1"
 
 
 class NestDiaryHttpClient:
@@ -314,15 +315,36 @@ def _is_time_now(now: datetime, configured: str) -> bool:
 
 
 def _default_data_dir() -> Path:
-    astrbot_data = Path("/AstrBot/data/plugins_data")
-    if Path("/AstrBot").exists() or astrbot_data.exists():
-        return astrbot_data / PLUGIN_NAME
+    try:
+        from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+
+        astrbot_data = Path(get_astrbot_data_path())
+    except Exception:
+        astrbot_data = Path("/AstrBot/data") if Path("/AstrBot").exists() else None
+    if astrbot_data:
+        target = astrbot_data / "plugin_data" / PLUGIN_NAME
+        legacy = astrbot_data / "plugins_data" / PLUGIN_NAME
+        _copy_missing_tree(legacy, target)
+        return target
     return Path(__file__).resolve().parent / "data"
 
 
 def _configured_data_dir(config: dict) -> Path:
     configured = str(config.get("nest_data_dir", "")).strip()
     return Path(configured) if configured else _default_data_dir()
+
+
+def _copy_missing_tree(source: Path, target: Path) -> None:
+    if not source.exists() or source == target:
+        return
+    for item in source.rglob("*"):
+        relative = item.relative_to(source)
+        destination = target / relative
+        if item.is_dir():
+            destination.mkdir(parents=True, exist_ok=True)
+        elif item.is_file() and not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, destination)
 
 
 @register(
@@ -372,11 +394,51 @@ class NestDiaryConnectorPlugin(Star):
             except RuntimeError:
                 self._scheduler_task = None
 
+        self._register_plugin_page_api()
+
     async def terminate(self):
         if self._scheduler_task:
             self._scheduler_task.cancel()
         if self._web_server:
             self._web_server.should_exit = True
+
+    def _register_plugin_page_api(self) -> None:
+        if not hasattr(self.context, "register_web_api"):
+            return
+        try:
+            from quart import jsonify
+        except Exception:
+            return
+
+        async def nest_diary_page_status():
+            return jsonify(
+                {
+                    "plugin": PLUGIN_NAME,
+                    "version": PLUGIN_VERSION,
+                    "mode": self.mode,
+                    "diary_module_enabled": self.diary_module_enabled,
+                    "webui_enabled": self.webui_enabled,
+                    "webui_started": self._webui_started,
+                    "webui_error": self._webui_error,
+                    "web_host": self.config.get("web_host", "0.0.0.0"),
+                    "web_port": int(self.config.get("web_port", 28080)),
+                    "data_dir": str(self.data_dir),
+                    "custom_webui_dir": (
+                        str(self.config.get("custom_webui_dir", "")).strip()
+                        or str(self.data_dir / "user_custom" / "webui")
+                    ),
+                }
+            )
+
+        try:
+            self.context.register_web_api(
+                "/nest-diary/status",
+                nest_diary_page_status,
+                ["GET"],
+                "Nest Diary page status",
+            )
+        except TypeError:
+            self.context.register_web_api("/nest-diary/status", nest_diary_page_status, ["GET"])
 
     def _seed_embedded_settings(self, client: EmbeddedNestClient) -> None:
         if client.service_settings.path.exists():
