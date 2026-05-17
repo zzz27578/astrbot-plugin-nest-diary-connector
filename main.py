@@ -1,20 +1,33 @@
 from __future__ import annotations
 
-import asyncio
 import aiohttp
+import asyncio
+import os
+import socket
+import threading
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
 
+from nest_diary_web.diary.diary_service import DiaryService
+from nest_diary_web.media.media_service import MediaService
+from nest_diary_web.memory.impression_service import ImpressionService
+from nest_diary_web.models import DiaryEntry, PersonImpression, ServiceUiSettings
+from nest_diary_web.paths import NestPaths
+from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettingsStore
+
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.1.9"
+PLUGIN_VERSION = "0.2.0"
 
 
-class NestDiaryClient:
+class NestDiaryHttpClient:
+    """Compatibility client for users who still run the old standalone service."""
+
     def __init__(self, service_url: str, token: str, timeout_seconds: int = 30):
         self.service_url = service_url.rstrip("/")
         self.token = token
@@ -91,10 +104,111 @@ class NestDiaryClient:
                 return await response.json()
 
 
-class NestDiaryTools:
-    """Bot-native operations. These call the nest service instead of touching files."""
+class EmbeddedNestClient:
+    """Embedded小窝核心。插件工具默认直接调用这里，不经过HTTP。"""
 
-    def __init__(self, client: NestDiaryClient):
+    def __init__(self, data_dir: Path, admin_password: str = "12345678", external_api_key: str = ""):
+        self.paths = NestPaths(data_dir)
+        self.diary_service = DiaryService(self.paths)
+        self.media_service = MediaService(self.paths)
+        self.impression_service = ImpressionService(self.paths)
+        self.service_settings = ServiceSettingsStore(self.paths)
+        self.security_settings = SecuritySettingsStore(
+            self.paths,
+            default_admin_password=admin_password or "12345678",
+            default_bot_api_token=external_api_key,
+        )
+
+    async def status(self) -> dict:
+        return {
+            "status": "ok",
+            "service": "embedded-nest-diary",
+            "mode": "embedded",
+            "data_dir": str(self.paths.root),
+        }
+
+    async def write_diary(self, payload: dict) -> dict:
+        if not self.service_settings.load().enable_diary_module:
+            raise RuntimeError("Diary module is disabled")
+        entry = DiaryEntry(
+            date=payload["date"],
+            title=payload.get("title"),
+            body=payload["body"],
+            mood=payload.get("mood") or [],
+            tags=payload.get("tags") or [],
+            people=payload.get("people") or [],
+            media_refs=payload.get("media_refs") or [],
+            importance=payload.get("importance", 3),
+            source=payload.get("source", "bot"),
+        )
+        saved = self.diary_service.write_diary(entry, reason=payload.get("reason", ""))
+        return {"status": "ok", "date": saved.date, "title": saved.normalized_title()}
+
+    async def read_diary(self, date: str) -> dict:
+        if not self.service_settings.load().enable_diary_module:
+            raise RuntimeError("Diary module is disabled")
+        entry = self.diary_service.read_by_date(date)
+        return {
+            "date": entry.date,
+            "title": entry.normalized_title(),
+            "mood": entry.mood,
+            "tags": entry.tags,
+            "people": entry.people,
+            "media_refs": entry.media_refs,
+            "importance": entry.importance,
+            "source": entry.source,
+            "revision": entry.revision,
+            "body": entry.body,
+        }
+
+    async def search_diary(self, query: str, top_k: int = 8) -> dict:
+        if not self.service_settings.load().enable_diary_module:
+            raise RuntimeError("Diary module is disabled")
+        return {"query": query, "results": self.diary_service.search(query, top_k=top_k)}
+
+    async def attach_media(self, payload: dict) -> dict:
+        if not self.service_settings.load().enable_diary_module:
+            raise RuntimeError("Diary module is disabled")
+        source = Path(payload["source_path"])
+        if not source.exists():
+            raise FileNotFoundError(f"Media source file not found: {source}")
+        record = self.media_service.save_media(
+            source,
+            date=payload["date"],
+            original_name=payload.get("original_name"),
+        )
+        return {"status": "ok", "asset": record}
+
+    async def list_impressions(self) -> dict:
+        return {"items": [item.__dict__ for item in self.impression_service.list_people()]}
+
+    async def read_impression(self, name: str) -> dict:
+        impression = self.impression_service.get(name)
+        if not impression:
+            raise FileNotFoundError(f"Person impression not found: {name}")
+        return impression.__dict__
+
+    async def write_impression(self, payload: dict) -> dict:
+        saved = self.impression_service.save(
+            PersonImpression(
+                name=payload["name"].strip(),
+                summary=payload["summary"].strip(),
+                traits=payload.get("traits") or [],
+                interests=payload.get("interests") or [],
+                preferences=payload.get("preferences") or [],
+                relationship=(payload.get("relationship") or "").strip(),
+                evidence_dates=payload.get("evidence_dates") or [],
+                confidence=payload.get("confidence", 3),
+                notes=(payload.get("notes") or "").strip(),
+            )
+        )
+        return {"status": "ok", "item": saved.__dict__}
+
+
+class NestDiaryTools:
+    """Bot-native operations. These call embedded小窝 first unless compatibility mode is selected."""
+
+    def __init__(self, client):
         self.client = client
 
     async def write_diary(
@@ -194,26 +308,59 @@ def _is_time_now(now: datetime, configured: str) -> bool:
         return False
 
 
+def _default_data_dir() -> Path:
+    astrbot_data = Path("/AstrBot/data/plugins_data")
+    if Path("/AstrBot").exists() or astrbot_data.exists():
+        return astrbot_data / PLUGIN_NAME
+    return Path(__file__).resolve().parent / "data"
+
+
+def _configured_data_dir(config: dict) -> Path:
+    configured = str(config.get("nest_data_dir", "")).strip()
+    return Path(configured) if configured else _default_data_dir()
+
+
 @register(
     PLUGIN_NAME,
     "local",
-    "连接独立小窝日记服务的 AstrBot 插件。",
+    "内置小窝 WebUI 与日记工具的 AstrBot 插件。",
     PLUGIN_VERSION,
 )
 class NestDiaryConnectorPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
         self.config = config or {}
-        self.client = NestDiaryClient(
-            service_url=self.config.get("service_url", "http://nest-diary:28080"),
-            token=self.config.get("bot_api_token", ""),
-            timeout_seconds=int(self.config.get("request_timeout_seconds", 30)),
-        )
-        self.tools = NestDiaryTools(self.client)
+        self.mode = self.config.get("nest_mode", "embedded")
+        self.data_dir = _configured_data_dir(self.config)
         self.diary_module_enabled = bool(self.config.get("enable_diary_module", True))
+        self.webui_enabled = bool(self.config.get("enable_webui", True))
         self._last_daily_sent = ""
         self._last_reminder_sent = ""
         self._scheduler_task = None
+        self._web_server = None
+        self._web_thread = None
+        self._webui_started = False
+        self._webui_error = ""
+
+        if self.mode == "standalone":
+            client = NestDiaryHttpClient(
+                service_url=self.config.get("service_url", "http://nest-diary:28080"),
+                token=self.config.get("bot_api_token", ""),
+                timeout_seconds=int(self.config.get("request_timeout_seconds", 30)),
+            )
+        else:
+            client = EmbeddedNestClient(
+                data_dir=self.data_dir,
+                admin_password=self.config.get("admin_password", "12345678"),
+                external_api_key=self.config.get("bot_api_token", ""),
+            )
+            self._seed_embedded_settings(client)
+            if self.webui_enabled:
+                self._start_embedded_webui()
+
+        self.client = client
+        self.tools = NestDiaryTools(self.client)
+
         if self.config.get("scheduled_prompt_enabled", True):
             try:
                 self._scheduler_task = asyncio.create_task(self._scheduled_prompt_loop())
@@ -223,10 +370,72 @@ class NestDiaryConnectorPlugin(Star):
     async def terminate(self):
         if self._scheduler_task:
             self._scheduler_task.cancel()
+        if self._web_server:
+            self._web_server.should_exit = True
+
+    def _seed_embedded_settings(self, client: EmbeddedNestClient) -> None:
+        if client.service_settings.path.exists():
+            return
+        client.service_settings.save(
+            ServiceUiSettings(
+                enable_diary_module=self.diary_module_enabled,
+                custom_webui_dir=str(self.config.get("custom_webui_dir", "")).strip(),
+                backup_custom_before_update=bool(self.config.get("backup_custom_before_update", True)),
+            )
+        )
+
+    def _start_embedded_webui(self) -> None:
+        try:
+            import uvicorn
+        except Exception as exc:
+            self._webui_error = f"缺少 WebUI 运行依赖：{_brief_error(exc)}"
+            return
+
+        host = self.config.get("web_host", "0.0.0.0")
+        port = int(self.config.get("web_port", 28080))
+        probe_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.5)
+                if sock.connect_ex((probe_host, port)) == 0:
+                    self._webui_error = f"端口 {port} 已被占用"
+                    return
+        except OSError as exc:
+            self._webui_error = f"WebUI 监听地址不可用：{_brief_error(exc)}"
+            return
+
+        custom_webui_dir = (
+            str(self.config.get("custom_webui_dir", "")).strip()
+            or str(self.data_dir / "user_custom" / "webui")
+        )
+        Path(custom_webui_dir).mkdir(parents=True, exist_ok=True)
+
+        os.environ["NEST_DATA_DIR"] = str(self.data_dir)
+        os.environ["NEST_ADMIN_PASSWORD"] = self.config.get("admin_password", "12345678")
+        os.environ["NEST_BOT_API_TOKEN"] = self.config.get("bot_api_token", "")
+        os.environ["NEST_HOST"] = host
+        os.environ["NEST_PORT"] = str(port)
+        os.environ["NEST_CUSTOM_WEBUI_DIR"] = custom_webui_dir
+
+        try:
+            from nest_diary_web.main import app as fastapi_app
+
+            uvicorn_config = uvicorn.Config(
+                fastapi_app,
+                host=host,
+                port=port,
+                log_level="warning",
+            )
+            self._web_server = uvicorn.Server(uvicorn_config)
+            self._web_thread = threading.Thread(target=self._web_server.run, daemon=True)
+            self._web_thread.start()
+            self._webui_started = True
+        except Exception as exc:
+            self._webui_error = _brief_error(exc)
 
     @filter.command("小窝状态")
     async def nest_status(self, event: AstrMessageEvent):
-        """检查小窝日记服务是否在线。"""
+        """检查小窝是否在线。"""
         yield event.plain_result(await self._status_message())
 
     @filter.command("小窝绑定提醒")
@@ -239,14 +448,23 @@ class NestDiaryConnectorPlugin(Star):
 
     @filter.llm_tool(name="nest_status")
     async def nest_status_tool(self, event: AstrMessageEvent):
-        """检查小窝日记服务是否在线。"""
+        """检查小窝日记模块和 WebUI 状态。"""
         return await self._status_message()
 
     async def _status_message(self) -> str:
         try:
             status = await self.client.status()
-            mode = "日记模块已启用" if self.diary_module_enabled else "日记模块已关闭"
-            return f"小窝在线：{status.get('status', 'unknown')}，{mode}"
+            module = "日记模块已启用" if self.diary_module_enabled else "日记模块已关闭"
+            if self._webui_started:
+                webui = f"WebUI 已启用：http://{self.config.get('web_host', '0.0.0.0')}:{int(self.config.get('web_port', 28080))}"
+            elif self._webui_error:
+                webui = f"WebUI 启动失败：{self._webui_error}"
+            else:
+                webui = "WebUI 未由插件内置启动"
+            return (
+                f"小窝在线：{status.get('status', 'unknown')}，"
+                f"模式：{self.mode}，{module}，{webui}，数据目录：{self.data_dir}"
+            )
         except Exception as exc:
             return f"小窝暂时连接失败：{_brief_error(exc)}"
 

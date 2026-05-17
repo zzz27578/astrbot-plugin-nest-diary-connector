@@ -1,0 +1,32 @@
+{% macro nav(active) -%}
+<aside class="side-nav">
+  <a class="brand" href="/">
+    <img src="/static/nest-avatar.png" alt="Nest Diary">
+    <span>
+      <strong>小窝</strong>
+      <small>Private Nest</small>
+    </span>
+  </a>
+  <nav>
+    <a class="{{ 'active' if active == 'dashboard' else '' }}" href="/">总览</a>
+    <a class="{{ 'active' if active == 'write' else '' }}" href="/write">写入</a>
+    <a class="{{ 'active' if active == 'search' else '' }}" href="/search">搜索</a>
+    <a class="{{ 'active' if active == 'diary' else '' }}" href="/diary">日记</a>
+    <a class="{{ 'active' if active == 'impressions' else '' }}" href="/impressions">印象</a>
+    <a class="{{ 'active' if active == 'media' else '' }}" href="/media">媒体</a>
+    <a class="{{ 'active' if active == 'settings' else '' }}" href="/settings">设置</a>
+  </nav>
+  <form method="post" action="/logout">
+    <button type="submit">退出</button>
+  </form>
+</aside>
+{%- endmacro %}
+
+{% macro alerts(saved, error) -%}
+{% if saved %}
+<div class="notice success">已保存，相关数据已经写入小窝。</div>
+{% endif %}
+{% if error %}
+<div class="notice error">{{ error }}</div>
+{% endif %}
+{%- endmacro %}

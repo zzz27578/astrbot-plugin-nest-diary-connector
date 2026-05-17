@@ -1,0 +1,1 @@
+﻿"""Diary storage and services."""

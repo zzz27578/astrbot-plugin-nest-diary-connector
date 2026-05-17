@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>小窝后台</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% from "_shell.html" import nav %}
+  <main class="app-shell">
+    {{ nav(active) }}
+    <section class="workspace">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Nest Diary</p>
+          <h1>小窝后台</h1>
+        </div>
+        <a class="primary-action" href="/write">写一篇</a>
+      </header>
+
+      <section class="hero-strip">
+        <img src="/static/nest-avatar.png" alt="小窝头像">
+        <div>
+          <p>Bot 的私密日记巢穴</p>
+          <strong>日记、人物印象、媒体证据和检索入口都在这里沉淀。</strong>
+        </div>
+      </section>
+
+      <section class="stats">
+        <a href="/diary"><span>{{ entries_count }}</span><small>日记</small></a>
+        <a href="/media"><span>{{ media_count }}</span><small>媒体</small></a>
+        <a href="/impressions"><span>{{ people_count }}</span><small>人物印象</small></a>
+      </section>
+
+      <section class="panel-grid">
+        <a class="panel" href="/write"><span>写入</span><small>手动补记或编辑</small></a>
+        <a class="panel" href="/search"><span>搜索</span><small>按关键词找回记忆</small></a>
+        <a class="panel" href="/diary"><span>日记</span><small>按日期浏览内容</small></a>
+        <a class="panel" href="/impressions"><span>印象</span><small>维护人物长期认识</small></a>
+      </section>
+
+      {% if archive %}
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Archive</p>
+            <h2>年月归档</h2>
+          </div>
+          <a class="text-link" href="/diary">进入日记</a>
+        </div>
+        <div class="archive-grid">
+          {% for year in archive %}
+          <div class="archive-card">
+            <strong>{{ year.year }}</strong>
+            <span>{{ year.count }} 篇</span>
+            <div>
+              {% for month in year.months %}
+              <a href="/diary?date={{ month.days[0].date }}">{{ month.month }} 月 · {{ month.count }}</a>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Recent</p>
+            <h2>最近日记</h2>
+          </div>
+          <a class="text-link" href="/diary">查看全部</a>
+        </div>
+        {% if recent_entries %}
+        <div class="list">
+          {% for entry in recent_entries %}
+          <a class="row" href="/diary?date={{ entry.date }}">
+            <span>{{ entry.date }}</span>
+            <strong>{{ entry.normalized_title() }}</strong>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted">还没有日记。等 bot 写下第一篇，小窝就会亮起来。</p>
+        {% endif %}
+      </section>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>设置 - 小窝</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% from "_shell.html" import nav, alerts %}
+  <main class="app-shell">
+    {{ nav(active) }}
+    <section class="workspace">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Settings</p>
+          <h1>设置</h1>
+        </div>
+      </header>
+      {{ alerts(saved, error) }}
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Access</p>
+            <h2>访问密钥</h2>
+          </div>
+        </div>
+        <form class="editor-form" method="post" action="/settings/security">
+          <div class="form-grid">
+            <label>
+              新管理员密码
+              <input name="admin_password" type="password" placeholder="留空则不修改">
+            </label>
+            <label>
+              外部 API Key
+              <input name="bot_api_token" value="{{ security.bot_api_token if security else '' }}" placeholder="仅给外部扩展使用">
+            </label>
+          </div>
+          <label class="check-row">
+            <input name="generate_bot_api_token" type="checkbox">
+            保存时生成新的外部 API Key
+          </label>
+          <label class="check-row">
+            <input name="external_api_enabled" type="checkbox" {{ 'checked' if security and security.external_api_enabled else '' }}>
+            启用外部 API 访问
+          </label>
+          <div class="prompt-card">
+            <strong>插件内部调用不依赖 API Key</strong>
+            <p>管理员密码只用于登录网页后台。外部 API Key 只给 MCP、脚本、第三方网页或其他外部系统访问小窝时使用；默认可以关闭。</p>
+          </div>
+          <div class="form-actions">
+            <button type="submit">保存访问密钥</button>
+            <span class="muted">保存到 system/settings/security.json。</span>
+          </div>
+        </form>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Modules</p>
+            <h2>模块设置</h2>
+          </div>
+        </div>
+        <form class="editor-form" method="post" action="/settings">
+          <div class="form-grid">
+            <label>
+              默认搜索条数
+              <input name="search_default_top_k" type="number" min="1" max="50" value="{{ settings.search_default_top_k }}">
+            </label>
+            <label>
+              归档粒度
+              <select name="diary_archive_granularity">
+                <option value="day" {{ 'selected' if settings.diary_archive_granularity == 'day' else '' }}>年月日</option>
+                <option value="month" {{ 'selected' if settings.diary_archive_granularity == 'month' else '' }}>年月</option>
+                <option value="year" {{ 'selected' if settings.diary_archive_granularity == 'year' else '' }}>年</option>
+              </select>
+            </label>
+            <label>
+              当前前端样式
+              <input name="active_frontend_style" value="{{ settings.active_frontend_style }}" placeholder="default">
+            </label>
+            <label>
+              自定义前端目录
+              <input name="custom_webui_dir" value="{{ settings.custom_webui_dir }}" placeholder="留空使用 user_custom/webui">
+            </label>
+          </div>
+          <label class="check-row">
+            <input name="enable_diary_module" type="checkbox" {{ 'checked' if settings.enable_diary_module else '' }}>
+            启用日记模块
+          </label>
+          <label class="check-row">
+            <input name="allow_media_refs" type="checkbox" {{ 'checked' if settings.allow_media_refs else '' }}>
+            允许日记填写图片 / 媒体引用
+          </label>
+          <label class="check-row">
+            <input name="show_impression_prompt" type="checkbox" {{ 'checked' if settings.show_impression_prompt else '' }}>
+            写日记页显示人物印象提示
+          </label>
+          <label class="check-row">
+            <input name="backup_custom_before_update" type="checkbox" {{ 'checked' if settings.backup_custom_before_update else '' }}>
+            更新官方模块前备份自定义前端和模块
+          </label>
+          <label>
+            人物印象提示词
+            <textarea name="impression_prompt">{{ settings.impression_prompt }}</textarea>
+          </label>
+          <div class="form-actions">
+            <button type="submit">保存模块设置</button>
+            <span class="muted">保存到 system/settings/service-ui.json。</span>
+          </div>
+        </form>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Runtime</p>
+            <h2>运行环境</h2>
+          </div>
+        </div>
+        <div class="settings-table">
+          <div><span>数据目录</span><strong>{{ runtime_settings.data_dir if runtime_settings else '' }}</strong></div>
+          <div><span>服务端口</span><strong>{{ runtime_settings.port if runtime_settings else '' }}</strong></div>
+          <div><span>网页管理员密码</span><strong>{{ '已设置' if security and security.admin_password else '未设置' }}</strong></div>
+          <div><span>外部 API</span><strong>{{ '已启用' if security and security.external_api_enabled else '未启用' }}</strong></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Backup</p>
+            <h2>导入导出</h2>
+          </div>
+        </div>
+        <div class="form-actions">
+          <a class="primary-action" href="/settings/export">导出小窝备份</a>
+          <span class="muted">导出包含 system、modules、user_custom 和 imports。</span>
+        </div>
+        <form class="upload-zone" method="post" action="/settings/import" enctype="multipart/form-data">
+          <input id="backupFile" name="backup_file" type="file" accept=".zip" required>
+          <label for="backupFile">
+            <strong>拖入或选择 ZIP 备份</strong>
+            <span>支持模块化目录，也兼容旧的 diary、memory、media、settings 目录。</span>
+          </label>
+          <button type="submit">导入备份</button>
+        </form>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Version</p>
+            <h2>版本更新</h2>
+          </div>
+        </div>
+        {% if version_message %}
+        <div class="notice success">{{ version_message }}</div>
+        {% endif %}
+        <div class="settings-table">
+          <div><span>当前版本</span><strong>{{ version_current or (version_service.current_version if version_service else '') }}</strong></div>
+          <div><span>最新版本</span><strong>{{ version_latest or '点击检测后显示' }}</strong></div>
+          <div><span>自更新</span><strong>{{ '已启用' if version_service and version_service.enable_self_update else '未启用' }}</strong></div>
+        </div>
+        <div class="form-actions version-actions">
+          <form method="post" action="/settings/version/check">
+            <button type="submit">检测版本</button>
+          </form>
+          <form method="post" action="/settings/version/update">
+            <button type="submit" {{ '' if version_service and version_service.enable_self_update else 'disabled' }}>更新版本</button>
+          </form>
+          {% if not version_service or not version_service.enable_self_update %}
+          <span class="muted">插件更新建议在 AstrBot 插件管理中拉取新版。Git 自更新需要设置 NEST_ENABLE_SELF_UPDATE=true。</span>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Custom WebUI</p>
+            <h2>前端样式与模块</h2>
+          </div>
+        </div>
+        <p class="muted">默认自定义目录是 user_custom/webui。新建样式时建议只覆盖需要改的模板或 CSS，缺失文件会回退到官方默认 WebUI。官方更新不直接覆盖 user_custom。</p>
+        <div class="settings-table">
+          <div><span>主题目录</span><strong>user_custom/webui/themes/{{ settings.active_frontend_style }}</strong></div>
+          <div><span>模块目录</span><strong>user_custom/webui/modules</strong></div>
+          <div><span>官方模块</span><strong>modules/diary、modules/impressions、modules/media、modules/webui</strong></div>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

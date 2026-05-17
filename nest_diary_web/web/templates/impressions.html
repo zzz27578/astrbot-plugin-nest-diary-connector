@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>人物印象 - 小窝</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% from "_shell.html" import nav, alerts %}
+  <main class="app-shell">
+    {{ nav(active) }}
+    <section class="workspace">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">People Memory</p>
+          <h1>人物印象</h1>
+        </div>
+        {% if selected_person %}<a class="primary-action" href="/impressions">新建人物</a>{% endif %}
+      </header>
+      {{ alerts(saved, error) }}
+
+      <section class="section split">
+        <div>
+          {% if people %}
+          <div class="list compact">
+            {% for person in people %}
+            <a class="row {{ 'selected' if selected_person and person.name == selected_person.name else '' }}" href="/impressions?name={{ person.name | urlencode }}">
+              <span>{{ person.name }}</span>
+              <strong>可信度 {{ person.confidence }}/5</strong>
+              <em>{{ person.summary }}</em>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted">还没有人物印象。可以先从日记里出现频繁的人开始。</p>
+          {% endif %}
+        </div>
+
+        <form class="editor-form" method="post" action="/impressions">
+          <div class="form-grid">
+            <label>
+              人物名
+              <input name="name" required value="{{ selected_person.name if selected_person else '' }}" placeholder="例如：admin">
+            </label>
+            <label>
+              关系
+              <input name="relationship" value="{{ selected_person.relationship if selected_person else '' }}" placeholder="朋友、维护者、项目伙伴">
+            </label>
+            <label>
+              性格特征
+              <input name="traits" value="{{ selected_person.traits | join(',') if selected_person else '' }}" placeholder="认真,容易焦虑,行动快">
+            </label>
+            <label>
+              兴趣爱好
+              <input name="interests" value="{{ selected_person.interests | join(',') if selected_person else '' }}" placeholder="AI,插件,背单词">
+            </label>
+            <label>
+              偏好
+              <input name="preferences" value="{{ selected_person.preferences | join(',') if selected_person else '' }}" placeholder="直接一点,少废话,可本地预览">
+            </label>
+            <label>
+              证据日期
+              <input name="evidence_dates" value="{{ selected_person.evidence_dates | join(',') if selected_person else '' }}" placeholder="2026-05-13,2026-05-16">
+            </label>
+            <label>
+              可信度
+              <input name="confidence" type="number" min="1" max="5" value="{{ selected_person.confidence if selected_person else 3 }}">
+            </label>
+          </div>
+          <label>
+            总结
+            <textarea name="summary" required placeholder="用几句话写这个人的长期印象。">{{ selected_person.summary if selected_person else '' }}</textarea>
+          </label>
+          <label>
+            备注
+            <textarea name="notes" placeholder="补充情报、相处方式、容易踩雷的点。">{{ selected_person.notes if selected_person else '' }}</textarea>
+          </label>
+          <aside class="prompt-card">
+            <strong>给 bot 的使用准则</strong>
+            <p>只有当新日记提供了稳定证据时才更新印象。不要因为一次情绪就武断改写人格；可以记录“近期状态”，但长期判断要保留证据日期。</p>
+          </aside>
+          <div class="form-actions">
+            <button type="submit">保存印象</button>
+            {% if selected_person and selected_person.updated_at %}<span class="muted">上次更新：{{ selected_person.updated_at }}</span>{% endif %}
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

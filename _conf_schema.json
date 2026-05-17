@@ -1,16 +1,21 @@
 {
+  "nest_mode": {
+    "description": "小窝运行模式。embedded 表示插件内置 WebUI 和数据核心；standalone 表示兼容旧的独立小窝服务。",
+    "type": "string",
+    "default": "embedded"
+  },
   "enable_diary_module": {
-    "description": "是否启用小窝日记模块。关闭后不建议让 bot 调用写入、读取、搜索日记工具。",
+    "description": "是否启用小窝日记模块。关闭后 bot 不会执行写入、读取、搜索日记或媒体归档。",
     "type": "bool",
     "default": true
   },
   "enable_webui": {
-    "description": "是否启用插件内置小窝 WebUI。当前版本仍以独立服务 WebUI 为主，此开关作为合并架构预留。",
+    "description": "是否启用插件内置小窝 WebUI。embedded 模式下默认启用。",
     "type": "bool",
     "default": true
   },
   "web_host": {
-    "description": "小窝 WebUI 监听地址。公网访问通常配合反向代理使用。",
+    "description": "小窝 WebUI 监听地址。公网访问建议配合反向代理和防火墙。",
     "type": "string",
     "default": "0.0.0.0"
   },
@@ -19,13 +24,18 @@
     "type": "int",
     "default": 28080
   },
+  "admin_password": {
+    "description": "小窝 WebUI 管理员密码。初始建议改掉默认值。",
+    "type": "string",
+    "default": "12345678"
+  },
   "nest_data_dir": {
-    "description": "小窝数据根目录。留空时使用 AstrBot 插件数据目录；也可以填写外置目录避免大量日记和媒体挤占插件代码目录。",
+    "description": "小窝数据根目录。留空时默认使用 /AstrBot/data/plugins_data/astrbot_plugin_nest_diary_connector；本地开发时使用插件目录下 data。",
     "type": "string",
     "default": ""
   },
   "custom_webui_dir": {
-    "description": "自定义前端主题和模块目录。更新官方插件时不会覆盖这里。",
+    "description": "自定义前端主题和模块目录。更新官方插件时不会覆盖这里；留空使用数据目录下 user_custom/webui。",
     "type": "string",
     "default": ""
   },
@@ -35,17 +45,17 @@
     "default": true
   },
   "service_url": {
-    "description": "兼容独立服务模式的小窝日记服务地址，例如 http://nest-diary:28080。未来内置 WebUI 模式下可不使用。",
+    "description": "仅 standalone 兼容模式使用：独立小窝服务地址，例如 http://nest-diary:28080。",
     "type": "string",
     "default": "http://nest-diary:28080"
   },
   "bot_api_token": {
-    "description": "兼容独立服务模式的小窝 API token。未来内置模式下，外部 API Key 只在小窝 WebUI 设置里管理。",
+    "description": "standalone 模式下的小窝 API token；embedded 模式下只作为初始外部 API Key 写入小窝设置，插件内部工具不依赖它。",
     "type": "string",
     "default": ""
   },
   "request_timeout_seconds": {
-    "description": "请求小窝服务的超时时间，单位秒。",
+    "description": "standalone 模式请求独立小窝服务的超时时间，单位秒。",
     "type": "int",
     "default": 30
   },

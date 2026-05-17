@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>搜索 - 小窝</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% from "_shell.html" import nav %}
+  <main class="app-shell">
+    {{ nav(active) }}
+    <section class="workspace">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Recall</p>
+          <h1>搜索</h1>
+        </div>
+      </header>
+      <section class="section">
+        <form class="searchbar" method="get" action="/search">
+          <input name="q" value="{{ q }}" placeholder="关键词、人物、事情、情绪">
+          <button type="submit">搜索</button>
+        </form>
+        {% if archive %}
+        <div class="archive-inline">
+          {% for year in archive %}
+          <a href="/search?q={{ year.year }}">{{ year.year }} · {{ year.count }}</a>
+          {% for month in year.months %}
+          <a href="/search?q={{ year.year }}-{{ month.month }}">{{ year.year }}-{{ month.month }} · {{ month.count }}</a>
+          {% endfor %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if q %}
+        {% if results %}
+        <div class="list">
+          {% for result in results %}
+          <a class="row" href="/diary?date={{ result.date }}">
+            <span>{{ result.date }}</span>
+            <strong>{{ result.title }}</strong>
+            <em>{{ result.snippet }}</em>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="muted">没有搜到相关日记，可以换一个关键词。</p>
+        {% endif %}
+        {% else %}
+        <p class="muted">输入关键词后，小窝会优先从索引中找相关日记，避免一次性翻完整本。</p>
+        {% endif %}
+      </section>
+    </section>
+  </main>
+</body>
+</html>

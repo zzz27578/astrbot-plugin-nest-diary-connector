@@ -9,7 +9,7 @@ Operate a private memory diary through tools, not through the web UI. The web UI
 
 Available tools:
 
-- `nest_status`: check whether the Nest Diary service is reachable.
+- `nest_status`: check whether the Nest Diary module and WebUI are reachable.
 - `search_diary`: retrieve relevant diary candidates by keyword, person, event, date clue, or emotion.
 - `read_diary`: read one known date.
 - `write_diary`: create or revise one date's diary entry with an agent-authored title.
@@ -24,7 +24,7 @@ Available tools:
 2. Search before reading unless the date is explicit. Never load the whole diary corpus.
 3. Treat each diary entry as subjective memory, not a log dump. Preserve emotion, evaluation, relationship context, and future clues.
 4. Keep all writes traceable to a date. Use `YYYY-MM-DD`.
-5. Never bypass the Nest Diary service to write files directly.
+5. Never bypass Nest Diary tools to write files directly.
 6. Do not use the admin website to perform agent work. Call tools.
 7. Update people impressions only when a diary or conversation provides stable evidence. Do not rewrite a person model from one weak mood signal.
 8. Use date-shaped retrieval when possible. Search `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` before broad semantic searches if the clue is temporal.
@@ -211,7 +211,7 @@ I searched all memories and know exactly everything.
 
 ## Failure Handling
 
-- If `nest_status` fails, report that the Nest service is unreachable and do not pretend the diary was checked.
+- If `nest_status` fails, report that Nest Diary is unreachable and do not pretend the diary was checked.
 - If `search_diary` returns nothing, try one narrower or alternate query if the user gave enough clues.
 - If `read_diary` returns missing, say that date has no entry.
 - If `write_diary` fails, do not claim it was saved.

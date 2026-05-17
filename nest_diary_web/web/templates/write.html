@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>写入日记 - 小窝</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% from "_shell.html" import nav, alerts %}
+  <main class="app-shell">
+    {{ nav(active) }}
+    <section class="workspace">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Write / Edit</p>
+          <h1>写入日记</h1>
+        </div>
+        {% if selected_entry %}
+        <a class="primary-action" href="/write">新建空白</a>
+        {% endif %}
+      </header>
+      {{ alerts(saved, error) }}
+
+      <section class="section">
+        <form class="editor-form" method="post" action="/write/diary">
+          <div class="form-grid">
+            <label>
+              日期
+              <input name="date" required placeholder="2026-05-16" value="{{ selected_entry.date if selected_entry else '' }}">
+            </label>
+            <label>
+              标题
+              <input name="title" placeholder="用一句话概括这篇日记" value="{{ selected_entry.normalized_title() if selected_entry else '' }}">
+            </label>
+            <label>
+              情绪
+              <input name="mood" placeholder="focused,relieved" value="{{ selected_entry.mood | join(',') if selected_entry else '' }}">
+            </label>
+            <label>
+              标签
+              <input name="tags" placeholder="diary,memory" value="{{ selected_entry.tags | join(',') if selected_entry else '' }}">
+            </label>
+            <label>
+              人物
+              <input name="people" placeholder="admin,assistant" value="{{ selected_entry.people | join(',') if selected_entry else '' }}">
+            </label>
+            <label>
+              重要度
+              <input name="importance" type="number" min="1" max="5" value="{{ selected_entry.importance if selected_entry else 3 }}">
+            </label>
+          </div>
+          <label>
+            正文
+            <textarea name="body" required placeholder="写发生了什么、为什么重要、主观评价、情绪和未来线索。">{{ selected_entry.body if selected_entry else '' }}</textarea>
+          </label>
+          {% if ui_settings.allow_media_refs %}
+          <label>
+            图片 / 媒体引用
+            <textarea class="short-textarea" name="media_refs" placeholder="每行一个图片或媒体 URL，例如 /media/blobs/sha256 或 https://...">{{ selected_entry.media_refs | join('\n') if selected_entry else '' }}</textarea>
+          </label>
+          {% endif %}
+          {% if ui_settings.show_impression_prompt %}
+          <aside class="prompt-card">
+            <strong>人物印象提示</strong>
+            <p>{{ ui_settings.impression_prompt }}</p>
+            <a class="text-link" href="/impressions">打开印象页</a>
+          </aside>
+          {% endif %}
+          <div class="form-actions">
+            <button type="submit">保存日记</button>
+            <span class="muted">同日期覆盖写入前会自动保留内部快照。</span>
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

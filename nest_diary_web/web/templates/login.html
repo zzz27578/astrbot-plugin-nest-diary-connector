@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>小窝登录</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="login-shell">
+    <form class="login-box" method="post" action="/login">
+      <p class="eyebrow">Nest Diary</p>
+      <h1>小窝后台</h1>
+      <p class="muted">初始管理员密码：{{ default_password }}</p>
+      <input type="password" name="password" placeholder="管理员密码，初始 12345678" autocomplete="current-password" autofocus>
+      {% if error %}
+      <p class="error">{{ error }}</p>
+      {% endif %}
+      <button type="submit">进入</button>
+    </form>
+  </main>
+</body>
+</html>

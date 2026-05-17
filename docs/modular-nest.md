@@ -1,13 +1,14 @@
 # 小窝模块化框架约定
 
-小窝后续以插件为统一入口：插件提供 bot 原生工具、模块注册、默认 WebUI 和内置 Skill。网页和数据不再被视为另一个必须分开维护的产品，而是小窝插件的 WebUI 端。
+小窝以插件为统一入口。插件提供 bot 原生工具、模块注册、默认 WebUI 和内置 Skill；网页和数据是插件能力的一部分，不再需要单独维护一个服务仓库。
 
 ## 配置边界
 
-插件配置只负责 AstrBot 侧能力：
+插件配置负责 AstrBot 侧能力：
 
+- 运行模式：`embedded` 或 `standalone`。
 - 是否启用日记模块。
-- 是否启用 WebUI。
+- 是否启用插件内置 WebUI。
 - WebUI 监听地址和端口。
 - 数据根目录。
 - 自定义前端目录。
@@ -24,9 +25,9 @@
 
 ## API Key
 
-插件内部调用小窝核心模块时不需要 API Key。API Key 只用于外部扩展，例如 MCP、脚本、第三方网页或未来移动端。
+embedded 模式下，插件内部调用小窝核心模块时不需要 API Key。API Key 只用于外部扩展，例如 MCP、脚本、第三方网页、其他 bot 或 future clients。
 
-当前版本仍兼容独立服务模式，所以插件配置中暂时保留 `service_url` 和 `bot_api_token`。合并为插件内置 WebUI 后，外部 API Key 只在小窝 WebUI 设置里管理。
+`service_url` 和 `bot_api_token` 仅用于 `standalone` 兼容模式。
 
 ## 模块清单
 
@@ -48,13 +49,15 @@
 ```text
 user_custom/webui/themes/
 user_custom/webui/modules/
+user_custom/webui/templates/
+user_custom/webui/static/
 ```
 
 默认渲染规则：
 
 ```text
-先找用户主题或模块
-没有 -> 回退到官方默认 WebUI
+先找 user_custom/webui/templates 里的同名页面
+没有 -> 回退到插件内置官方默认页面
 ```
 
-更新前应自动备份 `user_custom/`，避免官方更新覆盖个性化设计。
+自定义模板可以通过 `/custom-static/...` 引用 `user_custom/webui/static/` 里的资源。更新前应备份 `user_custom/`，避免覆盖个性化设计。

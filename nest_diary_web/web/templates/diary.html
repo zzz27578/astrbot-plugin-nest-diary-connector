@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>日记 - 小窝</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  {% from "_shell.html" import nav, alerts %}
+  <main class="app-shell">
+    {{ nav(active) }}
+    <section class="workspace">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Entries</p>
+          <h1>日记</h1>
+        </div>
+        <a class="primary-action" href="/write">写一篇</a>
+      </header>
+      {{ alerts(saved, error) }}
+
+      <section class="section">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">Jump</p>
+            <h2>按日期查看</h2>
+          </div>
+          <span class="muted">只显示已有日记的年月日。</span>
+        </div>
+        <form class="date-jump" method="get" action="/diary">
+          <select id="yearSelect" aria-label="年份"></select>
+          <select id="monthSelect" aria-label="月份"></select>
+          <select id="daySelect" aria-label="日期" name="date"></select>
+          <button type="submit">打开</button>
+        </form>
+      </section>
+
+      <section class="section diary-layout">
+        <aside class="diary-list">
+          {% if entries %}
+          <div class="list compact">
+            {% for entry in entries %}
+            <a class="row {{ 'selected' if selected_entry and entry.date == selected_entry.date else '' }}" href="/diary?date={{ entry.date }}">
+              <span>{{ entry.date }}</span>
+              <strong>{{ entry.normalized_title() }}</strong>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted">还没有日记。</p>
+          {% endif %}
+        </aside>
+
+        <article class="entry">
+          {% if selected_entry %}
+          <p class="eyebrow">{{ selected_entry.date }}</p>
+          <h2>{{ selected_entry.normalized_title() }}</h2>
+          <div class="chips">
+            {% for tag in selected_entry.tags %}<span>{{ tag }}</span>{% endfor %}
+            {% for mood in selected_entry.mood %}<span>{{ mood }}</span>{% endfor %}
+            {% for person in selected_entry.people %}<a href="/impressions?name={{ person | urlencode }}">{{ person }}</a>{% endfor %}
+          </div>
+          <pre>{{ selected_entry.body }}</pre>
+          {% if selected_entry.media_refs %}
+          <section class="media-strip">
+            <h3>媒体引用</h3>
+            <div class="media-grid">
+              {% for ref in selected_entry.media_refs %}
+              <a href="{{ ref }}" target="_blank" rel="noreferrer">
+                {% if ref.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')) or ref.startswith('/media/blobs/') %}
+                <img src="{{ ref }}" alt="日记媒体">
+                {% else %}
+                <span>{{ ref }}</span>
+                {% endif %}
+              </a>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+          <div class="form-actions">
+            <a class="primary-action" href="/write?date={{ selected_entry.date }}">编辑这篇</a>
+            <form method="post" action="/diary/delete" onsubmit="return confirm('确定删除这篇日记吗？删除前会保留内部快照。');">
+              <input type="hidden" name="date" value="{{ selected_entry.date }}">
+              <button class="danger-action" type="submit">删除日记</button>
+            </form>
+          </div>
+          {% else %}
+          <p class="muted">从左侧选择一篇日记。</p>
+          {% endif %}
+        </article>
+      </section>
+    </section>
+  </main>
+  <script>
+    const archive = {{ archive | tojson }};
+    const selectedDate = "{{ selected_entry.date if selected_entry else '' }}";
+    const yearSelect = document.getElementById("yearSelect");
+    const monthSelect = document.getElementById("monthSelect");
+    const daySelect = document.getElementById("daySelect");
+
+    function fillSelect(select, items, labeler, valueGetter) {
+      select.innerHTML = "";
+      items.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = valueGetter(item);
+        option.textContent = labeler(item);
+        select.appendChild(option);
+      });
+    }
+
+    function currentYear() {
+      return archive.find((item) => item.year === yearSelect.value) || archive[0];
+    }
+
+    function currentMonth() {
+      const year = currentYear();
+      return year ? year.months.find((item) => item.month === monthSelect.value) || year.months[0] : null;
+    }
+
+    function refreshMonths() {
+      const year = currentYear();
+      fillSelect(monthSelect, year ? year.months : [], (item) => `${item.month} 月 · ${item.count} 篇`, (item) => item.month);
+      refreshDays();
+    }
+
+    function refreshDays() {
+      const month = currentMonth();
+      fillSelect(daySelect, month ? month.days : [], (item) => `${item.date} · ${item.title}`, (item) => item.date);
+    }
+
+    if (archive.length) {
+      fillSelect(yearSelect, archive, (item) => `${item.year} · ${item.count} 篇`, (item) => item.year);
+      if (selectedDate) {
+        const [year, month] = selectedDate.split("-");
+        yearSelect.value = year;
+        refreshMonths();
+        monthSelect.value = month;
+        refreshDays();
+        daySelect.value = selectedDate;
+      } else {
+        refreshMonths();
+      }
+      yearSelect.addEventListener("change", refreshMonths);
+      monthSelect.addEventListener("change", refreshDays);
+    } else {
+      [yearSelect, monthSelect, daySelect].forEach((select) => {
+        select.innerHTML = '<option value="">暂无日记</option>';
+        select.disabled = true;
+      });
+    }
+  </script>
+</body>
+</html>
