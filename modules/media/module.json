@@ -2,7 +2,7 @@
   "id": "media",
   "name": "媒体",
   "type": "module",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "小窝的媒体模块，负责图片、语音和附件归档。",
   "feature_tags": ["media-core"],
   "replaces": [],

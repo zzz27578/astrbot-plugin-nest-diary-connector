@@ -2,7 +2,7 @@
   "id": "diary",
   "name": "日记",
   "type": "module",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "小窝的日记模块，负责写入、读取、检索、归档和媒体引用。",
   "feature_tags": ["diary-core"],
   "replaces": [],

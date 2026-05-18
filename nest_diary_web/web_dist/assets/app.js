@@ -1,4 +1,4 @@
-const APP_VERSION = "0.3.8";
+const APP_VERSION = "0.3.9";
 
 const app = document.getElementById("app");
 const state = {
@@ -14,6 +14,7 @@ const state = {
     loaded: false,
     composerOpen: initialComposerFromLocation(),
     composerDate: initialComposeDateFromLocation(),
+    filters: initialDiaryFilters(),
   },
   search: { query: initialSearchFromLocation(), results: [], backend: "" },
   impressions: [],
@@ -50,6 +51,11 @@ function initialDateFromLocation() {
   const path = window.location.pathname;
   if (!path.startsWith("/diary/")) return "";
   return decodeURIComponent(path.split("/").filter(Boolean).pop() || "");
+}
+
+function initialDiaryFilters() {
+  const date = initialDateFromLocation();
+  return date ? { year: date.slice(0, 4), month: date.slice(0, 7), date } : { year: "", month: "", date: "" };
 }
 
 function initialEditDateFromLocation() {
@@ -334,9 +340,36 @@ async function ensureDiaryList(force = false) {
 
 async function loadDiaryEntry(date) {
   await ensureDiaryList();
-  const selectedDate = date || state.diary.selected?.date || state.diary.items[0]?.date;
+  const visibleItems = filteredDiaryItems();
+  const candidate = date || state.diary.selected?.date || state.selectedDate;
+  const selectedDate = candidate && visibleItems.some((entry) => entry.date === candidate)
+    ? candidate
+    : visibleItems[0]?.date || "";
   state.selectedDate = selectedDate || "";
   state.diary.selected = selectedDate ? await api(`/api/ui/diary/${encodeURIComponent(selectedDate)}`) : null;
+}
+
+function filteredDiaryItems() {
+  const filters = state.diary.filters;
+  return state.diary.items.filter((entry) => {
+    if (filters.date) return entry.date === filters.date;
+    if (filters.month) return entry.date.startsWith(filters.month);
+    if (filters.year) return entry.date.startsWith(filters.year);
+    return true;
+  });
+}
+
+function allDiaryDates() {
+  return state.diary.items.map((entry) => entry.date).filter(Boolean);
+}
+
+function diaryFilterPrefix() {
+  const filters = state.diary.filters;
+  return filters.date || filters.month || filters.year || "";
+}
+
+function clearDiaryFilters() {
+  state.diary.filters = { year: "", month: "", date: "" };
 }
 
 async function renderDiary() {
@@ -380,6 +413,7 @@ async function renderDiary() {
 
 async function selectDiary(date) {
   if (state.view !== "diary") {
+    clearDiaryFilters();
     await setView("diary", { date });
     return;
   }
@@ -397,30 +431,63 @@ async function selectDiary(date) {
 function updateDiaryArchive() {
   const target = document.getElementById("diary-archive");
   if (!target) return;
-  const dates = state.diary.items.map((entry) => entry.date).filter(Boolean);
+  const filters = state.diary.filters;
+  const dates = allDiaryDates();
   const years = [...new Set(dates.map((date) => date.slice(0, 4)))];
-  const months = [...new Set(dates.map((date) => date.slice(0, 7)))];
+  const months = [...new Set(dates.filter((date) => !filters.year || date.startsWith(filters.year)).map((date) => date.slice(0, 7)))];
+  const dateOptions = dates.filter((date) => {
+    if (filters.month) return date.startsWith(filters.month);
+    if (filters.year) return date.startsWith(filters.year);
+    return true;
+  });
   target.innerHTML = `
     <div class="archive-picker">
-      <label><span>年</span><select data-jump-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}">${year}</option>`).join("")}</select></label>
-      <label><span>月</span><select data-jump-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}">${month}</option>`).join("")}</select></label>
-      <label><span>日</span><select data-jump-level="date"><option value="">选择</option>${dates.map((date) => `<option value="${date}" ${date === state.diary.selected?.date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
+      <label class="archive-field"><span>年</span><select data-filter-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}" ${filters.year === year ? "selected" : ""}>${year}</option>`).join("")}</select></label>
+      <label class="archive-field"><span>月</span><select data-filter-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}" ${filters.month === month ? "selected" : ""}>${month}</option>`).join("")}</select></label>
+      <label class="archive-field archive-date-field"><span>日期</span><select data-filter-level="date"><option value="">全部</option>${dateOptions.map((date) => `<option value="${date}" ${filters.date === date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
     </div>
   `;
-  target.querySelectorAll("[data-jump-level]").forEach((node) => {
-    node.addEventListener("change", (event) => {
-      const value = event.currentTarget.value;
-      if (!value) return;
-      const match = state.diary.items.find((entry) => entry.date.startsWith(value));
-      if (match) selectDiary(match.date);
-    });
-  });
+  target.querySelectorAll("[data-filter-level]").forEach((node) => node.addEventListener("change", applyDiaryFilterChange));
 }
 
 function updateDiaryList() {
   const target = document.getElementById("diary-list");
   if (!target) return;
-  target.innerHTML = state.diary.items.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`;
+  const items = filteredDiaryItems();
+  const prefix = diaryFilterPrefix();
+  target.innerHTML = items.map(entryRow).join("") || `<div class="card-body muted">${prefix ? "这个范围里没有日记。" : "还没有日记。"}</div>`;
+}
+
+async function applyDiaryFilterChange(event) {
+  const level = event.currentTarget.dataset.filterLevel;
+  const value = event.currentTarget.value || "";
+  const filters = state.diary.filters;
+  if (level === "year") {
+    filters.year = value;
+    if (!value || !filters.month.startsWith(value)) filters.month = "";
+    if (!value || !filters.date.startsWith(value)) filters.date = "";
+  }
+  if (level === "month") {
+    filters.month = value;
+    filters.year = value ? value.slice(0, 4) : filters.year;
+    if (!value || !filters.date.startsWith(value)) filters.date = "";
+  }
+  if (level === "date") {
+    filters.date = value;
+    if (value) {
+      filters.year = value.slice(0, 4);
+      filters.month = value.slice(0, 7);
+    }
+  }
+  await applyDiaryFilters();
+}
+
+async function applyDiaryFilters() {
+  await loadDiaryEntry("");
+  updateDiaryArchive();
+  updateDiaryList();
+  updateDiaryArticle({ preserveScroll: false });
+  updateShell();
 }
 
 function updateDiaryArticle({ preserveScroll = false, previousScroll = 0 } = {}) {
@@ -452,6 +519,7 @@ async function openDiaryComposer(date = "") {
   state.diary.composerDate = targetDate;
   state.editingDate = existing ? targetDate : date || "";
   if (existing) {
+    state.diary.filters = { year: targetDate.slice(0, 4), month: targetDate.slice(0, 7), date: targetDate };
     await loadDiaryEntry(targetDate);
     state.notice = date ? "" : "这天已有日记，已切换为编辑。";
   }
@@ -505,6 +573,7 @@ async function handleDiaryComposeDateChange(event) {
   state.diary.composerDate = nextDate;
   const existing = state.diary.items.find((entry) => entry.date === nextDate);
   if (existing) {
+    state.diary.filters = { year: nextDate.slice(0, 4), month: nextDate.slice(0, 7), date: nextDate };
     state.editingDate = nextDate;
     await loadDiaryEntry(nextDate);
     state.notice = "这天已有日记，已切换为编辑。";
@@ -550,6 +619,7 @@ async function saveDiary(event) {
   state.diary.loaded = false;
   state.diary.composerOpen = false;
   state.diary.composerDate = result.entry.date;
+  state.diary.filters = { year: result.entry.date.slice(0, 4), month: result.entry.date.slice(0, 7), date: result.entry.date };
   state.editingDate = "";
   state.notice = "日记已保存。";
   await setView("diary", { date: result.entry.date, keepNotice: true });
