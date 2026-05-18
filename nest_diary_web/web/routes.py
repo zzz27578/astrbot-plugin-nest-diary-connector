@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -74,13 +75,47 @@ def create_web_router(
             {"id": "media", "name": "媒体", "description": "图片、语音和附件归档"},
             {"id": "webui", "name": "WebUI", "description": "网页后台与设置页"},
         ]
-        custom_modules = []
-        modules_dir = custom_webui_root(settings) / "modules"
-        if modules_dir.exists():
-            for path in sorted(modules_dir.iterdir()):
+        data_root = Path(runtime_settings.data_dir) if runtime_settings else Path("data")
+
+        def load_manifest(path: Path, fallback: dict) -> dict:
+            data = dict(fallback)
+            manifest_path = path / "module.json"
+            if manifest_path.exists():
+                try:
+                    data.update(json.loads(manifest_path.read_text(encoding="utf-8")))
+                except Exception:
+                    data["manifest_error"] = "module.json 读取失败"
+            data["id"] = str(data.get("id") or path.name)
+            data["name"] = str(data.get("name") or data["id"])
+            data["description"] = str(data.get("description") or "")
+            return data
+
+        custom_modules = {}
+        for root in [data_root / "modules", custom_webui_root(settings) / "modules"]:
+            if not root.exists():
+                continue
+            for path in sorted(root.iterdir()):
+                if path.is_dir() and path.name not in {"diary", "impressions", "media", "extensions", "archive"}:
+                    item = load_manifest(path, {"id": path.name, "name": path.name, "path": str(path)})
+                    item["path"] = str(path)
+                    custom_modules[path.name] = item
+
+        extensions = {}
+        for root in [data_root / "modules" / "extensions", custom_webui_root(settings) / "extensions"]:
+            if not root.exists():
+                continue
+            for path in sorted(root.iterdir()):
                 if path.is_dir():
-                    custom_modules.append({"id": path.name, "name": path.name, "path": str(path)})
-        return {"official": official, "custom": custom_modules}
+                    item = load_manifest(path, {"id": path.name, "name": path.name, "path": str(path), "type": "extension"})
+                    item["path"] = str(path)
+                    extensions[path.name] = item
+
+        return {
+            "official": official,
+            "custom": sorted(custom_modules.values(), key=lambda item: item["id"]),
+            "extensions": sorted(extensions.values(), key=lambda item: item["id"]),
+            "conflicts": [],
+        }
 
     @router.get("/theme.css")
     async def active_theme_css():
@@ -397,6 +432,7 @@ def create_web_router(
         active_frontend_style: str = Form("default"),
         enabled_official_modules: list[str] = Form(default=[]),
         enabled_custom_modules: list[str] = Form(default=[]),
+        enabled_custom_extensions: list[str] = Form(default=[]),
         custom_webui_dir: str = Form(""),
         backup_custom_before_update: str = Form(""),
         impression_prompt: str = Form(""),
@@ -421,6 +457,7 @@ def create_web_router(
                 active_frontend_style=active_frontend_style.strip() or "default",
                 enabled_official_modules=enabled_official_modules,
                 enabled_custom_modules=enabled_custom_modules,
+                enabled_custom_extensions=enabled_custom_extensions,
                 custom_webui_dir=custom_webui_dir.strip(),
                 backup_custom_before_update=backup_custom_before_update == "on",
                 impression_prompt=impression_prompt.strip(),
@@ -494,7 +531,7 @@ def create_web_router(
             return redirect
         if not backup_service:
             return RedirectResponse("/settings?error=backup-service-unavailable", status_code=303)
-        content = backup_service.export_zip()
+        content = backup_service.export_zip(package_type="full")
         return Response(
             content,
             media_type="application/zip",
@@ -502,7 +539,7 @@ def create_web_router(
         )
 
     @router.post("/settings/import")
-    async def import_backup(request: Request, backup_file: UploadFile = File(...)):
+    async def import_backup(request: Request, backup_file: UploadFile = File(...), strategy: str = Form("safe")):
         redirect = require_login(request)
         if redirect:
             return redirect
@@ -510,11 +547,11 @@ def create_web_router(
             return RedirectResponse("/settings?error=backup-service-unavailable", status_code=303)
         payload = await backup_file.read()
         try:
-            result = backup_service.import_zip(payload)
+            result = backup_service.import_zip(payload, strategy=strategy)
         except Exception as exc:
             return RedirectResponse(f"/settings?error={quote('导入失败：' + str(exc))}", status_code=303)
         indexed = diary_service.rebuild_index() if diary_service else 0
-        message = f"导入完成：{result['imported']} 个文件，跳过 {result['skipped']} 个文件，已重建 {indexed} 篇日记索引。"
+        message = f"导入完成：{result['imported']} 个文件，跳过 {result['skipped']} 个文件，覆盖 {result.get('overwritten', 0)} 个文件，已重建 {indexed} 篇日记索引。"
         return RedirectResponse(f"/settings?version_message={quote(message)}", status_code=303)
 
     return router

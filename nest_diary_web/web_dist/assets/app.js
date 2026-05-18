@@ -1,4 +1,4 @@
-const APP_VERSION = "0.3.6";
+const APP_VERSION = "0.3.7";
 
 const app = document.getElementById("app");
 const state = {
@@ -696,7 +696,7 @@ async function renderSettings() {
         </div>
       </article>
       <article class="card">
-        <div class="card-head"><div><p class="eyebrow">Appearance</p><h2>外观与模块</h2></div><span class="meta">framework/user_custom/webui</span></div>
+        <div class="card-head"><div><p class="eyebrow">Appearance</p><h2>外观</h2></div><span class="meta">framework/user_custom/webui</span></div>
         <div class="card-body form">
           <div class="brand-settings">
             <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
@@ -710,14 +710,19 @@ async function renderSettings() {
             <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(style.kind)}</option>`).join("")}</select></label>
             <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空则使用小窝数据目录下的 framework/user_custom/webui"></label>
           </div>
-          <details>
-            <summary>模块选择</summary>
-            <div class="module-grid">
-              <div>${moduleChecks("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules")}</div>
-              <div>${moduleChecks("自定义模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules")}</div>
-            </div>
-          </details>
           ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
+        </div>
+      </article>
+      <article class="card module-console-card">
+        <div class="card-head"><div><p class="eyebrow">Modules</p><h2>模块控制台</h2></div><span class="meta">官方稳定，自定义隔离</span></div>
+        <div class="card-body form">
+          <div class="notice soft">官方模块会随插件更新；如果要改日记这类官方能力，优先做拓展包。确实要替代整套功能时，请做自定义完整模块并声明 feature_tags、replaces、conflicts_with。</div>
+          ${moduleWarnings(payload.module_catalog.conflicts || [])}
+          <div class="module-console">
+            ${moduleGroup("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules", "插件更新可能替换官方实现；数据仍在数据目录中。")}
+            ${moduleGroup("自定义完整模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules", "用于替代或新增完整功能，数据放 modules/<module-id>/。")}
+            ${moduleGroup("拓展包", payload.module_catalog.extensions || [], settings.enabled_custom_extensions || [], "enabled_custom_extensions", "用于增强现有模块，数据放 modules/extensions/<extension-id>/。")}
+          </div>
         </div>
       </article>
       <div class="sticky-save"><button class="primary">保存小窝设置</button><span class="muted">常用项在外层，低频项已收进折叠区。</span></div>
@@ -731,13 +736,32 @@ async function renderSettings() {
             <label>外部 API Key<input name="bot_api_token" value="${escapeHtml(payload.security.bot_api_token || "")}"></label>
           </div>
           <details><summary>外部 API 选项</summary>${check("generate_bot_api_token", "保存时生成新的外部 API Key", false)}${check("external_api_enabled", "启用外部 API", payload.security.external_api_enabled)}</details>
-          <div class="actions"><button class="primary">保存访问密钥</button><a class="button" href="/settings/export">导出备份</a></div>
+          <div class="actions"><button class="primary">保存访问密钥</button></div>
         </form>
+      </article>
+      <article class="card">
+        <div class="card-head"><div><p class="eyebrow">Backup</p><h2>分层导入导出</h2></div><span class="meta">manifest.json</span></div>
+        <div class="card-body form">
+          <form class="form-grid compact" data-action="export-backup">
+            <label>导出范围<select name="package_type">${exportOptions(payload.module_catalog)}</select></label>
+            <label>模块 ID<input name="module_id" placeholder="导出自定义模块或拓展包时填写"></label>
+            ${check("include_security", "包含管理员密码/API Key", false)}
+            <div class="actions"><button class="primary">导出所选范围</button></div>
+          </form>
+          <form class="upload-zone" data-action="import-backup">
+            <input name="backup_file" type="file" accept=".zip" required>
+            <label>导入策略<select name="strategy"><option value="safe">安全合并：已有文件跳过</option><option value="overwrite">覆盖合并：先备份再覆盖</option></select></label>
+            <div class="actions"><button class="primary">导入备份包</button></div>
+            <p class="muted">导入会读取 manifest 自动识别完整备份、日记、人物印象、媒体、个性化前端、自定义模块或拓展包。</p>
+          </form>
+        </div>
       </article>
     </section>
   `;
   panel("settings").querySelector('[data-action="save-settings"]').addEventListener("submit", saveSettings);
   panel("settings").querySelector('[data-action="save-security"]').addEventListener("submit", saveSecurity);
+  panel("settings").querySelector('[data-action="export-backup"]').addEventListener("submit", exportBackup);
+  panel("settings").querySelector('[data-action="import-backup"]').addEventListener("submit", importBackup);
 }
 
 function check(name, label, checked) {
@@ -748,8 +772,57 @@ function switchControl(name, checked) {
   return `<label class="switch"><input name="${name}" type="checkbox" ${checked ? "checked" : ""}><span></span></label>`;
 }
 
-function moduleChecks(title, modules, enabled, name) {
-  return `<h3>${escapeHtml(title)}</h3>${modules.length ? modules.map((module) => `<label class="check"><input name="${name}" value="${escapeHtml(module.id)}" type="checkbox" ${enabled.includes(module.id) ? "checked" : ""}>${escapeHtml(module.name)} <span class="muted">${escapeHtml(module.description || module.path || "")}</span></label>`).join("") : `<p class="muted">暂无。</p>`}`;
+function moduleWarnings(conflicts) {
+  return conflicts.length
+    ? `<div class="module-warnings">${conflicts.map((item) => `<div class="notice ${item.level === "danger" ? "error" : "soft"}"><strong>${escapeHtml(item.title)}：</strong>${escapeHtml(item.message)}</div>`).join("")}</div>`
+    : `<div class="notice soft">当前没有检测到已启用模块的功能标签冲突。</div>`;
+}
+
+function moduleGroup(title, modules, enabled, inputName, hint) {
+  return `
+    <section class="module-group">
+      <div class="module-group-head"><h3>${escapeHtml(title)}</h3><p class="muted">${escapeHtml(hint)}</p></div>
+      ${modules.length ? modules.map((module) => moduleCard(module, enabled, inputName)).join("") : `<p class="muted">暂无。</p>`}
+    </section>
+  `;
+}
+
+function moduleCard(module, enabled, inputName) {
+  const tags = module.feature_tags || [];
+  const targets = module.target_modules || [];
+  const replaces = module.replaces || [];
+  const conflicts = module.conflicts_with || [];
+  return `
+    <label class="module-card">
+      <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" ${enabled.includes(module.id) ? "checked" : ""}>
+      <span class="module-card-main">
+        <strong>${escapeHtml(module.name || module.id)}</strong>
+        <em>${escapeHtml(module.description || "没有说明。")}</em>
+        <span class="chips small">
+          <span class="chip">${escapeHtml(module.type || "module")}</span>
+          ${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
+          ${targets.map((target) => `<span class="chip">挂载 ${escapeHtml(target)}</span>`).join("")}
+          ${replaces.map((target) => `<span class="chip">替代 ${escapeHtml(target)}</span>`).join("")}
+          ${conflicts.map((target) => `<span class="chip">冲突 ${escapeHtml(target)}</span>`).join("")}
+        </span>
+        ${(module.data_path || module.frontend_path) ? `<span class="module-paths">${escapeHtml([module.data_path, module.frontend_path].filter(Boolean).join(" · "))}</span>` : ""}
+      </span>
+    </label>
+  `;
+}
+
+function exportOptions(catalog) {
+  const options = [
+    ["full", "完整备份"],
+    ["diary", "日记模块"],
+    ["impressions", "人物印象"],
+    ["media", "媒体归档"],
+    ["webui_custom", "个性化前端"],
+    ["security", "安全配置"],
+    ["custom_module", "指定自定义模块"],
+    ["extension", "指定拓展包"],
+  ];
+  return options.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
 }
 
 async function saveSettings(event) {
@@ -774,6 +847,7 @@ async function saveSettings(event) {
     active_frontend_style: form.get("active_frontend_style"),
     enabled_official_modules: form.getAll("enabled_official_modules"),
     enabled_custom_modules: form.getAll("enabled_custom_modules"),
+    enabled_custom_extensions: form.getAll("enabled_custom_extensions"),
     custom_webui_dir: form.get("custom_webui_dir"),
     backup_custom_before_update: form.has("backup_custom_before_update"),
     impression_prompt: form.get("impression_prompt"),
@@ -803,6 +877,44 @@ async function uploadAvatar(file) {
   }
   const data = await response.json();
   return data.avatar_url;
+}
+
+function exportBackup(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const params = new URLSearchParams({
+    package_type: form.get("package_type") || "full",
+    module_id: form.get("module_id") || "",
+    include_security: form.has("include_security") ? "true" : "false",
+  });
+  window.location.href = `/api/ui/export?${params.toString()}`;
+}
+
+async function importBackup(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const payload = new FormData();
+  payload.append("backup_file", form.get("backup_file"));
+  payload.append("strategy", form.get("strategy") || "safe");
+  const response = await fetch("/api/ui/import", {
+    method: "POST",
+    credentials: "same-origin",
+    body: payload,
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  const result = data.result || {};
+  state.notice = `导入完成：${result.imported || 0} 个文件，跳过 ${result.skipped || 0} 个，覆盖 ${result.overwritten || 0} 个。`;
+  state.bootstrap = null;
+  await renderSettings();
+  updateShell();
 }
 
 async function saveSecurity(event) {

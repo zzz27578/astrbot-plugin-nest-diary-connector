@@ -48,14 +48,25 @@ class ServiceSettingsStore:
             settings.enabled_official_modules = ["diary", "impressions", "media", "webui"]
         if not isinstance(settings.enabled_custom_modules, list):
             settings.enabled_custom_modules = []
+        if not isinstance(settings.enabled_custom_extensions, list):
+            settings.enabled_custom_extensions = []
         settings.enabled_official_modules = [
             item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
         ]
-        settings.enabled_custom_modules = [item.strip() for item in settings.enabled_custom_modules if item.strip()]
+        settings.enabled_custom_modules = [
+            item.strip() for item in settings.enabled_custom_modules if self._safe_package_id(item.strip())
+        ]
+        settings.enabled_custom_extensions = [
+            item.strip() for item in settings.enabled_custom_extensions if self._safe_package_id(item.strip())
+        ]
         settings.custom_webui_dir = (settings.custom_webui_dir or "").strip()
         settings.backup_custom_before_update = bool(settings.backup_custom_before_update)
         settings.impression_prompt = settings.impression_prompt or ""
         return settings
+
+    def _safe_package_id(self, value: str) -> bool:
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        return bool(value) and all(char in allowed for char in value)
 
 
 class SecuritySettingsStore:

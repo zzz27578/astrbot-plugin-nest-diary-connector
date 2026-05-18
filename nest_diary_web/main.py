@@ -1,10 +1,11 @@
 ﻿from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.requests import Request
@@ -22,7 +23,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.3.6"
+APP_VERSION = "0.3.7"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -150,21 +151,175 @@ def _frontend_styles(ui_settings: ServiceUiSettings) -> list[dict]:
 
 
 def _module_catalog(ui_settings: ServiceUiSettings) -> dict:
-    custom_modules = []
-    modules_dir = _custom_webui_root(ui_settings) / "modules"
-    if modules_dir.exists():
-        for path in sorted(modules_dir.iterdir()):
-            if path.is_dir():
-                custom_modules.append({"id": path.name, "name": path.name, "path": str(path)})
+    official = _discover_official_modules()
+    custom = _discover_custom_packages(ui_settings, "modules", "module")
+    extensions = _discover_custom_packages(ui_settings, "extensions", "extension")
     return {
-        "official": [
-            {"id": "diary", "name": "日记", "description": "写入、读取、归档和检索"},
-            {"id": "impressions", "name": "人物印象", "description": "长期人物认识"},
-            {"id": "media", "name": "媒体", "description": "图片、语音和附件归档"},
-            {"id": "webui", "name": "WebUI", "description": "网页后台与设置页"},
-        ],
-        "custom": custom_modules,
+        "official": official,
+        "custom": custom,
+        "extensions": extensions,
+        "conflicts": _module_conflicts(ui_settings, official, custom, extensions),
     }
+
+
+def _discover_official_modules() -> list[dict]:
+    modules_root = Path(__file__).resolve().parents[1] / "modules"
+    modules: list[dict] = []
+    for module_id in ["diary", "impressions", "media", "webui"]:
+        modules.append(
+            _load_package_manifest(
+                modules_root / module_id / "module.json",
+                {
+                    "id": module_id,
+                    "name": module_id,
+                    "type": "module",
+                    "description": "",
+                    "feature_tags": [f"{module_id}-core"],
+                    "replaces": [],
+                    "conflicts_with": [],
+                },
+                kind="official",
+            )
+        )
+    return modules
+
+
+def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, package_type: str) -> list[dict]:
+    packages: dict[str, dict] = {}
+    if package_type == "module":
+        module_paths = sorted(paths.modules_dir.iterdir()) if paths.modules_dir.exists() else []
+        for path in module_paths:
+            if path.is_dir() and path.name not in {"diary", "impressions", "media", "extensions", "archive"}:
+                packages[path.name] = _load_package_manifest(
+                    path / "module.json",
+                    {
+                        "id": path.name,
+                        "name": path.name,
+                        "type": "module",
+                        "description": "",
+                        "feature_tags": [],
+                        "replaces": [],
+                        "conflicts_with": [],
+                    },
+                    kind="custom",
+                    data_path=str(path),
+                )
+    else:
+        extension_root = paths.modules_dir / "extensions"
+        if extension_root.exists():
+            for path in sorted(extension_root.iterdir()):
+                if path.is_dir():
+                    packages[path.name] = _load_package_manifest(
+                        path / "module.json",
+                        {
+                            "id": path.name,
+                            "name": path.name,
+                            "type": "extension",
+                            "description": "",
+                            "feature_tags": [],
+                            "target_modules": [],
+                            "conflicts_with": [],
+                        },
+                        kind="extension",
+                        data_path=str(path),
+                    )
+
+    frontend_root = _custom_webui_root(ui_settings) / folder_name
+    if frontend_root.exists():
+        for path in sorted(frontend_root.iterdir()):
+            if not path.is_dir():
+                continue
+            current = packages.get(path.name)
+            loaded = _load_package_manifest(
+                path / "module.json",
+                {
+                    "id": path.name,
+                    "name": path.name,
+                    "type": package_type,
+                    "description": "",
+                    "feature_tags": [],
+                    "conflicts_with": [],
+                },
+                kind="extension" if package_type == "extension" else "custom",
+                frontend_path=str(path),
+            )
+            if current:
+                current["frontend_path"] = str(path)
+                for key in ["name", "description", "feature_tags", "target_modules", "replaces", "conflicts_with"]:
+                    if loaded.get(key):
+                        current[key] = loaded[key]
+            else:
+                packages[path.name] = loaded
+    return sorted(packages.values(), key=lambda item: item["id"])
+
+
+def _load_package_manifest(path: Path, fallback: dict, kind: str, data_path: str = "", frontend_path: str = "") -> dict:
+    data = dict(fallback)
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            data.update(loaded)
+        except Exception:
+            data["manifest_error"] = "module.json 读取失败"
+    data["id"] = str(data.get("id") or path.parent.name)
+    data["name"] = str(data.get("name") or data["id"])
+    data["type"] = str(data.get("type") or fallback.get("type") or "module")
+    data["kind"] = kind
+    data["description"] = str(data.get("description") or "")
+    for key in ["feature_tags", "target_modules", "replaces", "conflicts_with", "tools", "web_routes", "data_roots"]:
+        if not isinstance(data.get(key), list):
+            data[key] = []
+    if data_path:
+        data["data_path"] = data_path
+    if frontend_path:
+        data["frontend_path"] = frontend_path
+    return data
+
+
+def _module_conflicts(ui_settings: ServiceUiSettings, official: list[dict], custom: list[dict], extensions: list[dict]) -> list[dict]:
+    enabled: list[dict] = []
+    enabled.extend(item for item in official if item["id"] in ui_settings.enabled_official_modules)
+    enabled.extend(item for item in custom if item["id"] in ui_settings.enabled_custom_modules)
+    enabled.extend(item for item in extensions if item["id"] in ui_settings.enabled_custom_extensions)
+
+    warnings: list[dict] = []
+    by_id = {item["id"]: item for item in enabled}
+    by_tag: dict[str, list[str]] = {}
+    for item in enabled:
+        for tag in item.get("feature_tags", []):
+            by_tag.setdefault(tag, []).append(item["id"])
+        for replaced in item.get("replaces", []):
+            if replaced in by_id:
+                warnings.append(
+                    {
+                        "level": "warning",
+                        "title": "替代关系",
+                        "message": f"{item['name']} 声明替代 {by_id[replaced]['name']}，建议只启用其中一个。",
+                        "packages": [item["id"], replaced],
+                    }
+                )
+        for target in item.get("conflicts_with", []):
+            if target in by_id:
+                warnings.append(
+                    {
+                        "level": "danger",
+                        "title": "显式冲突",
+                        "message": f"{item['name']} 与 {by_id[target]['name']} 声明冲突，建议禁用一个。",
+                        "packages": [item["id"], target],
+                    }
+                )
+    for tag, package_ids in by_tag.items():
+        if len(package_ids) > 1:
+            names = "、".join(by_id[item_id]["name"] for item_id in package_ids)
+            warnings.append(
+                {
+                    "level": "warning",
+                    "title": "功能标签重叠",
+                    "message": f"{names} 都提供 `{tag}`。可以同时启用，但可能出现入口重复或数据口径不一致。",
+                    "packages": package_ids,
+                }
+            )
+    return warnings
 
 
 class DiaryWriteRequest(BaseModel):
@@ -341,6 +496,7 @@ class SettingsUpdateRequest(BaseModel):
     active_frontend_style: str = "default"
     enabled_official_modules: list[str] = Field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
     enabled_custom_modules: list[str] = Field(default_factory=list)
+    enabled_custom_extensions: list[str] = Field(default_factory=list)
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = ""
@@ -605,6 +761,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             active_frontend_style=payload.active_frontend_style,
             enabled_official_modules=payload.enabled_official_modules,
             enabled_custom_modules=payload.enabled_custom_modules,
+            enabled_custom_extensions=payload.enabled_custom_extensions,
             custom_webui_dir=payload.custom_webui_dir,
             backup_custom_before_update=payload.backup_custom_before_update,
             impression_prompt=payload.impression_prompt,
@@ -624,3 +781,38 @@ async def ui_save_security(payload: SecurityUpdateRequest, _session: None = Depe
     web_auth.admin_password = saved.admin_password
     web_auth.session_secret = saved.bot_api_token or "development-session-secret"
     return {"status": "ok", "security": _security_payload()}
+
+
+@app.get("/api/ui/export")
+async def ui_export_backup(
+    package_type: str = "full",
+    module_id: str = "",
+    include_security: bool = False,
+    _session: None = Depends(require_web_session),
+):
+    content = backup_service.export_zip(
+        package_type=package_type,
+        module_id=module_id,
+        include_security=include_security,
+        nest_version=APP_VERSION,
+    )
+    suffix = f"-{module_id}" if module_id else ""
+    filename = f"nest-{package_type}{suffix}.zip"
+    return Response(
+        content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/ui/import")
+async def ui_import_backup(
+    backup_file: UploadFile = File(...),
+    strategy: str = Form("safe"),
+    _session: None = Depends(require_web_session),
+):
+    payload = await backup_file.read()
+    result = backup_service.import_zip(payload, strategy=strategy)
+    indexed = diary_service.rebuild_index()
+    result["reindexed_diaries"] = indexed
+    return {"status": "ok", "result": result}

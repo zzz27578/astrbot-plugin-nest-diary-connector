@@ -258,10 +258,23 @@
                 <p class="muted">还没有发现自定义模块。放到 user_custom/webui/modules/&lt;module-id&gt;/ 后会显示在这里。</p>
               {% endif %}
             </div>
+            <div>
+              <h3>拓展包</h3>
+              {% if module_catalog.extensions %}
+                {% for module in module_catalog.extensions %}
+                <label class="check-row">
+                  <input name="enabled_custom_extensions" value="{{ module.id }}" type="checkbox" {{ 'checked' if module.id in settings.enabled_custom_extensions else '' }}>
+                  {{ module.name }} <span class="muted">{{ module.path }}</span>
+                </label>
+                {% endfor %}
+              {% else %}
+                <p class="muted">还没有发现拓展包。放到 modules/extensions/&lt;extension-id&gt;/ 或 framework/user_custom/webui/extensions/&lt;extension-id&gt;/ 后会显示在这里。</p>
+              {% endif %}
+            </div>
           </div>
           <div class="form-actions">
             <button type="submit">保存前端与模块选择</button>
-            <span class="muted">这里只保存真实存在的官方模块和扫描到的自定义模块。</span>
+            <span class="muted">这里只保存真实存在的官方模块、自定义模块和拓展包。</span>
           </div>
         </form>
       </section>

@@ -53,6 +53,7 @@ class ServiceUiSettings:
     active_frontend_style: str = "default"
     enabled_official_modules: list[str] = field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
     enabled_custom_modules: list[str] = field(default_factory=list)
+    enabled_custom_extensions: list[str] = field(default_factory=list)
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = (

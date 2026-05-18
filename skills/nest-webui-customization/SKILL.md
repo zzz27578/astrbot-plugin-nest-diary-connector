@@ -23,10 +23,12 @@ Default layout:
         modules/
         static/
         templates/
+        extensions/
   modules/
     diary/
     impressions/
     media/
+    extensions/
 ```
 
 Legacy layouts may still contain `user_custom/webui` or `system/settings`. Prefer the `framework/` layout for new work.
@@ -69,6 +71,13 @@ framework/user_custom/webui/modules/<module-id>/
   notes.md
 ```
 
+Prefer extension packages when enhancing an existing module:
+
+```text
+framework/user_custom/webui/extensions/<extension-id>/
+modules/extensions/<extension-id>/
+```
+
 Examples:
 
 ```text
@@ -76,9 +85,60 @@ avatar-room
 mood-timeline
 memory-map
 study-board
+diary-emotion-chart
+impressions-radar
 ```
 
 Keep module ids lowercase with hyphens.
+
+## Official Module Rule
+
+Official modules are updateable defaults. Do not directly edit official module code or bundled WebUI files for a user's personal customization:
+
+```text
+modules/diary/module.json
+nest_diary_web/diary/
+nest_diary_web/web_dist/
+skills/nest-diary/SKILL.md
+```
+
+If the user wants to customize an official module:
+
+1. If it is only visual, create or edit a theme under `framework/user_custom/webui/themes/`.
+2. If it adds a view, create an extension under `framework/user_custom/webui/extensions/<extension-id>/`.
+3. If it adds persistent data, store it under `modules/extensions/<extension-id>/`.
+4. If it replaces the full module, create a new full module such as `modules/diary-plus/`, not a direct edit to `modules/diary/`.
+5. If the change should become the official default, recommend a focused PR.
+
+## Module Package Metadata
+
+Every custom module or extension should include a `module.json` with clear identity and conflict metadata.
+
+Full module example:
+
+```json
+{
+  "id": "diary-plus",
+  "type": "module",
+  "feature_tags": ["diary-core"],
+  "replaces": ["diary"],
+  "conflicts_with": ["diary"]
+}
+```
+
+Extension example:
+
+```json
+{
+  "id": "diary-emotion-chart",
+  "type": "extension",
+  "target_modules": ["diary"],
+  "feature_tags": ["diary-visualization"],
+  "conflicts_with": []
+}
+```
+
+If two enabled packages share a feature tag, the module console should warn about possible overlap. Do not forcibly disable either package unless the user explicitly asks.
 
 ## Module Data Rule
 
@@ -89,6 +149,15 @@ modules/<module-id>/
   data/
   index/
   snapshots/
+  module.json
+```
+
+For extension packages:
+
+```text
+modules/extensions/<extension-id>/
+  data/
+  index/
   module.json
 ```
 
@@ -129,6 +198,8 @@ imports/
 ```
 
 Plugin updates may replace official files. They must not overwrite `framework/user_custom/webui/`.
+
+Layered exports should be used for sharing and moving custom work. Prefer exporting a custom module or extension package instead of exporting a full nest when sharing with others. Import should read `manifest.json` and merge according to the chosen strategy.
 
 If a personal customization becomes broadly useful, recommend opening a PR to the official 小窝 plugin repository. Keep PRs focused:
 

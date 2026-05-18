@@ -1,8 +1,12 @@
 {
   "id": "diary",
   "name": "日记",
-  "version": "0.3.6",
+  "type": "module",
+  "version": "0.3.7",
   "description": "小窝的日记模块，负责写入、读取、检索、归档和媒体引用。",
+  "feature_tags": ["diary-core"],
+  "replaces": [],
+  "conflicts_with": [],
   "data_roots": [
     "modules/diary/entries",
     "modules/diary/index",
@@ -21,5 +25,5 @@
     "/search"
   ],
   "depends_on": [],
-  "schema_version": 1
+  "schema_version": 2
 }

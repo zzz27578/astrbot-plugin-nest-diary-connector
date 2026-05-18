@@ -1,0 +1,23 @@
+{
+  "id": "media",
+  "name": "媒体",
+  "type": "module",
+  "version": "0.3.7",
+  "description": "小窝的媒体模块，负责图片、语音和附件归档。",
+  "feature_tags": ["media-core"],
+  "replaces": [],
+  "conflicts_with": [],
+  "data_roots": [
+    "modules/media/blobs",
+    "modules/media/variants",
+    "modules/media/by-date"
+  ],
+  "tools": [
+    "attach_media"
+  ],
+  "web_routes": [
+    "/media"
+  ],
+  "depends_on": [],
+  "schema_version": 2
+}

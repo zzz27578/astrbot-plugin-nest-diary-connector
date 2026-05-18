@@ -776,6 +776,86 @@ details[open] > *:not(summary) {
   gap: 12px;
 }
 
+.module-console {
+  display: grid;
+  gap: 14px;
+}
+
+.module-group {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.module-group-head {
+  display: grid;
+  gap: 4px;
+}
+
+.module-group-head p {
+  margin: 0;
+}
+
+.module-card {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--paper);
+  font-weight: 400;
+}
+
+.module-card input {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 3px;
+}
+
+.module-card-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.module-card-main strong {
+  font-size: 16px;
+}
+
+.module-card-main em,
+.module-paths {
+  color: var(--muted);
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.module-paths {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.module-warnings {
+  display: grid;
+  gap: 8px;
+}
+
+.chips.small {
+  margin: 0;
+  gap: 6px;
+}
+
+.upload-zone {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  background: var(--paper);
+}
+
 .sticky-save {
   position: sticky;
   bottom: 14px;

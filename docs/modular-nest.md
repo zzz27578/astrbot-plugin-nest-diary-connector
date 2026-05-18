@@ -24,6 +24,7 @@ data/
 - `modules/impressions/`
 - `modules/media/`
 - 未来新增的 `modules/<module-id>/`
+- 拓展包数据 `modules/extensions/<extension-id>/`
 
 模块之间不能直接互相改文件。需要协作时，通过工具、API、稳定 ID 或引用字段连接。
 
@@ -49,7 +50,7 @@ data/
 
 ## 模块规范
 
-每个模块建议提供：
+完整模块建议提供：
 
 ```text
 modules/<module-id>/
@@ -59,14 +60,32 @@ modules/<module-id>/
   snapshots/
 ```
 
+拓展包建议提供：
+
+```text
+modules/extensions/<extension-id>/
+  module.json
+  data/
+  index/
+```
+
 `module.json` 声明：
 
 - 模块 id、名称、版本
+- 类型：`module` 或 `extension`
+- 功能标签：`feature_tags`
+- 目标模块：`target_modules`，拓展包使用
+- 替代关系：`replaces`
+- 冲突声明：`conflicts_with`
 - 数据目录
 - 暴露工具
 - Web 路由
 - 依赖模块
 - schema 版本
+
+推荐优先做拓展包。只有确实要替代整套能力时，才创建完整模块并声明 `replaces` / `conflicts_with`。例如重构日记模块时，不要直接修改官方 `diary`，而是创建 `diary-plus`。
+
+模块控制台只提示冲突，不强制禁用。用户可以保留多个模块，但需要承担入口重复、工具重复或数据口径不一致的风险。
 
 ## 自定义前端
 
@@ -81,6 +100,7 @@ framework/user_custom/webui/
 ```text
 framework/user_custom/webui/themes/<theme-id>/style.css
 framework/user_custom/webui/modules/<module-id>/
+framework/user_custom/webui/extensions/<extension-id>/
 framework/user_custom/webui/static/
 framework/user_custom/webui/templates/
 ```
@@ -88,6 +108,34 @@ framework/user_custom/webui/templates/
 官方更新只更新插件默认文件，不覆盖 `framework/user_custom/webui/`。
 
 如果自定义前端或模块对其他人也有价值，建议整理成 PR 提交到项目仓库。PR 应该聚焦，不要一次提交过多无关改动。
+
+## 分层导入导出
+
+导出包必须包含 `manifest.json`，用于说明：
+
+- `package_type`
+- `module_id`
+- `created_at`
+- `nest_version`
+- `schema_version`
+
+支持的导出范围：
+
+- `full`
+- `diary`
+- `impressions`
+- `media`
+- `webui_custom`
+- `custom_module`
+- `extension`
+- `security`
+
+导入策略：
+
+- `safe`：已有文件跳过。
+- `overwrite`：已有文件先备份到 `imports/import-backups/`，再覆盖。
+
+除 `security` 包或用户显式勾选外，默认不导出管理员密码和外部 API Key。
 
 ## API Key
 
