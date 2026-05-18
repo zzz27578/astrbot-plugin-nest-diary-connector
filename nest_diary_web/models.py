@@ -24,10 +24,14 @@ class DiaryEntry:
 class PersonImpression:
     name: str
     summary: str
+    identity: str = ""
     traits: list[str] = field(default_factory=list)
+    hobbies: list[str] = field(default_factory=list)
     interests: list[str] = field(default_factory=list)
     preferences: list[str] = field(default_factory=list)
     relationship: str = ""
+    affinity: int = 3
+    special_comment: str = ""
     evidence_dates: list[str] = field(default_factory=list)
     confidence: int = 3
     notes: str = ""
@@ -36,6 +40,8 @@ class PersonImpression:
 
 @dataclass
 class ServiceUiSettings:
+    site_title: str = "小窝"
+    brand_avatar_url: str = ""
     enable_diary_module: bool = True
     search_default_top_k: int = 5
     search_snippet_chars: int = 180
@@ -52,7 +58,9 @@ class ServiceUiSettings:
     impression_prompt: str = (
         "写完日记后，请依据你的角色设定和当天日记内容判断："
         "这篇日记是否提供了关于某个人的稳定新证据。"
-        "如果有，请更新人物印象；如果没有，不要硬写。"
+        "如果有，请先读取旧人物印象，再按变化更新 name、identity、summary、traits、hobbies、interests、preferences、relationship、affinity、special_comment、evidence_dates、confidence、notes；"
+        "summary 写稳定总结，special_comment 写带有主观判断的特殊点评。"
+        "如果没有稳定变化，不要硬写。"
     )
 
 

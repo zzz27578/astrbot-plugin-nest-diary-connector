@@ -346,10 +346,14 @@ def create_web_router(
         request: Request,
         name: str = Form(...),
         summary: str = Form(...),
+        identity: str = Form(""),
         traits: str = Form(""),
+        hobbies: str = Form(""),
         interests: str = Form(""),
         preferences: str = Form(""),
         relationship: str = Form(""),
+        affinity: int = Form(3),
+        special_comment: str = Form(""),
         evidence_dates: str = Form(""),
         confidence: int = Form(3),
         notes: str = Form(""),
@@ -362,10 +366,14 @@ def create_web_router(
         item = PersonImpression(
             name=name.strip(),
             summary=summary.strip(),
+            identity=identity.strip(),
             traits=_split_words(traits),
+            hobbies=_split_words(hobbies),
             interests=_split_words(interests),
             preferences=_split_words(preferences),
             relationship=relationship.strip(),
+            affinity=max(1, min(int(affinity), 5)),
+            special_comment=special_comment.strip(),
             evidence_dates=_split_words(evidence_dates),
             confidence=max(1, min(int(confidence), 5)),
             notes=notes.strip(),
@@ -376,6 +384,8 @@ def create_web_router(
     @router.post("/settings")
     async def save_settings(
         request: Request,
+        site_title: str = Form("小窝"),
+        brand_avatar_url: str = Form(""),
         search_default_top_k: int = Form(5),
         search_snippet_chars: int = Form(180),
         memory_recall_enabled: str = Form(""),
@@ -398,6 +408,8 @@ def create_web_router(
             return RedirectResponse("/settings?error=settings-store-unavailable", status_code=303)
         settings_store.save(
             ServiceUiSettings(
+                site_title=site_title.strip() or "小窝",
+                brand_avatar_url=brand_avatar_url.strip(),
                 enable_diary_module=enable_diary_module == "on",
                 search_default_top_k=search_default_top_k,
                 search_snippet_chars=search_snippet_chars,

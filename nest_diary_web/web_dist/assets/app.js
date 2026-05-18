@@ -1,14 +1,16 @@
-const APP_VERSION = "0.3.5";
+const APP_VERSION = "0.3.6";
 
 const app = document.getElementById("app");
 const state = {
   view: initialViewFromLocation(),
   selectedDate: initialDateFromLocation(),
   editingDate: initialEditDateFromLocation(),
+  selectedImpressionName: initialImpressionFromLocation(),
   bootstrap: null,
   diary: { items: [], archive: [], selected: null, loaded: false },
   search: { query: initialSearchFromLocation(), results: [], backend: "" },
   impressions: [],
+  selectedImpression: null,
   media: [],
   settings: null,
   notice: "",
@@ -51,6 +53,11 @@ function initialEditDateFromLocation() {
 function initialSearchFromLocation() {
   if (window.location.pathname !== "/search") return "";
   return new URLSearchParams(window.location.search).get("q") || "";
+}
+
+function initialImpressionFromLocation() {
+  if (window.location.pathname !== "/impressions") return "";
+  return new URLSearchParams(window.location.search).get("name") || "";
 }
 
 async function api(path, options = {}) {
@@ -97,8 +104,8 @@ function ensureShell() {
     <div class="app" data-app-version="${APP_VERSION}">
       <aside class="nav">
         <button class="brand" data-view="dashboard" type="button">
-          <span class="brand-mark">窝</span>
-          <span><strong>小窝</strong><small>Private Nest</small></span>
+          <span class="brand-mark" id="brand-mark">窝</span>
+          <span><strong id="brand-title">小窝</strong><small>Private Nest</small></span>
         </button>
         <nav class="nav-links">
           ${navItems.map(([key, label, meta]) => `<button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}<span>${meta}</span></button>`).join("")}
@@ -128,6 +135,17 @@ function panel(name) {
 
 function updateShell() {
   ensureShell();
+  const siteTitle = currentSiteTitle();
+  const avatarUrl = currentAvatarUrl();
+  document.title = siteTitle;
+  const brandTitle = document.getElementById("brand-title");
+  if (brandTitle) brandTitle.textContent = siteTitle;
+  const brandMark = document.getElementById("brand-mark");
+  if (brandMark) {
+    brandMark.innerHTML = avatarUrl
+      ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(siteTitle)}">`
+      : `${escapeHtml(siteTitle.slice(0, 1) || "窝")}`;
+  }
   document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === state.view));
   document.querySelectorAll("[data-panel]").forEach((node) => {
     node.hidden = node.dataset.panel !== state.view;
@@ -141,6 +159,14 @@ function updateShell() {
     ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
     ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
   `;
+}
+
+function currentSiteTitle() {
+  return state.bootstrap?.settings?.site_title || state.settings?.settings?.site_title || "小窝";
+}
+
+function currentAvatarUrl() {
+  return state.bootstrap?.settings?.brand_avatar_url || state.settings?.settings?.brand_avatar_url || "";
 }
 
 function pageHead(eyebrow, title, actions = "") {
@@ -169,7 +195,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-edit-date], [data-search-query]");
+    const target = event.target.closest("[data-view], [data-date], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -188,6 +214,14 @@ document.addEventListener(
     }
     if (target.dataset.searchQuery) {
       setView("search", { query: target.dataset.searchQuery });
+      return;
+    }
+    if (target.dataset.impressionName) {
+      selectImpression(target.dataset.impressionName);
+      return;
+    }
+    if (target.dataset.newImpression !== undefined) {
+      newImpression();
     }
   },
   true
@@ -216,11 +250,12 @@ function renderDashboard() {
   const target = panel("dashboard");
   const stats = state.bootstrap.stats;
   const recent = state.bootstrap.recent_entries || [];
+  const siteTitle = currentSiteTitle();
   target.innerHTML = `
     <section class="home-hero">
       <div class="home-hero-copy">
         <p class="eyebrow">Private Nest</p>
-        <h1>小窝首页</h1>
+        <h1>${escapeHtml(siteTitle)}</h1>
         <p class="home-lead">把今天安放好，旧事也能被轻轻找回来。</p>
         <div class="home-actions">
           <button class="button primary" data-view="write" type="button">写日记</button>
@@ -476,14 +511,150 @@ function bindQuickSearch() {
 
 async function renderImpressions() {
   state.impressions = (await api("/api/ui/impressions")).items;
+  if (state.selectedImpressionName) {
+    state.selectedImpression = state.impressions.find((item) => item.name === state.selectedImpressionName) || null;
+  } else {
+    state.selectedImpression = state.impressions[0] || null;
+    state.selectedImpressionName = state.selectedImpression?.name || "";
+  }
   panel("impressions").innerHTML = `
-    ${pageHead("People", "人物印象")}
-    <section class="card">
-      <div class="list">
-        ${state.impressions.map((item) => `<div class="row static"><span>${escapeHtml(item.updated_at || "")}</span><strong>${escapeHtml(item.name)}</strong><em>${escapeHtml(item.summary)}</em><div class="chips">${[...(item.traits || []), ...(item.interests || [])].map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}</div></div>`).join("") || `<div class="card-body muted">还没有人物印象。</div>`}
-      </div>
+    ${pageHead("People", "人物印象", `<button class="button primary" data-new-impression type="button">新建人物</button>`)}
+    <section class="impression-layout">
+      <aside class="card impression-list">
+        <div class="card-head"><h2>人物</h2><span class="meta">${state.impressions.length} 条</span></div>
+        <div class="list">
+          ${state.impressions.map(renderImpressionRow).join("") || `<div class="card-body muted">还没有人物印象。</div>`}
+        </div>
+      </aside>
+      <article class="card impression-detail" id="impression-detail">
+        ${renderImpressionDetail(state.selectedImpression)}
+      </article>
     </section>
   `;
+  bindImpressionForm();
+}
+
+function renderImpressionRow(item) {
+  return `
+    <button class="row ${state.selectedImpressionName === item.name ? "active" : ""}" data-impression-name="${escapeHtml(item.name)}" type="button">
+      <span>${escapeHtml(item.updated_at ? item.updated_at.slice(0, 10) : "")}</span>
+      <strong>${escapeHtml(item.name)}</strong>
+      <em>${escapeHtml(item.identity || item.relationship || item.summary || "")}</em>
+    </button>
+  `;
+}
+
+function renderImpressionDetail(item) {
+  const empty = {
+    name: "",
+    summary: "",
+    identity: "",
+    traits: [],
+    hobbies: [],
+    interests: [],
+    preferences: [],
+    relationship: "",
+    affinity: 3,
+    special_comment: "",
+    evidence_dates: [],
+    confidence: 3,
+    notes: "",
+  };
+  const value = item || empty;
+  return `
+    <div class="card-head">
+      <div><p class="eyebrow">${item ? "Profile" : "New Profile"}</p><h2>${escapeHtml(item?.name || "新建人物印象")}</h2></div>
+      ${item ? `<button class="danger" data-delete-impression="${escapeHtml(item.name)}" type="button">删除</button>` : ""}
+    </div>
+    <form class="card-body form impression-form" data-action="save-impression">
+      <input type="hidden" name="previous_name" value="${escapeHtml(item?.name || "")}">
+      <div class="form-grid compact">
+        <label>名字<input name="name" value="${escapeHtml(value.name)}" required></label>
+        <label>身份<input name="identity" value="${escapeHtml(value.identity || "")}" placeholder="身份、关系定位或长期角色"></label>
+        <label>关系<input name="relationship" value="${escapeHtml(value.relationship || "")}" placeholder="与 bot、项目或管理员的关系"></label>
+        <label>喜爱程度<input name="affinity" type="number" min="1" max="5" value="${value.affinity || 3}"></label>
+        <label>可信度<input name="confidence" type="number" min="1" max="5" value="${value.confidence || 3}"></label>
+        <label>证据日期<input name="evidence_dates" value="${escapeHtml((value.evidence_dates || []).join(","))}" placeholder="2026-05-18,2026-05-19"></label>
+      </div>
+      <label>总结评价<textarea name="summary" required placeholder="稳定、可追溯的长期总结，不要只写一句标签。">${escapeHtml(value.summary || "")}</textarea></label>
+      <div class="form-grid compact">
+        <label>性格特征<input name="traits" value="${escapeHtml((value.traits || []).join(","))}" placeholder="多个用逗号分隔"></label>
+        <label>爱好<input name="hobbies" value="${escapeHtml((value.hobbies || []).join(","))}" placeholder="多个用逗号分隔"></label>
+        <label>兴趣<input name="interests" value="${escapeHtml((value.interests || []).join(","))}" placeholder="多个用逗号分隔"></label>
+        <label>偏好<input name="preferences" value="${escapeHtml((value.preferences || []).join(","))}" placeholder="相处方式、表达偏好、边界"></label>
+      </div>
+      <label>特殊点评<textarea name="special_comment" placeholder="bot 按自己人设写出的主观点评，可以保留语气，但必须有依据。">${escapeHtml(value.special_comment || "")}</textarea></label>
+      <label>备注<textarea name="notes" placeholder="其他情报、待验证观察、长期边界。">${escapeHtml(value.notes || "")}</textarea></label>
+      <div class="notice soft">日记写完后如果开启人物印象自检，bot 应先读取旧印象，再根据新证据决定是否更新；没有稳定变化就不用硬写。</div>
+      <div class="actions"><button class="primary">保存人物印象</button></div>
+    </form>
+  `;
+}
+
+async function selectImpression(name) {
+  state.selectedImpressionName = name || "";
+  state.selectedImpression = state.impressions.find((item) => item.name === state.selectedImpressionName) || null;
+  if (state.view !== "impressions") {
+    await setView("impressions");
+    return;
+  }
+  await renderImpressions();
+  updateShell();
+}
+
+function newImpression() {
+  state.selectedImpressionName = "";
+  state.selectedImpression = null;
+  panel("impressions").querySelectorAll("[data-impression-name]").forEach((node) => node.classList.remove("active"));
+  const target = document.getElementById("impression-detail");
+  if (target) {
+    target.innerHTML = renderImpressionDetail(null);
+    bindImpressionForm();
+  }
+}
+
+function bindImpressionForm() {
+  panel("impressions").querySelector('[data-action="save-impression"]')?.addEventListener("submit", saveImpression);
+  panel("impressions").querySelector("[data-delete-impression]")?.addEventListener("click", deleteImpression);
+}
+
+async function saveImpression(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const payload = {
+    previous_name: form.get("previous_name"),
+    name: form.get("name"),
+    identity: form.get("identity"),
+    summary: form.get("summary"),
+    traits: splitWords(form.get("traits")),
+    hobbies: splitWords(form.get("hobbies")),
+    interests: splitWords(form.get("interests")),
+    preferences: splitWords(form.get("preferences")),
+    relationship: form.get("relationship"),
+    affinity: Number(form.get("affinity") || 3),
+    special_comment: form.get("special_comment"),
+    evidence_dates: splitWords(form.get("evidence_dates")),
+    confidence: Number(form.get("confidence") || 3),
+    notes: form.get("notes"),
+  };
+  const result = await api("/api/ui/impressions", { method: "POST", body: JSON.stringify(payload) });
+  state.notice = "人物印象已保存。";
+  state.selectedImpressionName = result.item.name;
+  state.bootstrap = null;
+  await renderImpressions();
+  updateShell();
+}
+
+async function deleteImpression(event) {
+  const name = event.currentTarget.dataset.deleteImpression;
+  if (!confirm(`删除 ${name} 的人物印象？`)) return;
+  await api(`/api/ui/impressions/${encodeURIComponent(name)}`, { method: "DELETE" });
+  state.notice = "人物印象已删除。";
+  state.selectedImpressionName = "";
+  state.selectedImpression = null;
+  state.bootstrap = null;
+  await renderImpressions();
+  updateShell();
 }
 
 async function renderMedia() {
@@ -527,6 +698,14 @@ async function renderSettings() {
       <article class="card">
         <div class="card-head"><div><p class="eyebrow">Appearance</p><h2>外观与模块</h2></div><span class="meta">framework/user_custom/webui</span></div>
         <div class="card-body form">
+          <div class="brand-settings">
+            <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
+            <div class="form-grid compact">
+              <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
+              <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片 URL，也可在下方上传"></label>
+              <label>上传左上角头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+            </div>
+          </div>
           <div class="form-grid compact">
             <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(style.kind)}</option>`).join("")}</select></label>
             <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空则使用小窝数据目录下的 framework/user_custom/webui"></label>
@@ -576,7 +755,14 @@ function moduleChecks(title, modules, enabled, name) {
 async function saveSettings(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
+  let avatarUrl = String(form.get("brand_avatar_url") || "");
+  const avatarFile = form.get("brand_avatar_file");
+  if (avatarFile && avatarFile.size) {
+    avatarUrl = await uploadAvatar(avatarFile);
+  }
   const payload = {
+    site_title: form.get("site_title"),
+    brand_avatar_url: avatarUrl,
     search_default_top_k: Number(form.get("search_default_top_k") || 5),
     search_snippet_chars: Number(form.get("search_snippet_chars") || 180),
     memory_recall_enabled: form.has("memory_recall_enabled"),
@@ -597,6 +783,26 @@ async function saveSettings(event) {
   state.bootstrap = null;
   await renderSettings();
   updateShell();
+}
+
+async function uploadAvatar(file) {
+  const payload = new FormData();
+  payload.append("file", file);
+  const response = await fetch("/api/ui/avatar", {
+    method: "POST",
+    credentials: "same-origin",
+    body: payload,
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  return data.avatar_url;
 }
 
 async function saveSecurity(event) {

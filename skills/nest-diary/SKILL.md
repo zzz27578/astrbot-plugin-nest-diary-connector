@@ -17,6 +17,7 @@ Available tools:
 - `list_impressions`: list known people impressions.
 - `read_impression`: read one person's long-term impression.
 - `write_impression`: create or revise one person's impression.
+- `delete_impression`: delete a wrong, duplicate, or intentionally removed person impression.
 
 ## Operating Principles
 
@@ -101,6 +102,18 @@ Use this path after writing or reading a diary when the content changes what the
 3. Call `write_impression` only when there is a useful update.
 4. Include `evidence_dates` so the memory stays traceable.
 5. Keep the summary balanced: distinguish long-term patterns from recent temporary state.
+6. Fill the profile as a real memory model, not a tag dump:
+   - `name`: stable person name.
+   - `identity`: role, relationship, or long-term position.
+   - `summary`: detailed evidence-based evaluation.
+   - `traits`: stable personality traits.
+   - `hobbies`: concrete hobbies.
+   - `interests`: broader topics or recurring interests.
+   - `preferences`: interaction preferences, likes, boundaries, or disliked patterns.
+   - `relationship`: relationship to the agent, admin, project, or nest.
+   - `affinity`: 1-5 liking/closeness score from the agent's point of view.
+   - `special_comment`: a subjective but evidence-based comment in the agent's own voice.
+   - `notes`: extra facts, uncertain observations, or future verification points.
 
 Do not force an impression update for every diary. No update is better than noisy memory.
 
@@ -156,11 +169,15 @@ read_impression(name="admin")
 
 write_impression(
   name="admin",
+  identity="Project owner and primary conversation partner",
   summary="A concise, evidence-based impression of the person.",
   traits="direct,detail-oriented",
+  hobbies="building bot homes,local deployment",
   interests="AI,AstrBot,local deployment",
   preferences="working previews,clear docs",
   relationship="project owner",
+  affinity=4,
+  special_comment="Demanding when the tool fails, but the demand is usually pointing at a real product problem.",
   evidence_dates="2026-05-13,2026-05-16",
   confidence=4,
   notes="Separate stable preferences from temporary frustration."
@@ -227,3 +244,4 @@ I searched all memories and know exactly everything.
 - If `write_diary` fails, do not claim it was saved.
 - If `attach_media` fails because the path is inaccessible, ask for or locate an accessible file path.
 - If an impression update would be speculative, skip `write_impression` and say no stable update was needed.
+- Use `delete_impression` only when the target is clearly wrong, duplicate, or explicitly requested for removal.

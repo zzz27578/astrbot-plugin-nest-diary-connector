@@ -100,7 +100,7 @@
   "daily_write_prompt": {
     "description": "每日归档提示词",
     "type": "text",
-    "default": "现在执行小窝每日归档。请根据你的角色设定、今天可用的对话上下文、重要事件和情绪变化，自主整理今天的日记，并调用 write_diary 写入。请自拟一个能概括当天意义的标题，不要把日期当标题。正文需要包含：发生了什么、为什么重要、你的主观评价和情感、相关人物、未来线索或未完成事项。请填写 mood、tags、people；如果有媒体证据，先通过 attach_media 归档，再把返回的媒体引用写入 media_refs。写完后判断是否需要更新人物印象：只有今天提供了稳定新证据时才调用 write_impression；没有新变化就不要更新。"
+    "default": "现在执行小窝每日归档。请根据你的角色设定、今天可用的对话上下文、重要事件和情绪变化，自主整理今天的日记，并调用 write_diary 写入。请自拟一个能概括当天意义的标题，不要把日期当标题。正文需要包含：发生了什么、为什么重要、你的主观评价和情感、相关人物、未来线索或未完成事项。请填写 mood、tags、people；如果有媒体证据，先通过 attach_media 归档，再把返回的媒体引用写入 media_refs。写完后判断是否需要更新人物印象：只有今天提供了稳定新证据时才更新；更新前先 read_impression 读取旧印象，再按变化调用 write_impression，尽量填写 identity、summary、traits、hobbies、interests、preferences、relationship、affinity、special_comment、evidence_dates、confidence、notes；没有新变化就不要更新。"
   },
   "notify_after_write": {
     "description": "归档后反馈",
@@ -156,6 +156,6 @@
   "impression_after_diary_prompt": {
     "description": "印象自检提示词",
     "type": "text",
-    "default": "请严格依据你的角色设定和刚写入的日记判断：是否出现了关于某个人的稳定新认识，例如性格、兴趣、偏好、关系变化、长期需求或重要边界。如果有，先读旧印象再写入更新，并填写证据日期；如果没有，不要调用 write_impression。"
+    "default": "请严格依据你的角色设定和刚写入的日记判断：是否出现了关于某个人的稳定新认识，例如身份定位、性格、爱好、兴趣、偏好、喜爱程度、关系变化、长期需求、重要边界或特殊评价。如果有，先调用 read_impression 读取旧印象，再调用 write_impression 更新，并填写 evidence_dates；summary 写详细总结评价，special_comment 写带有你主观语气但有证据支撑的特殊点评。如果没有稳定变化，不要调用 write_impression。"
   }
 }

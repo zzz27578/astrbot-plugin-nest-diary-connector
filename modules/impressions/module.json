@@ -1,0 +1,22 @@
+{
+  "id": "impressions",
+  "name": "人物印象",
+  "version": "0.3.6",
+  "description": "小窝的人物印象模块，负责保存、读取、编辑和删除长期人物认识。",
+  "data_roots": [
+    "modules/impressions/people",
+    "modules/impressions/topics",
+    "modules/impressions/events"
+  ],
+  "tools": [
+    "list_impressions",
+    "read_impression",
+    "write_impression",
+    "delete_impression"
+  ],
+  "web_routes": [
+    "/impressions"
+  ],
+  "depends_on": [],
+  "schema_version": 1
+}

@@ -3,7 +3,7 @@
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -22,10 +22,11 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.3.5"
+APP_VERSION = "0.3.6"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
+AVATAR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 paths = NestPaths(settings.data_dir)
 diary_service = DiaryService(paths)
 media_service = MediaService(paths)
@@ -310,18 +311,25 @@ async def read_media_blob(digest: str):
 
 
 class ImpressionWriteRequest(BaseModel):
+    previous_name: str = ""
     name: str
     summary: str
+    identity: str = ""
     traits: list[str] = Field(default_factory=list)
+    hobbies: list[str] = Field(default_factory=list)
     interests: list[str] = Field(default_factory=list)
     preferences: list[str] = Field(default_factory=list)
     relationship: str = ""
+    affinity: int = 3
+    special_comment: str = ""
     evidence_dates: list[str] = Field(default_factory=list)
     confidence: int = 3
     notes: str = ""
 
 
 class SettingsUpdateRequest(BaseModel):
+    site_title: str = "小窝"
+    brand_avatar_url: str = ""
     search_default_top_k: int = 5
     search_snippet_chars: int = 180
     memory_recall_enabled: bool = True
@@ -360,20 +368,37 @@ async def read_impression(name: str, _auth: None = Depends(require_bot_token)):
 
 @app.post("/api/v1/impressions/write")
 async def write_impression(payload: ImpressionWriteRequest, _auth: None = Depends(require_bot_token)):
+    previous_name = payload.previous_name.strip()
+    next_name = payload.name.strip()
+    if not next_name:
+        raise HTTPException(status_code=400, detail="Person name is required")
+    if previous_name and previous_name != next_name:
+        impression_service.delete(previous_name)
     saved = impression_service.save(
         PersonImpression(
-            name=payload.name.strip(),
+            name=next_name,
             summary=payload.summary.strip(),
+            identity=payload.identity.strip(),
             traits=payload.traits,
+            hobbies=payload.hobbies,
             interests=payload.interests,
             preferences=payload.preferences,
             relationship=payload.relationship.strip(),
+            affinity=payload.affinity,
+            special_comment=payload.special_comment.strip(),
             evidence_dates=payload.evidence_dates,
             confidence=payload.confidence,
             notes=payload.notes.strip(),
         )
     )
     return {"status": "ok", "item": saved.__dict__}
+
+
+@app.delete("/api/v1/impressions/{name}")
+async def delete_impression(name: str, _auth: None = Depends(require_bot_token)):
+    if not impression_service.delete(name):
+        raise HTTPException(status_code=404, detail="Person impression not found")
+    return {"status": "ok"}
 
 
 @app.get("/api/ui/bootstrap")
@@ -473,20 +498,37 @@ async def ui_read_impression(name: str, _session: None = Depends(require_web_ses
 
 @app.post("/api/ui/impressions")
 async def ui_write_impression(payload: ImpressionWriteRequest, _session: None = Depends(require_web_session)):
+    previous_name = payload.previous_name.strip()
+    next_name = payload.name.strip()
+    if not next_name:
+        raise HTTPException(status_code=400, detail="Person name is required")
+    if previous_name and previous_name != next_name:
+        impression_service.delete(previous_name)
     saved = impression_service.save(
         PersonImpression(
-            name=payload.name.strip(),
+            name=next_name,
             summary=payload.summary.strip(),
+            identity=payload.identity.strip(),
             traits=payload.traits,
+            hobbies=payload.hobbies,
             interests=payload.interests,
             preferences=payload.preferences,
             relationship=payload.relationship.strip(),
+            affinity=payload.affinity,
+            special_comment=payload.special_comment.strip(),
             evidence_dates=payload.evidence_dates,
             confidence=payload.confidence,
             notes=payload.notes.strip(),
         )
     )
     return {"status": "ok", "item": saved.__dict__}
+
+
+@app.delete("/api/ui/impressions/{name}")
+async def ui_delete_impression(name: str, _session: None = Depends(require_web_session)):
+    if not impression_service.delete(name):
+        raise HTTPException(status_code=404, detail="Person impression not found")
+    return {"status": "ok"}
 
 
 @app.get("/api/ui/media")
@@ -514,10 +556,44 @@ async def ui_get_settings(_session: None = Depends(require_web_session)):
     }
 
 
+@app.get("/api/ui/avatar")
+async def ui_avatar(_session: None = Depends(require_web_session)):
+    for suffix in AVATAR_EXTENSIONS:
+        path = paths.framework_dir / "assets" / f"brand-avatar{suffix}"
+        if path.exists():
+            return FileResponse(path)
+    raise HTTPException(status_code=404, detail="Avatar not found")
+
+
+@app.post("/api/ui/avatar")
+async def ui_upload_avatar(file: UploadFile = File(...), _session: None = Depends(require_web_session)):
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in AVATAR_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Only png, jpg, webp or gif avatars are supported")
+    target_dir = paths.framework_dir / "assets"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for old_suffix in AVATAR_EXTENSIONS:
+        old = target_dir / f"brand-avatar{old_suffix}"
+        if old.exists():
+            old.unlink()
+    target = target_dir / f"brand-avatar{suffix}"
+    content = await file.read()
+    if len(content) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Avatar must be 2MB or smaller")
+    target.write_bytes(content)
+    avatar_url = f"/api/ui/avatar?v={int(target.stat().st_mtime)}"
+    current = service_settings.load()
+    current.brand_avatar_url = avatar_url
+    service_settings.save(current)
+    return {"status": "ok", "avatar_url": avatar_url}
+
+
 @app.post("/api/ui/settings")
 async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depends(require_web_session)):
     saved = service_settings.save(
         ServiceUiSettings(
+            site_title=payload.site_title,
+            brand_avatar_url=payload.brand_avatar_url,
             search_default_top_k=payload.search_default_top_k,
             search_snippet_chars=payload.search_snippet_chars,
             memory_recall_enabled=payload.memory_recall_enabled,

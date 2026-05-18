@@ -57,6 +57,8 @@ framework/user_custom/webui/static/
 framework/user_custom/webui/templates/
 ```
 
+Simple identity changes such as the page title (`xxx的小窝`) and the top-left avatar should be done through WebUI settings first. Uploaded official avatar files are stored under `framework/assets/`; deeper visual redesigns belong in `framework/user_custom/webui/`.
+
 Use module-level customization when a feature owns its own UI or data:
 
 ```text

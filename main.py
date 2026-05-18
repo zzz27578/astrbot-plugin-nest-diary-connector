@@ -28,7 +28,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.3.5"
+PLUGIN_VERSION = "0.3.6"
 
 
 class NestDiaryHttpClient:
@@ -104,6 +104,15 @@ class NestDiaryHttpClient:
             async with session.post(
                 f"{self.service_url}/api/v1/impressions/write",
                 json=payload,
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def delete_impression(self, name: str) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.delete(
+                f"{self.service_url}/api/v1/impressions/{quote(name, safe='')}",
                 headers=self._headers(),
             ) as response:
                 response.raise_for_status()
@@ -205,16 +214,25 @@ class EmbeddedNestClient:
             PersonImpression(
                 name=payload["name"].strip(),
                 summary=payload["summary"].strip(),
+                identity=(payload.get("identity") or "").strip(),
                 traits=payload.get("traits") or [],
+                hobbies=payload.get("hobbies") or [],
                 interests=payload.get("interests") or [],
                 preferences=payload.get("preferences") or [],
                 relationship=(payload.get("relationship") or "").strip(),
+                affinity=payload.get("affinity", 3),
+                special_comment=(payload.get("special_comment") or "").strip(),
                 evidence_dates=payload.get("evidence_dates") or [],
                 confidence=payload.get("confidence", 3),
                 notes=(payload.get("notes") or "").strip(),
             )
         )
         return {"status": "ok", "item": saved.__dict__}
+
+    async def delete_impression(self, name: str) -> dict:
+        if not self.impression_service.delete(name):
+            raise FileNotFoundError(f"Person impression not found: {name}")
+        return {"status": "ok"}
 
 
 class NestDiaryTools:
@@ -270,10 +288,14 @@ class NestDiaryTools:
         self,
         name: str,
         summary: str,
+        identity: str = "",
         traits: list[str] | None = None,
+        hobbies: list[str] | None = None,
         interests: list[str] | None = None,
         preferences: list[str] | None = None,
         relationship: str = "",
+        affinity: int = 3,
+        special_comment: str = "",
         evidence_dates: list[str] | None = None,
         confidence: int = 3,
         notes: str = "",
@@ -282,15 +304,22 @@ class NestDiaryTools:
             {
                 "name": name,
                 "summary": summary,
+                "identity": identity,
                 "traits": traits or [],
+                "hobbies": hobbies or [],
                 "interests": interests or [],
                 "preferences": preferences or [],
                 "relationship": relationship,
+                "affinity": affinity,
+                "special_comment": special_comment,
                 "evidence_dates": evidence_dates or [],
                 "confidence": confidence,
                 "notes": notes,
             }
         )
+
+    async def delete_impression(self, name: str) -> dict:
+        return await self.client.delete_impression(name)
 
 
 def _split_words(value: str | None) -> list[str]:
@@ -748,16 +777,26 @@ class NestDiaryConnectorPlugin(Star):
         try:
             item = await self.tools.read_impression(name)
             parts = [f"{item.get('name', name)} 的人物印象：", item.get("summary", "")]
+            if item.get("identity"):
+                parts.append("身份：" + item["identity"])
             if item.get("traits"):
                 parts.append("性格：" + "，".join(item["traits"]))
+            if item.get("hobbies"):
+                parts.append("爱好：" + "，".join(item["hobbies"]))
             if item.get("interests"):
                 parts.append("兴趣：" + "，".join(item["interests"]))
             if item.get("preferences"):
                 parts.append("偏好：" + "，".join(item["preferences"]))
             if item.get("relationship"):
                 parts.append("关系：" + item["relationship"])
+            if item.get("affinity"):
+                parts.append(f"喜爱程度：{item['affinity']}/5")
+            if item.get("special_comment"):
+                parts.append("特殊点评：" + item["special_comment"])
             if item.get("evidence_dates"):
                 parts.append("证据日期：" + "，".join(item["evidence_dates"]))
+            if item.get("notes"):
+                parts.append("备注：" + item["notes"])
             message = "\n".join(part for part in parts if part)
         except Exception as exc:
             message = f"读取人物印象失败：{_brief_error(exc)}"
@@ -769,10 +808,14 @@ class NestDiaryConnectorPlugin(Star):
         event: AstrMessageEvent,
         name: str,
         summary: str,
+        identity: str = "",
         traits: str = "",
+        hobbies: str = "",
         interests: str = "",
         preferences: str = "",
         relationship: str = "",
+        affinity: int = 3,
+        special_comment: str = "",
         evidence_dates: str = "",
         confidence: int = 3,
         notes: str = "",
@@ -782,10 +825,14 @@ class NestDiaryConnectorPlugin(Star):
         Args:
             name(string): 人物名。
             summary(string): 对这个人的稳定总结，必须基于可追溯证据。
+            identity(string): 身份、关系定位或长期角色。
             traits(string): 性格特征，多个用逗号分隔。
+            hobbies(string): 爱好，多个用逗号分隔。
             interests(string): 兴趣爱好，多个用逗号分隔。
             preferences(string): 偏好或相处方式，多个用逗号分隔。
             relationship(string): 与 bot 或项目的关系。
+            affinity(number): 喜爱程度，1 到 5。
+            special_comment(string): bot 根据人设写出的主观特殊点评。
             evidence_dates(string): 支撑这次更新的日记日期，多个用逗号分隔。
             confidence(number): 可信度，1 到 5。
             notes(string): 额外备注。
@@ -794,10 +841,14 @@ class NestDiaryConnectorPlugin(Star):
             result = await self.tools.write_impression(
                 name=name,
                 summary=summary,
+                identity=identity,
                 traits=_split_words(traits),
+                hobbies=_split_words(hobbies),
                 interests=_split_words(interests),
                 preferences=_split_words(preferences),
                 relationship=relationship,
+                affinity=int(affinity),
+                special_comment=special_comment,
                 evidence_dates=_split_words(evidence_dates),
                 confidence=int(confidence),
                 notes=notes,
@@ -806,4 +857,18 @@ class NestDiaryConnectorPlugin(Star):
             message = f"已更新 {item.get('name', name)} 的人物印象。"
         except Exception as exc:
             message = f"写入人物印象失败：{_brief_error(exc)}"
+        return message
+
+    @filter.llm_tool(name="delete_impression")
+    async def delete_impression_tool(self, event: AstrMessageEvent, name: str):
+        """删除指定人物印象。只有确认这条人物印象明显错误、重复或不再需要时才调用。
+
+        Args:
+            name(string): 人物名。
+        """
+        try:
+            await self.tools.delete_impression(name)
+            message = f"已删除 {name} 的人物印象。"
+        except Exception as exc:
+            message = f"删除人物印象失败：{_brief_error(exc)}"
         return message

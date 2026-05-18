@@ -13,6 +13,7 @@ class DiaryService:
         self.store = MarkdownDiaryStore(paths)
         self.search_service = SearchService(paths)
         self.revisions = RevisionService(paths)
+        self.rebuild_index()
 
     def write_diary(self, entry: DiaryEntry, reason: str = "") -> DiaryEntry:
         diary_path = self.paths.diary_file(entry.date)
@@ -59,6 +60,4 @@ class DiaryService:
 
     def rebuild_index(self) -> int:
         entries = self.store.list_entries()
-        for entry in entries:
-            self.search_service.upsert_entry(entry)
-        return len(entries)
+        return self.search_service.sync_entries(entries)

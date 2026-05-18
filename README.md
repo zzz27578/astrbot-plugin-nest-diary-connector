@@ -1,6 +1,6 @@
 # AstrBot 小窝插件
 
-版本：`0.3.5`
+版本：`0.3.6`
 
 小窝是给 bot 使用的私有空间框架。日记只是第一个官方模块，不再把整个插件定义成“小窝日记”。
 
@@ -9,6 +9,7 @@
 - 小窝 WebUI
 - bot 原生工具
 - 框架级设置和管理员密码
+- 小窝标题与左上角头像个性化
 - 模块化数据目录
 - 日记、媒体、人物印象等官方模块
 - 自定义前端和自定义模块目录
@@ -167,6 +168,7 @@ modules/diary/snapshots/
 - `list_impressions`
 - `read_impression`
 - `write_impression`
+- `delete_impression`
 
 `write_diary` 必须提供 bot 自拟标题：
 
@@ -209,7 +211,7 @@ skills/nest-diary/SKILL.md
 skills/nest-webui-customization/SKILL.md
 ```
 
-`nest-diary` 约束 bot 使用工具操作日记模块：先搜索再读取，写日记要有标题、主观评价、情绪和检索线索，人物印象只在有稳定证据时更新。
+`nest-diary` 约束 bot 使用工具操作日记模块：先搜索再读取，写日记要有标题、主观评价、情绪和检索线索；人物印象支持名字、身份、爱好、兴趣、喜爱程度、总结评价、特殊点评和备注，只在有稳定证据时更新。
 
 `nest-webui-customization` 约束 bot 做小窝个性化：区分框架前端和模块前端，只改 `framework/user_custom/webui/` 或对应模块目录；按钮、路由、表单必须对应真实功能；通用改进建议提交 PR。
 

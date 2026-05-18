@@ -2,6 +2,7 @@
 
 import sqlite3
 from dataclasses import dataclass
+from re import split
 
 from nest_diary_web.models import DiaryEntry
 from nest_diary_web.paths import NestPaths
@@ -67,36 +68,51 @@ class SearchService:
 
     def upsert_entry(self, entry: DiaryEntry) -> None:
         with self._connect() as conn:
+            self._upsert_entry(conn, entry)
+
+    def sync_entries(self, entries: list[DiaryEntry]) -> int:
+        dates = {entry.date for entry in entries}
+        with self._connect() as conn:
+            existing_dates = {row[0] for row in conn.execute("SELECT date FROM diary_meta").fetchall()}
+            for entry in entries:
+                self._upsert_entry(conn, entry)
+            for missing_date in existing_dates - dates:
+                conn.execute("DELETE FROM diary_meta WHERE date = ?", (missing_date,))
+                if self.capabilities.fts5:
+                    conn.execute("DELETE FROM diary_fts WHERE date = ?", (missing_date,))
+        return len(entries)
+
+    def _upsert_entry(self, conn: sqlite3.Connection, entry: DiaryEntry) -> None:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO diary_meta
+            (date, title, body, tags, people, mood, importance, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry.date,
+                entry.normalized_title(),
+                entry.body,
+                ",".join(entry.tags),
+                ",".join(entry.people),
+                ",".join(entry.mood),
+                entry.importance,
+                entry.source,
+            ),
+        )
+        if self.capabilities.fts5:
+            conn.execute("DELETE FROM diary_fts WHERE date = ?", (entry.date,))
             conn.execute(
-                """
-                INSERT OR REPLACE INTO diary_meta
-                (date, title, body, tags, people, mood, importance, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                "INSERT INTO diary_fts(date, title, body, tags, people, mood) VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     entry.date,
                     entry.normalized_title(),
                     entry.body,
-                    ",".join(entry.tags),
-                    ",".join(entry.people),
-                    ",".join(entry.mood),
-                    entry.importance,
-                    entry.source,
+                    " ".join(entry.tags),
+                    " ".join(entry.people),
+                    " ".join(entry.mood),
                 ),
             )
-            if self.capabilities.fts5:
-                conn.execute("DELETE FROM diary_fts WHERE date = ?", (entry.date,))
-                conn.execute(
-                    "INSERT INTO diary_fts(date, title, body, tags, people, mood) VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        entry.date,
-                        entry.normalized_title(),
-                        entry.body,
-                        " ".join(entry.tags),
-                        " ".join(entry.people),
-                        " ".join(entry.mood),
-                    ),
-                )
 
     def delete_entry(self, date: str) -> None:
         with self._connect() as conn:
@@ -164,7 +180,7 @@ class SearchService:
                     SELECT date, title, body, tags, people
                     FROM diary_meta
                     WHERE """ + " AND ".join(where_parts) + """
-                    ORDER BY date DESC
+                    ORDER BY importance DESC, date DESC
                     LIMIT ?
                     """,
                     (*params, top_k),
@@ -191,7 +207,7 @@ class SearchService:
                 SELECT date, title, body, tags, people
                 FROM diary_meta
                 WHERE date LIKE ? OR body LIKE ? OR title LIKE ? OR tags LIKE ? OR people LIKE ? OR mood LIKE ?
-                ORDER BY date DESC
+                ORDER BY importance DESC, date DESC
                 LIMIT ?
                 """,
                 (like_query, like_query, like_query, like_query, like_query, like_query, top_k),
@@ -216,8 +232,12 @@ class SearchService:
         return " OR ".join(f'"{token.replace(chr(34), chr(34) + chr(34))}"' for token in tokens)
 
     def _tokens(self, query: str) -> list[str]:
-        normalized = query.replace("，", " ").replace("、", " ").replace(",", " ")
-        return [token.strip() for token in normalized.split() if token.strip()]
+        normalized = query.strip()
+        return [
+            token.strip()
+            for token in split(r"[\s,，、;；:：。.!！?？()\[\]{}<>《》\"'“”‘’/\\|]+", normalized)
+            if token.strip()
+        ]
 
     def _split_csv(self, value: str) -> list[str]:
         return [item for item in value.split(",") if item]
