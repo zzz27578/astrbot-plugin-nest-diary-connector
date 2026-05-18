@@ -23,7 +23,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.3.7"
+APP_VERSION = "0.3.8"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -379,7 +379,13 @@ async def write_diary(
         source=payload.source,
     )
     saved = diary_service.write_diary(entry, reason=payload.reason)
-    return {"status": "ok", "date": saved.date, "title": saved.normalized_title()}
+    touched = impression_service.touch_from_diary(saved)
+    return {
+        "status": "ok",
+        "date": saved.date,
+        "title": saved.normalized_title(),
+        "impressions_touched": [item.name for item in touched],
+    }
 
 
 @app.get("/api/v1/diary/search")
@@ -616,7 +622,8 @@ async def ui_write_diary(payload: DiaryWriteRequest, _session: None = Depends(re
         source=payload.source or "admin",
     )
     saved = diary_service.write_diary(entry, reason=payload.reason or "web_app_update")
-    return {"status": "ok", "entry": _entry_payload(saved)}
+    touched = impression_service.touch_from_diary(saved)
+    return {"status": "ok", "entry": _entry_payload(saved), "impressions_touched": [item.name for item in touched]}
 
 
 @app.delete("/api/ui/diary/{date}")

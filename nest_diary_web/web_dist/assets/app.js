@@ -1,4 +1,4 @@
-const APP_VERSION = "0.3.7";
+const APP_VERSION = "0.3.8";
 
 const app = document.getElementById("app");
 const state = {
@@ -7,7 +7,14 @@ const state = {
   editingDate: initialEditDateFromLocation(),
   selectedImpressionName: initialImpressionFromLocation(),
   bootstrap: null,
-  diary: { items: [], archive: [], selected: null, loaded: false },
+  diary: {
+    items: [],
+    archive: [],
+    selected: null,
+    loaded: false,
+    composerOpen: initialComposerFromLocation(),
+    composerDate: initialComposeDateFromLocation(),
+  },
   search: { query: initialSearchFromLocation(), results: [], backend: "" },
   impressions: [],
   selectedImpression: null,
@@ -16,22 +23,22 @@ const state = {
   notice: "",
   error: "",
   rendered: new Set(),
+  settingsSection: "diary",
 };
 
 const navItems = [
-  ["dashboard", "首页", "Home"],
-  ["diary", "日记", "Entries"],
-  ["write", "写入", "Write"],
-  ["search", "检索", "Recall"],
-  ["impressions", "印象", "People"],
-  ["media", "媒体", "Media"],
-  ["settings", "设置", "Config"],
+  ["dashboard", "首页"],
+  ["diary", "日记"],
+  ["search", "检索"],
+  ["impressions", "印象"],
+  ["media", "媒体"],
+  ["settings", "设置"],
 ];
 
 function initialViewFromLocation() {
   const path = window.location.pathname;
   if (path.startsWith("/diary")) return "diary";
-  if (path === "/write") return "write";
+  if (path === "/write") return "diary";
   if (path === "/search") return "search";
   if (path === "/impressions") return "impressions";
   if (path === "/media") return "media";
@@ -48,6 +55,15 @@ function initialDateFromLocation() {
 function initialEditDateFromLocation() {
   if (window.location.pathname !== "/write") return "";
   return new URLSearchParams(window.location.search).get("date") || "";
+}
+
+function initialComposerFromLocation() {
+  return window.location.pathname === "/write";
+}
+
+function initialComposeDateFromLocation() {
+  if (window.location.pathname !== "/write") return new Date().toISOString().slice(0, 10);
+  return new URLSearchParams(window.location.search).get("date") || new Date().toISOString().slice(0, 10);
 }
 
 function initialSearchFromLocation() {
@@ -105,21 +121,16 @@ function ensureShell() {
       <aside class="nav">
         <button class="brand" data-view="dashboard" type="button">
           <span class="brand-mark" id="brand-mark">窝</span>
-          <span><strong id="brand-title">小窝</strong><small>Private Nest</small></span>
+          <span><strong id="brand-title">小窝</strong><small>私有空间</small></span>
         </button>
         <nav class="nav-links">
-          ${navItems.map(([key, label, meta]) => `<button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}<span>${meta}</span></button>`).join("")}
+          ${navItems.map(([key, label]) => `<button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}</button>`).join("")}
         </nav>
-        <div class="nav-footer">
-          <div id="app-version"></div>
-          <div id="search-backend"></div>
-        </div>
       </aside>
       <main class="main" id="view">
         <div id="notice-slot"></div>
         <section class="view-panel" id="view-dashboard" data-panel="dashboard"></section>
         <section class="view-panel" id="view-diary" data-panel="diary"></section>
-        <section class="view-panel" id="view-write" data-panel="write"></section>
         <section class="view-panel" id="view-search" data-panel="search"></section>
         <section class="view-panel" id="view-impressions" data-panel="impressions"></section>
         <section class="view-panel" id="view-media" data-panel="media"></section>
@@ -150,10 +161,6 @@ function updateShell() {
   document.querySelectorAll("[data-panel]").forEach((node) => {
     node.hidden = node.dataset.panel !== state.view;
   });
-  const versionNode = document.getElementById("app-version");
-  if (versionNode) versionNode.textContent = `服务 v${state.bootstrap?.version || ""} · 前端 ${APP_VERSION}`;
-  const backendNode = document.getElementById("search-backend");
-  if (backendNode) backendNode.textContent = state.bootstrap?.search?.backend || "local index";
   const notice = document.getElementById("notice-slot");
   notice.innerHTML = `
     ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
@@ -172,7 +179,7 @@ function currentAvatarUrl() {
 function pageHead(eyebrow, title, actions = "") {
   return `
     <header class="topbar">
-      <div class="page-title"><p>${escapeHtml(eyebrow)}</p><h1>${escapeHtml(title)}</h1></div>
+      <div class="page-title">${eyebrow ? `<p>${escapeHtml(eyebrow)}</p>` : ""}<h1>${escapeHtml(title)}</h1></div>
       <div class="actions">${actions}</div>
     </header>
   `;
@@ -188,20 +195,41 @@ async function setView(view, options = {}) {
   state.error = "";
   if (Object.prototype.hasOwnProperty.call(options, "date")) state.selectedDate = options.date || "";
   if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
+  if (Object.prototype.hasOwnProperty.call(options, "compose")) state.diary.composerOpen = Boolean(options.compose);
   if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
+  if (view !== "diary") {
+    state.diary.composerOpen = false;
+    state.editingDate = "";
+  }
   await loadView();
 }
 
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-settings-section]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     event.stopPropagation();
     if (target.dataset.view) {
+      if (target.dataset.view === "write") {
+        openDiaryComposer();
+        return;
+      }
+      if (target.dataset.view === "diary") {
+        setView("diary", { compose: false });
+        return;
+      }
       setView(target.dataset.view);
+      return;
+    }
+    if (target.dataset.openWrite !== undefined) {
+      openDiaryComposer();
+      return;
+    }
+    if (target.dataset.closeWrite !== undefined) {
+      closeDiaryComposer();
       return;
     }
     if (target.dataset.date) {
@@ -209,7 +237,7 @@ document.addEventListener(
       return;
     }
     if (target.dataset.editDate) {
-      setView("write", { editDate: target.dataset.editDate });
+      openDiaryComposer(target.dataset.editDate);
       return;
     }
     if (target.dataset.searchQuery) {
@@ -222,6 +250,10 @@ document.addEventListener(
     }
     if (target.dataset.newImpression !== undefined) {
       newImpression();
+      return;
+    }
+    if (target.dataset.settingsSection) {
+      switchSettingsSection(target.dataset.settingsSection);
     }
   },
   true
@@ -233,7 +265,6 @@ async function loadView() {
     await loadBootstrap();
     if (state.view === "dashboard") renderDashboard();
     if (state.view === "diary") await renderDiary();
-    if (state.view === "write") await renderWrite();
     if (state.view === "search") await renderSearch();
     if (state.view === "impressions") await renderImpressions();
     if (state.view === "media") await renderMedia();
@@ -254,23 +285,17 @@ function renderDashboard() {
   target.innerHTML = `
     <section class="home-hero">
       <div class="home-hero-copy">
-        <p class="eyebrow">Private Nest</p>
         <h1>${escapeHtml(siteTitle)}</h1>
-        <p class="home-lead">把今天安放好，旧事也能被轻轻找回来。</p>
+        <p class="home-lead">把今天安放好，旧事也能被轻轻找回来</p>
         <div class="home-actions">
-          <button class="button primary" data-view="write" type="button">写日记</button>
+          <button class="button primary" data-open-write type="button">写日记</button>
           <button class="button" data-view="diary" type="button">看日记</button>
-          <button class="button ghost" data-view="search" type="button">检索回忆</button>
         </div>
       </div>
       <div class="home-status">
         <div class="home-stat"><span>日记</span><strong>${stats.entries}</strong></div>
         <div class="home-stat"><span>媒体</span><strong>${stats.media}</strong></div>
         <div class="home-stat"><span>人物印象</span><strong>${stats.people}</strong></div>
-        <div class="home-status-foot">
-          <span>${escapeHtml(state.bootstrap.search.backend)}</span>
-          <span>v${escapeHtml(state.bootstrap.version || APP_VERSION)}</span>
-        </div>
       </div>
     </section>
     <section class="home-grid">
@@ -278,18 +303,16 @@ function renderDashboard() {
         <div class="card-head"><h2>最近日记</h2><button class="text-button" data-view="diary" type="button">查看全部</button></div>
         <div class="list">${recent.map(entryRow).join("") || `<div class="card-body muted">还没有日记。</div>`}</div>
       </article>
-      <article class="card home-search-card">
-        <div class="card-head"><h2>回忆检索</h2><span class="meta">${escapeHtml(state.bootstrap.search.backend)}</span></div>
-        <div class="card-body">
-          <form class="searchbar" data-action="quick-search">
-            <input name="q" placeholder="关键词、人物、事件或情绪" />
-            <button class="primary">检索</button>
-          </form>
+      <article class="card home-side-card">
+        <div class="card-head"><h2>小窝状态</h2></div>
+        <div class="card-body home-quiet-list">
+          <p><strong>归档</strong><span>日记按年月日保存，保留修订快照。</span></p>
+          <p><strong>印象</strong><span>日记出现的人物会进入人物印象，后续按证据更新。</span></p>
+          <p><strong>个性化</strong><span>外观、模块和拓展包都放在独立目录中。</span></p>
         </div>
       </article>
     </section>
   `;
-  bindQuickSearch();
 }
 
 function entryRow(entry) {
@@ -317,22 +340,41 @@ async function loadDiaryEntry(date) {
 }
 
 async function renderDiary() {
-  await loadDiaryEntry(state.selectedDate);
+  await ensureDiaryList();
+  if (state.diary.composerOpen) {
+    const composeDate = state.diary.composerDate || state.editingDate || new Date().toISOString().slice(0, 10);
+    const existing = state.diary.items.find((entry) => entry.date === composeDate);
+    if (existing && !state.editingDate) {
+      state.editingDate = composeDate;
+      state.notice = state.notice || "这天已有日记，已切换为编辑。";
+    }
+    if (state.editingDate) {
+      await loadDiaryEntry(state.editingDate);
+    } else {
+      await loadDiaryEntry(state.selectedDate);
+    }
+  } else {
+    await loadDiaryEntry(state.selectedDate);
+  }
   if (!state.rendered.has("diary")) {
     panel("diary").innerHTML = `
-      ${pageHead("Entries", "日记", `<button class="button primary" data-view="write" type="button">写一篇</button>`)}
+      ${pageHead("", "日记", `<button class="button primary" data-open-write type="button">写一篇</button>`)}
       <section class="diary-layout">
         <aside class="card diary-list">
           <div id="diary-archive"></div>
           <div class="list" id="diary-list"></div>
         </aside>
-        <article class="card diary-article" id="diary-article"></article>
+        <div class="diary-main">
+          <section class="card diary-compose" id="diary-compose" hidden></section>
+          <article class="card diary-article" id="diary-article"></article>
+        </div>
       </section>
     `;
     state.rendered.add("diary");
   }
   updateDiaryArchive();
   updateDiaryList();
+  await updateDiaryComposer();
   updateDiaryArticle({ preserveScroll: false });
 }
 
@@ -360,9 +402,9 @@ function updateDiaryArchive() {
   const months = [...new Set(dates.map((date) => date.slice(0, 7)))];
   target.innerHTML = `
     <div class="archive-picker">
-      <label>年份<select data-jump-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}">${year}</option>`).join("")}</select></label>
-      <label>月份<select data-jump-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}">${month}</option>`).join("")}</select></label>
-      <label>日期<select data-jump-level="date"><option value="">选择日记</option>${dates.map((date) => `<option value="${date}" ${date === state.diary.selected?.date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
+      <label><span>年</span><select data-jump-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}">${year}</option>`).join("")}</select></label>
+      <label><span>月</span><select data-jump-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}">${month}</option>`).join("")}</select></label>
+      <label><span>日</span><select data-jump-level="date"><option value="">选择</option>${dates.map((date) => `<option value="${date}" ${date === state.diary.selected?.date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
     </div>
   `;
   target.querySelectorAll("[data-jump-level]").forEach((node) => {
@@ -401,6 +443,80 @@ function updateDiaryArticle({ preserveScroll = false, previousScroll = 0 } = {})
   if (preserveScroll) target.scrollTop = Math.min(previousScroll, target.scrollHeight);
 }
 
+async function openDiaryComposer(date = "") {
+  await ensureDiaryList();
+  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const existing = state.diary.items.find((entry) => entry.date === targetDate);
+  state.view = "diary";
+  state.diary.composerOpen = true;
+  state.diary.composerDate = targetDate;
+  state.editingDate = existing ? targetDate : date || "";
+  if (existing) {
+    await loadDiaryEntry(targetDate);
+    state.notice = date ? "" : "这天已有日记，已切换为编辑。";
+  }
+  await renderDiary();
+  updateShell();
+}
+
+function closeDiaryComposer() {
+  state.diary.composerOpen = false;
+  state.editingDate = "";
+  updateDiaryComposer();
+  updateShell();
+}
+
+async function updateDiaryComposer() {
+  const target = document.getElementById("diary-compose");
+  if (!target) return;
+  if (!state.diary.composerOpen) {
+    target.hidden = true;
+    target.innerHTML = "";
+    return;
+  }
+  target.hidden = false;
+  const date = state.diary.composerDate || state.editingDate || new Date().toISOString().slice(0, 10);
+  const selected = state.editingDate && state.diary.selected?.date === state.editingDate ? state.diary.selected : null;
+  target.innerHTML = `
+    <div class="card-head compact-head">
+      <div><h2>${selected ? "编辑日记" : "写一篇"}</h2></div>
+      <button class="text-button" data-close-write type="button">收起</button>
+    </div>
+    <form class="card-body form diary-compose-form" data-action="write-diary">
+      <div class="form-grid compact">
+        <label>日期<input name="date" type="date" value="${escapeHtml(date)}" required></label>
+        <label>标题<input name="title" value="${escapeHtml(selected?.title || "")}" placeholder="给这天起一个真正的标题"></label>
+        <label>情绪<input name="mood" value="${escapeHtml((selected?.mood || []).join(","))}"></label>
+        <label>标签<input name="tags" value="${escapeHtml((selected?.tags || []).join(","))}"></label>
+        <label>人物<input name="people" value="${escapeHtml((selected?.people || []).join(","))}"></label>
+        <label>重要度<input name="importance" type="number" min="1" max="5" value="${selected?.importance || 3}"></label>
+      </div>
+      <label>正文<textarea name="body" required>${escapeHtml(selected?.body || "")}</textarea></label>
+      <label>媒体引用<textarea name="media_refs" placeholder="每行一个图片、语音或附件引用">${escapeHtml((selected?.media_refs || []).join("\n"))}</textarea></label>
+      <div class="actions"><button class="primary">保存日记</button></div>
+    </form>
+  `;
+  target.querySelector('[data-action="write-diary"]').addEventListener("submit", saveDiary);
+  target.querySelector('input[name="date"]').addEventListener("change", handleDiaryComposeDateChange);
+}
+
+async function handleDiaryComposeDateChange(event) {
+  const nextDate = event.currentTarget.value;
+  state.diary.composerDate = nextDate;
+  const existing = state.diary.items.find((entry) => entry.date === nextDate);
+  if (existing) {
+    state.editingDate = nextDate;
+    await loadDiaryEntry(nextDate);
+    state.notice = "这天已有日记，已切换为编辑。";
+  } else {
+    state.editingDate = "";
+    state.notice = "";
+  }
+  await updateDiaryComposer();
+  updateDiaryList();
+  updateShell();
+}
+
 function bindDiaryArticleActions() {
   document.querySelector("[data-delete]")?.addEventListener("click", async (event) => {
     const date = event.currentTarget.dataset.delete;
@@ -413,31 +529,6 @@ function bindDiaryArticleActions() {
     await renderDiary();
     updateShell();
   });
-}
-
-async function renderWrite() {
-  if (state.editingDate) await loadDiaryEntry(state.editingDate);
-  const editing = state.editingDate;
-  const selected = editing && state.diary.selected?.date === editing ? state.diary.selected : null;
-  panel("write").innerHTML = `
-    ${pageHead("Write", editing ? "编辑日记" : "写入日记")}
-    <section class="card">
-      <form class="card-body form" data-action="write-diary">
-        <div class="form-grid">
-          <label>日期<input name="date" type="date" value="${escapeHtml(editing || new Date().toISOString().slice(0, 10))}" required></label>
-          <label>标题<input name="title" value="${escapeHtml(selected?.title || "")}" placeholder="由 bot 或管理员概括，不要只写日期"></label>
-          <label>情绪<input name="mood" value="${escapeHtml((selected?.mood || []).join(","))}"></label>
-          <label>标签<input name="tags" value="${escapeHtml((selected?.tags || []).join(","))}"></label>
-          <label>人物<input name="people" value="${escapeHtml((selected?.people || []).join(","))}"></label>
-          <label>重要度<input name="importance" type="number" min="1" max="5" value="${selected?.importance || 3}"></label>
-        </div>
-        <label>正文<textarea name="body" required>${escapeHtml(selected?.body || "")}</textarea></label>
-        <label>媒体引用<textarea name="media_refs" placeholder="每行一个图片、语音或附件引用">${escapeHtml((selected?.media_refs || []).join("\n"))}</textarea></label>
-        <div class="actions"><button class="primary">保存日记</button><button class="button" data-view="diary" type="button">返回日记</button></div>
-      </form>
-    </section>
-  `;
-  panel("write").querySelector('[data-action="write-diary"]').addEventListener("submit", saveDiary);
 }
 
 async function saveDiary(event) {
@@ -457,6 +548,8 @@ async function saveDiary(event) {
   };
   const result = await api("/api/ui/diary", { method: "POST", body: JSON.stringify(payload) });
   state.diary.loaded = false;
+  state.diary.composerOpen = false;
+  state.diary.composerDate = result.entry.date;
   state.editingDate = "";
   state.notice = "日记已保存。";
   await setView("diary", { date: result.entry.date, keepNotice: true });
@@ -476,20 +569,19 @@ async function loadSearch(query = "") {
 async function renderSearch() {
   await loadSearch(state.search.query);
   panel("search").innerHTML = `
-    ${pageHead("Recall", "检索")}
+    ${pageHead("", "检索")}
     <section class="card">
       <div class="card-body">
         <form class="searchbar" data-action="search">
           <input name="q" value="${escapeHtml(state.search.query)}" placeholder="关键词、人物、事件或情绪" />
           <button class="primary">检索</button>
         </form>
-        <p class="muted">当前检索：${escapeHtml(state.search.backend || state.bootstrap.search.backend)}</p>
       </div>
       <div class="list">
         ${
           state.search.results.length
             ? state.search.results.map((item) => `<button class="row" data-date="${escapeHtml(item.date)}" type="button"><span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></button>`).join("")
-            : `<div class="card-body muted">输入关键词后只返回相关片段，不会把整本日记翻进上下文。</div>`
+            : `<div class="card-body muted">暂无结果。</div>`
         }
       </div>
     </section>
@@ -518,7 +610,7 @@ async function renderImpressions() {
     state.selectedImpressionName = state.selectedImpression?.name || "";
   }
   panel("impressions").innerHTML = `
-    ${pageHead("People", "人物印象", `<button class="button primary" data-new-impression type="button">新建人物</button>`)}
+    ${pageHead("", "人物印象", `<button class="button primary" data-new-impression type="button">新建人物</button>`)}
     <section class="impression-layout">
       <aside class="card impression-list">
         <div class="card-head"><h2>人物</h2><span class="meta">${state.impressions.length} 条</span></div>
@@ -563,7 +655,7 @@ function renderImpressionDetail(item) {
   const value = item || empty;
   return `
     <div class="card-head">
-      <div><p class="eyebrow">${item ? "Profile" : "New Profile"}</p><h2>${escapeHtml(item?.name || "新建人物印象")}</h2></div>
+      <div><h2>${escapeHtml(item?.name || "新建人物印象")}</h2></div>
       ${item ? `<button class="danger" data-delete-impression="${escapeHtml(item.name)}" type="button">删除</button>` : ""}
     </div>
     <form class="card-body form impression-form" data-action="save-impression">
@@ -660,7 +752,7 @@ async function deleteImpression(event) {
 async function renderMedia() {
   state.media = (await api("/api/ui/media")).items;
   panel("media").innerHTML = `
-    ${pageHead("Media", "媒体")}
+    ${pageHead("", "媒体")}
     <section class="grid">
       ${state.media.map((manifest) => `<article class="card"><div class="card-head"><h2>${escapeHtml(manifest.date)}</h2><span class="meta">${manifest.assets?.length || 0} 个文件</span></div><div class="card-body">${(manifest.assets || []).map((asset) => `<p><a href="${asset.url}" target="_blank" rel="noreferrer">${escapeHtml(asset.original_name || asset.sha256)}</a></p>`).join("")}</div></article>`).join("") || `<article class="card"><div class="card-body muted">还没有媒体归档。</div></article>`}
     </section>
@@ -672,96 +764,127 @@ async function renderSettings() {
   state.settings = payload;
   const settings = payload.settings;
   panel("settings").innerHTML = `
-    ${pageHead("Config", "设置")}
-    <form class="settings-sections" data-action="save-settings">
-      <article class="card">
-        <div class="card-head"><div><p class="eyebrow">Core</p><h2>日记与回忆</h2></div><span class="meta">${escapeHtml(payload.search.backend)}</span></div>
-        <div class="card-body form">
-          <div class="setting-line"><div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
-          <div class="setting-line"><div><strong>主动回忆</strong><p class="muted">当上下文不足且提到过去事件时，引导 bot 优先检索日记片段。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
-          <div class="form-grid compact">
-            <label>回忆策略<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>谨慎</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>积极</option></select></label>
-            <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
-          </div>
-          <details>
-            <summary>检索、归档与印象提示</summary>
-            <div class="form-grid compact">
-              <label>片段长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
-              <label>归档粒度<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>年月日</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>年月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>年</option></select></label>
-            </div>
-            ${check("allow_media_refs", "允许媒体引用", settings.allow_media_refs)}
-            ${check("show_impression_prompt", "启用人物印象提示", settings.show_impression_prompt)}
-            <label>人物印象提示词<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
-          </details>
-        </div>
-      </article>
-      <article class="card">
-        <div class="card-head"><div><p class="eyebrow">Appearance</p><h2>外观</h2></div><span class="meta">framework/user_custom/webui</span></div>
-        <div class="card-body form">
-          <div class="brand-settings">
-            <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
-            <div class="form-grid compact">
-              <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
-              <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片 URL，也可在下方上传"></label>
-              <label>上传左上角头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
-            </div>
-          </div>
-          <div class="form-grid compact">
-            <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(style.kind)}</option>`).join("")}</select></label>
-            <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空则使用小窝数据目录下的 framework/user_custom/webui"></label>
-          </div>
-          ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
-        </div>
-      </article>
-      <article class="card module-console-card">
-        <div class="card-head"><div><p class="eyebrow">Modules</p><h2>模块控制台</h2></div><span class="meta">官方稳定，自定义隔离</span></div>
-        <div class="card-body form">
-          <div class="notice soft">官方模块会随插件更新；如果要改日记这类官方能力，优先做拓展包。确实要替代整套功能时，请做自定义完整模块并声明 feature_tags、replaces、conflicts_with。</div>
-          ${moduleWarnings(payload.module_catalog.conflicts || [])}
-          <div class="module-console">
-            ${moduleGroup("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules", "插件更新可能替换官方实现；数据仍在数据目录中。")}
-            ${moduleGroup("自定义完整模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules", "用于替代或新增完整功能，数据放 modules/<module-id>/。")}
-            ${moduleGroup("拓展包", payload.module_catalog.extensions || [], settings.enabled_custom_extensions || [], "enabled_custom_extensions", "用于增强现有模块，数据放 modules/extensions/<extension-id>/。")}
-          </div>
-        </div>
-      </article>
-      <div class="sticky-save"><button class="primary">保存小窝设置</button><span class="muted">常用项在外层，低频项已收进折叠区。</span></div>
-    </form>
-    <section class="settings-sections">
-      <article class="card">
-        <div class="card-head"><div><p class="eyebrow">Access</p><h2>访问与备份</h2></div><span class="meta">插件内部工具不依赖外部 API Key</span></div>
-        <form class="card-body form" data-action="save-security">
-          <div class="form-grid compact">
-            <label>新管理员密码<input name="admin_password" type="password" placeholder="留空则不修改"></label>
-            <label>外部 API Key<input name="bot_api_token" value="${escapeHtml(payload.security.bot_api_token || "")}"></label>
-          </div>
-          <details><summary>外部 API 选项</summary>${check("generate_bot_api_token", "保存时生成新的外部 API Key", false)}${check("external_api_enabled", "启用外部 API", payload.security.external_api_enabled)}</details>
-          <div class="actions"><button class="primary">保存访问密钥</button></div>
+    ${pageHead("", "设置")}
+    <section class="settings-layout">
+      <aside class="settings-menu">
+        ${settingsTab("diary", "日记与回忆")}
+        ${settingsTab("appearance", "外观设置")}
+        ${settingsTab("modules", "模块控制台")}
+        ${settingsTab("access", "访问密钥")}
+        ${settingsTab("backup", "导入导出")}
+      </aside>
+      <div class="settings-content">
+        <form data-action="save-settings">
+          <section class="settings-panel ${settingsPanelClass("diary")}" data-settings-panel="diary">
+            <article class="card">
+              <div class="card-head"><div><h2>日记与回忆</h2></div></div>
+              <div class="card-body form">
+                <div class="setting-line"><div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
+                <div class="setting-line"><div><strong>主动回忆</strong><p class="muted">上下文不够时，引导 bot 先检索日记片段。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
+                <div class="form-grid compact">
+                  <label>回忆策略<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>谨慎</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>积极</option></select></label>
+                  <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
+                  <label>片段长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
+                  <label>归档粒度<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>年月日</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>年月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>年</option></select></label>
+                </div>
+                ${check("allow_media_refs", "允许媒体引用", settings.allow_media_refs)}
+                ${check("show_impression_prompt", "启用人物印象提示", settings.show_impression_prompt)}
+                <label>人物印象提示词<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
+              </div>
+            </article>
+          </section>
+          <section class="settings-panel ${settingsPanelClass("appearance")}" data-settings-panel="appearance">
+            <article class="card">
+              <div class="card-head"><div><h2>外观设置</h2></div></div>
+              <div class="card-body form">
+                <div class="brand-settings">
+                  <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
+                  <div class="form-grid compact">
+                    <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
+                    <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
+                    <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+                    <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
+                    <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认个性化目录"></label>
+                  </div>
+                </div>
+                ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
+              </div>
+            </article>
+          </section>
+          <section class="settings-panel ${settingsPanelClass("modules")}" data-settings-panel="modules">
+            <article class="card module-console-card">
+              <div class="card-head"><div><h2>模块控制台</h2></div><span class="meta">官方稳定，自定义隔离</span></div>
+              <div class="card-body form">
+                <div class="notice soft">官方模块会随插件更新；改官方能力时优先做拓展包。只有要替代整套功能时，才创建自定义完整模块并声明功能标签、替代关系和冲突关系。</div>
+                ${moduleWarnings(payload.module_catalog.conflicts || [])}
+                <div class="module-console">
+                  ${moduleGroup("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules", "插件更新可能替换官方实现；数据仍在数据目录中。")}
+                  ${moduleGroup("自定义完整模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules", "用于替代或新增完整功能，数据放 modules/<module-id>/。")}
+                  ${moduleGroup("拓展包", payload.module_catalog.extensions || [], settings.enabled_custom_extensions || [], "enabled_custom_extensions", "用于增强现有模块，数据放 modules/extensions/<extension-id>/。")}
+                </div>
+              </div>
+            </article>
+          </section>
+          <div class="sticky-save settings-save ${settingsSaveClass()}"><button class="primary">保存设置</button></div>
         </form>
-      </article>
-      <article class="card">
-        <div class="card-head"><div><p class="eyebrow">Backup</p><h2>分层导入导出</h2></div><span class="meta">manifest.json</span></div>
-        <div class="card-body form">
-          <form class="form-grid compact" data-action="export-backup">
-            <label>导出范围<select name="package_type">${exportOptions(payload.module_catalog)}</select></label>
-            <label>模块 ID<input name="module_id" placeholder="导出自定义模块或拓展包时填写"></label>
-            ${check("include_security", "包含管理员密码/API Key", false)}
-            <div class="actions"><button class="primary">导出所选范围</button></div>
-          </form>
-          <form class="upload-zone" data-action="import-backup">
-            <input name="backup_file" type="file" accept=".zip" required>
-            <label>导入策略<select name="strategy"><option value="safe">安全合并：已有文件跳过</option><option value="overwrite">覆盖合并：先备份再覆盖</option></select></label>
-            <div class="actions"><button class="primary">导入备份包</button></div>
-            <p class="muted">导入会读取 manifest 自动识别完整备份、日记、人物印象、媒体、个性化前端、自定义模块或拓展包。</p>
-          </form>
-        </div>
-      </article>
+        <section class="settings-panel ${settingsPanelClass("access")}" data-settings-panel="access">
+          <article class="card">
+            <div class="card-head"><div><h2>访问密钥</h2></div></div>
+            <form class="card-body form" data-action="save-security">
+              <div class="form-grid compact">
+                <label>新管理员密码<input name="admin_password" type="password" placeholder="留空则不修改"></label>
+                <label>外部接口密钥<input name="bot_api_token" value="${escapeHtml(payload.security.bot_api_token || "")}"></label>
+              </div>
+              <details><summary>外部接口选项</summary>${check("generate_bot_api_token", "保存时生成新的外部接口密钥", false)}${check("external_api_enabled", "启用外部接口", payload.security.external_api_enabled)}</details>
+              <div class="actions"><button class="primary">保存访问密钥</button></div>
+            </form>
+          </article>
+        </section>
+        <section class="settings-panel ${settingsPanelClass("backup")}" data-settings-panel="backup">
+          <article class="card">
+            <div class="card-head"><div><h2>导入导出</h2></div></div>
+            <div class="card-body form">
+              <form class="form-grid compact" data-action="export-backup">
+                <label>导出范围<select name="package_type">${exportOptions(payload.module_catalog)}</select></label>
+                <label>模块 ID<input name="module_id" placeholder="导出自定义模块或拓展包时填写"></label>
+                ${check("include_security", "包含管理员密码和接口密钥", false)}
+                <div class="actions"><button class="primary">导出所选范围</button></div>
+              </form>
+              <form class="upload-zone" data-action="import-backup">
+                <input name="backup_file" type="file" accept=".zip" required>
+                <label>导入策略<select name="strategy"><option value="safe">安全合并：已有文件跳过</option><option value="overwrite">覆盖合并：先备份再覆盖</option></select></label>
+                <div class="actions"><button class="primary">导入备份包</button></div>
+                <p class="muted">导入会读取清单，自动识别完整备份、日记、人物印象、媒体、个性化前端、自定义模块或拓展包。</p>
+              </form>
+            </div>
+          </article>
+        </section>
+      </div>
     </section>
   `;
   panel("settings").querySelector('[data-action="save-settings"]').addEventListener("submit", saveSettings);
   panel("settings").querySelector('[data-action="save-security"]').addEventListener("submit", saveSecurity);
   panel("settings").querySelector('[data-action="export-backup"]').addEventListener("submit", exportBackup);
   panel("settings").querySelector('[data-action="import-backup"]').addEventListener("submit", importBackup);
+}
+
+function settingsTab(id, label) {
+  return `<button class="settings-tab ${state.settingsSection === id ? "active" : ""}" data-settings-section="${id}" type="button">${escapeHtml(label)}</button>`;
+}
+
+function settingsPanelClass(id) {
+  return state.settingsSection === id ? "active" : "";
+}
+
+function settingsSaveClass() {
+  return ["diary", "appearance", "modules"].includes(state.settingsSection) ? "active" : "";
+}
+
+function switchSettingsSection(id) {
+  state.settingsSection = id;
+  document.querySelectorAll("[data-settings-section]").forEach((node) => node.classList.toggle("active", node.dataset.settingsSection === id));
+  document.querySelectorAll("[data-settings-panel]").forEach((node) => node.classList.toggle("active", node.dataset.settingsPanel === id));
+  document.querySelectorAll(".settings-save").forEach((node) => node.classList.toggle("active", settingsSaveClass() === "active"));
 }
 
 function check(name, label, checked) {
@@ -799,7 +922,7 @@ function moduleCard(module, enabled, inputName) {
         <strong>${escapeHtml(module.name || module.id)}</strong>
         <em>${escapeHtml(module.description || "没有说明。")}</em>
         <span class="chips small">
-          <span class="chip">${escapeHtml(module.type || "module")}</span>
+          <span class="chip">${escapeHtml(moduleTypeLabel(module.type))}</span>
           ${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
           ${targets.map((target) => `<span class="chip">挂载 ${escapeHtml(target)}</span>`).join("")}
           ${replaces.map((target) => `<span class="chip">替代 ${escapeHtml(target)}</span>`).join("")}
@@ -809,6 +932,19 @@ function moduleCard(module, enabled, inputName) {
       </span>
     </label>
   `;
+}
+
+function moduleTypeLabel(type = "") {
+  if (type === "extension") return "拓展包";
+  if (type === "module") return "完整模块";
+  return type || "模块";
+}
+
+function styleKindLabel(kind = "") {
+  if (kind === "official") return "官方";
+  if (kind === "custom") return "自定义";
+  if (kind === "missing") return "未找到";
+  return kind || "样式";
 }
 
 function exportOptions(catalog) {

@@ -28,7 +28,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.3.7"
+PLUGIN_VERSION = "0.3.8"
 
 
 class NestDiaryHttpClient:
@@ -159,7 +159,13 @@ class EmbeddedNestClient:
             source=payload.get("source", "bot"),
         )
         saved = self.diary_service.write_diary(entry, reason=payload.get("reason", ""))
-        return {"status": "ok", "date": saved.date, "title": saved.normalized_title()}
+        touched = self.impression_service.touch_from_diary(saved)
+        return {
+            "status": "ok",
+            "date": saved.date,
+            "title": saved.normalized_title(),
+            "impressions_touched": [item.name for item in touched],
+        }
 
     async def read_diary(self, date: str) -> dict:
         if not self.service_settings.load().enable_diary_module:
@@ -632,6 +638,9 @@ class NestDiaryConnectorPlugin(Star):
             revision = result.get("revision_id") or result.get("revision")
             suffix = f"，快照号：{revision}" if revision else ""
             message = f"已写入 {saved_date}《{saved_title}》{suffix}。"
+            touched = result.get("impressions_touched") or []
+            if touched:
+                message = f"{message}\n已同步触达人物印象：{'、'.join(touched)}。"
             if self.config.get("auto_impression_after_diary", True):
                 prompt = self.config.get("impression_after_diary_prompt", "").strip()
                 if prompt:

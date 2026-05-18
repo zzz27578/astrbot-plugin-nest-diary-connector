@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from nest_diary_web.models import PersonImpression
+from nest_diary_web.models import DiaryEntry, PersonImpression
 from nest_diary_web.paths import NestPaths
 
 
@@ -68,6 +68,38 @@ class ImpressionService:
                 continue
         return sorted(people, key=lambda item: item.updated_at, reverse=True)
 
+    def touch_from_diary(self, entry: DiaryEntry) -> list[PersonImpression]:
+        touched: list[PersonImpression] = []
+        for raw_name in entry.people:
+            name = raw_name.strip()
+            if not name:
+                continue
+            current = self.get(name)
+            if current:
+                changed = False
+                if entry.date not in current.evidence_dates:
+                    current.evidence_dates.append(entry.date)
+                    changed = True
+                if not current.summary.strip():
+                    current.summary = self._auto_summary(name, entry.date)
+                    changed = True
+                if changed:
+                    current.notes = self._append_auto_note(current.notes, entry.date)
+                    touched.append(self.save(current))
+                continue
+            touched.append(
+                self.save(
+                    PersonImpression(
+                        name=name,
+                        summary=self._auto_summary(name, entry.date),
+                        evidence_dates=[entry.date],
+                        confidence=1,
+                        notes=self._append_auto_note("", entry.date),
+                    )
+                )
+            )
+        return touched
+
     def _from_dict(self, data: dict) -> PersonImpression:
         return PersonImpression(
             name=data["name"],
@@ -92,3 +124,12 @@ class ImpressionService:
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    def _auto_summary(self, name: str, date: str) -> str:
+        return f"{name} 首次出现在 {date} 的日记中，已自动建档；具体印象等待后续日记和机器人主观评价补充。"
+
+    def _append_auto_note(self, notes: str, date: str) -> str:
+        marker = f"自动记录：该人物出现在 {date} 的日记关联人物中。"
+        if marker in notes:
+            return notes
+        return f"{notes.rstrip()}\n{marker}".strip()
