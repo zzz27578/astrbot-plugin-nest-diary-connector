@@ -90,7 +90,7 @@
               </select>
             </label>
             <label>
-              当前前端样式
+              当前样式
               <select name="active_frontend_style">
                 {% for style in frontend_styles %}
                 <option value="{{ style.id }}" {{ 'selected' if settings.active_frontend_style == style.id else '' }}>
@@ -100,7 +100,7 @@
               </select>
             </label>
             <label>
-              自定义前端目录
+              自定义页面目录
               <input name="custom_webui_dir" value="{{ settings.custom_webui_dir }}" placeholder="留空使用 user_custom/webui">
             </label>
           </div>

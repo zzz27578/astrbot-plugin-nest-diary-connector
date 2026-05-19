@@ -41,7 +41,11 @@ class ServiceSettingsStore:
             settings.memory_recall_policy = "conservative"
         if settings.diary_archive_granularity not in {"day", "month", "year"}:
             settings.diary_archive_granularity = "day"
+        settings.enable_media_module = bool(settings.enable_media_module)
         settings.allow_media_refs = bool(settings.allow_media_refs)
+        settings.media_max_items_per_day = max(1, min(int(settings.media_max_items_per_day), 500))
+        settings.media_allow_bot_import = bool(settings.media_allow_bot_import)
+        settings.media_auto_album = bool(settings.media_auto_album)
         settings.enable_impressions_module = bool(settings.enable_impressions_module)
         settings.auto_impression_from_diary = bool(settings.auto_impression_from_diary)
         if settings.impression_write_level not in {"off", "light", "balanced", "deep"}:
@@ -67,6 +71,17 @@ class ServiceSettingsStore:
         settings.enabled_official_modules = [
             item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
         ]
+        settings.enabled_official_modules = [
+            item
+            for item in settings.enabled_official_modules
+            if item != "media" or settings.enable_media_module
+        ]
+        if settings.enable_media_module and "media" not in settings.enabled_official_modules:
+            settings.enabled_official_modules.append("media")
+        if not settings.enable_media_module:
+            settings.allow_media_refs = False
+            settings.media_allow_bot_import = False
+            settings.media_auto_album = False
         settings.enabled_custom_modules = [
             item.strip() for item in settings.enabled_custom_modules if self._safe_package_id(item.strip())
         ]

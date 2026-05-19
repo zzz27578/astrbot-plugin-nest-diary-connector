@@ -23,7 +23,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -417,6 +417,11 @@ def require_impressions_module_enabled() -> None:
         raise HTTPException(status_code=403, detail="Impressions module is disabled")
 
 
+def require_media_module_enabled() -> None:
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+
+
 def _touch_impressions_from_diary(entry: DiaryEntry) -> list[PersonImpression]:
     ui_settings = service_settings.load()
     if not ui_settings.enable_impressions_module or not ui_settings.auto_impression_from_diary:
@@ -450,6 +455,8 @@ async def write_diary(
     _auth: None = Depends(require_bot_token),
     _module: None = Depends(require_diary_module_enabled),
 ):
+    ui_settings = service_settings.load()
+    media_refs = payload.media_refs if ui_settings.enable_media_module and ui_settings.allow_media_refs else []
     entry = DiaryEntry(
         date=payload.date,
         title=payload.title,
@@ -457,7 +464,7 @@ async def write_diary(
         mood=payload.mood,
         tags=payload.tags,
         people=payload.people,
-        media_refs=payload.media_refs,
+        media_refs=media_refs,
         importance=payload.importance,
         source=payload.source,
     )
@@ -528,8 +535,13 @@ class MediaAttachRequest(BaseModel):
 async def attach_media(
     payload: MediaAttachRequest,
     _auth: None = Depends(require_bot_token),
-    _module: None = Depends(require_diary_module_enabled),
+    _module: None = Depends(require_media_module_enabled),
 ):
+    ui_settings = service_settings.load()
+    if not ui_settings.media_allow_bot_import:
+        raise HTTPException(status_code=403, detail="Bot media import is disabled")
+    if len(media_service.list_by_date(payload.date).get("assets", [])) >= ui_settings.media_max_items_per_day:
+        raise HTTPException(status_code=400, detail="Media limit reached for this date")
     source = Path(payload.source_path)
     if not source.exists():
         raise HTTPException(status_code=404, detail="Media source file not found")
@@ -541,7 +553,7 @@ async def attach_media(
 async def list_media_by_date(
     date: str,
     _auth: None = Depends(require_bot_token),
-    _module: None = Depends(require_diary_module_enabled),
+    _module: None = Depends(require_media_module_enabled),
 ):
     return media_service.list_by_date(date)
 
@@ -580,7 +592,11 @@ class SettingsUpdateRequest(BaseModel):
     memory_recall_policy: str = "conservative"
     enable_diary_module: bool = True
     diary_archive_granularity: str = "day"
+    enable_media_module: bool = True
     allow_media_refs: bool = True
+    media_max_items_per_day: int = 80
+    media_allow_bot_import: bool = True
+    media_auto_album: bool = True
     enable_impressions_module: bool = True
     auto_impression_from_diary: bool = False
     impression_write_level: str = "balanced"
@@ -713,8 +729,10 @@ async def ui_read_diary(date: str, _session: None = Depends(require_web_session)
 
 @app.post("/api/ui/diary")
 async def ui_write_diary(payload: DiaryWriteRequest, _session: None = Depends(require_web_session)):
-    if not service_settings.load().enable_diary_module:
+    ui_settings = service_settings.load()
+    if not ui_settings.enable_diary_module:
         raise HTTPException(status_code=403, detail="Diary module is disabled")
+    media_refs = payload.media_refs if ui_settings.enable_media_module and ui_settings.allow_media_refs else []
     entry = DiaryEntry(
         date=payload.date,
         title=payload.title,
@@ -722,7 +740,7 @@ async def ui_write_diary(payload: DiaryWriteRequest, _session: None = Depends(re
         mood=payload.mood,
         tags=payload.tags,
         people=payload.people,
-        media_refs=payload.media_refs,
+        media_refs=media_refs,
         importance=payload.importance,
         source=payload.source or "admin",
     )
@@ -809,6 +827,8 @@ async def ui_delete_impression(name: str, _session: None = Depends(require_web_s
 
 @app.get("/api/ui/media")
 async def ui_media(_session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        return {"items": []}
     return {"items": media_service.list_manifests()}
 
 
@@ -876,7 +896,11 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             memory_recall_policy=payload.memory_recall_policy,
             enable_diary_module=payload.enable_diary_module,
             diary_archive_granularity=payload.diary_archive_granularity,
+            enable_media_module=payload.enable_media_module,
             allow_media_refs=payload.allow_media_refs,
+            media_max_items_per_day=payload.media_max_items_per_day,
+            media_allow_bot_import=payload.media_allow_bot_import,
+            media_auto_album=payload.media_auto_album,
             enable_impressions_module=payload.enable_impressions_module,
             auto_impression_from_diary=payload.auto_impression_from_diary,
             impression_write_level=payload.impression_write_level,

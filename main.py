@@ -42,7 +42,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.4.1"
+PLUGIN_VERSION = "0.4.2"
 
 
 class NestDiaryHttpClient:
@@ -159,8 +159,12 @@ class EmbeddedNestClient:
         }
 
     async def write_diary(self, payload: dict) -> dict:
-        if not self.service_settings.load().enable_diary_module:
+        ui_settings = self.service_settings.load()
+        if not ui_settings.enable_diary_module:
             raise RuntimeError("Diary module is disabled")
+        media_refs = payload.get("media_refs") or []
+        if not ui_settings.enable_media_module or not ui_settings.allow_media_refs:
+            media_refs = []
         entry = DiaryEntry(
             date=payload["date"],
             title=payload.get("title"),
@@ -168,12 +172,11 @@ class EmbeddedNestClient:
             mood=payload.get("mood") or [],
             tags=payload.get("tags") or [],
             people=payload.get("people") or [],
-            media_refs=payload.get("media_refs") or [],
+            media_refs=media_refs,
             importance=payload.get("importance", 3),
             source=payload.get("source", "bot"),
         )
         saved = self.diary_service.write_diary(entry, reason=payload.get("reason", ""))
-        ui_settings = self.service_settings.load()
         touched = []
         if (
             ui_settings.enable_impressions_module
@@ -222,8 +225,13 @@ class EmbeddedNestClient:
         }
 
     async def attach_media(self, payload: dict) -> dict:
-        if not self.service_settings.load().enable_diary_module:
-            raise RuntimeError("Diary module is disabled")
+        ui_settings = self.service_settings.load()
+        if not ui_settings.enable_media_module:
+            raise RuntimeError("Media module is disabled")
+        if not ui_settings.media_allow_bot_import:
+            raise RuntimeError("Bot media import is disabled")
+        if len(self.media_service.list_by_date(payload["date"]).get("assets", [])) >= ui_settings.media_max_items_per_day:
+            raise RuntimeError("Media limit reached for this date")
         source = Path(payload["source_path"])
         if not source.exists():
             raise FileNotFoundError(f"Media source file not found: {source}")
@@ -924,9 +932,7 @@ class NestDiaryConnectorPlugin(Star):
             if not items:
                 message = f"没有搜到和“{query}”相关的日记。"
             else:
-                search_info = result.get("search") or {}
-                backend = search_info.get("backend", "unknown")
-                lines = [f"搜到 {len(items)} 条和“{query}”相关的日记（检索：{backend}）："]
+                lines = [f"搜到 {len(items)} 条和“{query}”相关的日记："]
                 for item in items:
                     item_date = item.get("date", "未知日期")
                     item_title = item.get("title", "")
@@ -955,9 +961,16 @@ class NestDiaryConnectorPlugin(Star):
             date(string): 归档到哪一天，格式 YYYY-MM-DD。
             original_name(string): 原始文件名，可为空。
         """
-        if not self.diary_module_enabled:
-            return self._module_disabled_message("日记")
+        ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+        if not ui_settings.enable_media_module:
+            return self._module_disabled_message("媒体")
+        if not ui_settings.media_allow_bot_import:
+            return "媒体模块没有允许 bot 自动导入图片或附件。"
         try:
+            if hasattr(self.client, "media_service"):
+                used = len(self.client.media_service.list_by_date(date).get("assets", []))
+                if used >= ui_settings.media_max_items_per_day:
+                    return f"{date} 的媒体数量已经达到上限，未继续保存。"
             result = await self.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None)
             asset = result.get("asset") or {}
             media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""

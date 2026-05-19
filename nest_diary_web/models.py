@@ -48,7 +48,11 @@ class ServiceUiSettings:
     memory_recall_enabled: bool = True
     memory_recall_policy: str = "conservative"
     diary_archive_granularity: str = "day"
+    enable_media_module: bool = True
     allow_media_refs: bool = True
+    media_max_items_per_day: int = 80
+    media_allow_bot_import: bool = True
+    media_auto_album: bool = True
     enable_impressions_module: bool = True
     auto_impression_from_diary: bool = False
     impression_write_level: str = "balanced"

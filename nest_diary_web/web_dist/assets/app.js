@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.1";
+const APP_VERSION = "0.4.2";
 
 const app = document.getElementById("app");
 const state = {
@@ -22,6 +22,7 @@ const state = {
   media: [],
   settings: null,
   notice: "",
+  toast: "",
   error: "",
   rendered: new Set(),
   settingsSection: "modules",
@@ -32,7 +33,7 @@ const state = {
 const navItems = [
   ["dashboard", "首页"],
   ["diary", "日记"],
-  ["search", "检索"],
+  ["search", "查找"],
   ["impressions", "印象"],
   ["media", "媒体"],
   ["settings", "设置"],
@@ -175,11 +176,13 @@ function updateShell() {
   notice.innerHTML = `
     ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
     ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
+    ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
   `;
 }
 
 function renderNavLinks() {
   return navItems
+    .filter(([key]) => key !== "media" || isMediaEnabled())
     .map(([key, label]) => {
       const children =
         key === "settings" && state.view === "settings"
@@ -192,6 +195,11 @@ function renderNavLinks() {
       return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}</button>${children}</div>`;
     })
     .join("");
+}
+
+function isMediaEnabled() {
+  const settings = state.bootstrap?.settings || state.settings?.settings || {};
+  return settings.enable_media_module !== false && (settings.enabled_official_modules || []).includes("media");
 }
 
 function currentSiteTitle() {
@@ -301,6 +309,7 @@ async function loadView() {
   try {
     ensureShell();
     await loadBootstrap();
+    if (state.view === "media" && !isMediaEnabled()) state.view = "dashboard";
     if (state.view === "dashboard") renderDashboard();
     if (state.view === "diary") await renderDiary();
     if (state.view === "search") await renderSearch();
@@ -671,12 +680,12 @@ async function loadSearch(query = "") {
 async function renderSearch() {
   await loadSearch(state.search.query);
   panel("search").innerHTML = `
-    ${pageHead("", "检索")}
+    ${pageHead("", "查找")}
     <section class="card">
       <div class="card-body">
         <form class="searchbar" data-action="search">
           <input name="q" value="${escapeHtml(state.search.query)}" placeholder="关键词、人物、事件或情绪" />
-          <button class="primary">检索</button>
+          <button class="primary">查找</button>
         </form>
       </div>
       <div class="list">
@@ -867,21 +876,17 @@ async function renderSettings() {
   const settings = payload.settings;
   if (!["modules", "access", "backup"].includes(state.settingsSection)) state.settingsSection = "modules";
   panel("settings").innerHTML = `
-    ${pageHead("", "设置")}
     <section class="settings-layout settings-layout-single">
       <div class="settings-content">
         <section class="settings-panel ${settingsPanelClass("modules")}" data-settings-panel="modules">
           <form data-action="save-settings">
             ${state.settingsModuleDetail ? moduleDetailPage(payload, state.settingsModuleDetail) : moduleManagerPage(payload)}
-            <div class="sticky-save settings-save active"><button class="primary">保存设置</button></div>
           </form>
         </section>
         <section class="settings-panel ${settingsPanelClass("access")}" data-settings-panel="access">
           <section class="settings-page">
             <div class="settings-page-head">
-              <p class="module-page-kicker">安全设置</p>
               <h2>访问密钥</h2>
-              <p class="muted">网页后台密码和外部接口密钥集中在这里管理。</p>
             </div>
             <form class="settings-collapse form" data-action="save-security">
               <div class="form-grid compact">
@@ -896,9 +901,7 @@ async function renderSettings() {
         <section class="settings-panel ${settingsPanelClass("backup")}" data-settings-panel="backup">
           <section class="settings-page">
             <div class="settings-page-head">
-              <p class="module-page-kicker">数据迁移</p>
               <h2>导入导出</h2>
-              <p class="muted">导出备份包，或从备份包恢复模块、外观、媒体和安全配置。</p>
             </div>
             <div class="settings-collapse form">
               <form class="form-grid compact" data-action="export-backup">
@@ -926,21 +929,15 @@ async function renderSettings() {
 }
 
 function settingsTab(id, label) {
-  const meta = settingsSectionMeta(id);
   return `
     <button class="settings-tab ${state.settingsSection === id ? "active" : ""}" data-settings-section="${id}" type="button">
       <span>${escapeHtml(label)}</span>
-      <small>${escapeHtml(meta)}</small>
     </button>
   `;
 }
 
 function settingsPanelClass(id) {
   return state.settingsSection === id ? "active" : "";
-}
-
-function settingsSaveClass() {
-  return ["diary", "impressions", "appearance", "modules"].includes(state.settingsSection) ? "active" : "";
 }
 
 async function switchSettingsSection(id) {
@@ -970,13 +967,6 @@ async function setModuleFilter(filter) {
   updateShell();
 }
 
-function settingsSectionMeta(id) {
-  if (id === "modules") return "模块、外观、拓展";
-  if (id === "access") return "密码与外部接口";
-  if (id === "backup") return "备份、迁移";
-  return "";
-}
-
 function moduleManagerPage(payload) {
   const settings = payload.settings;
   const modules = moduleCatalogItems(payload, settings);
@@ -985,16 +975,12 @@ function moduleManagerPage(payload) {
     <section class="module-manager-page">
       <div class="module-page-head">
         <div>
-          <p class="module-page-kicker">模块中心</p>
           <h2>模块管理</h2>
-          <p class="muted">像插件一样管理小窝能力。官方模块只是卡片标签；小窝 VB、主题和皮肤统一放在外观模块里。</p>
+          <p class="muted">管理小窝里的功能、外观和拓展。</p>
         </div>
-        <button class="button primary" data-module-settings="webui" type="button">外观与前端设置</button>
       </div>
-      <div class="module-manager-alerts">
-        ${moduleWarnings(payload.module_catalog.conflicts || [], "当前没有检测到已启用完整模块的冲突。")}
-        ${moduleWarnings(payload.module_catalog.appearance_conflicts || [], "当前没有检测到全局外观冲突。")}
-      </div>
+      ${moduleWarnings(payload.module_catalog.conflicts || [])}
+      ${moduleWarnings(payload.module_catalog.appearance_conflicts || [])}
       <div class="module-stats">
         ${moduleStat("全部模块", modules.length)}
         ${moduleStat("已启用", modules.filter((item) => item.enabled).length)}
@@ -1002,9 +988,9 @@ function moduleManagerPage(payload) {
       </div>
       <div class="module-filterbar">
         ${moduleFilterButton("all", "全部", modules.length)}
-        ${moduleFilterButton("core", "核心能力", modules.filter((item) => item.category === "core").length)}
+        ${moduleFilterButton("core", "功能模块", modules.filter((item) => item.category === "core").length)}
         ${moduleFilterButton("appearance", "外观模块", modules.filter((item) => item.category === "appearance").length)}
-        ${moduleFilterButton("extension", "补充拓展", modules.filter((item) => item.category === "extension").length)}
+        ${moduleFilterButton("extension", "拓展模块", modules.filter((item) => item.category === "extension").length)}
       </div>
       <div class="module-card-grid module-card-grid-standalone">
         ${moduleHiddenInputs(modules)}
@@ -1062,20 +1048,23 @@ function moduleDetailPage(payload, detailKey) {
   const title = module?.name || moduleDetailTitle(detailKey);
   const description = module?.description || moduleDetailDescription(detailKey);
   return `
-    <article class="card module-detail-card">
+    <article class="module-detail-card">
       <div class="module-detail-head">
-        <button class="text-button module-detail-back" data-settings-back type="button">← 返回模块管理</button>
+        <button class="button module-detail-back" data-settings-back type="button">返回</button>
         <div>
           <h2>${escapeHtml(title)}</h2>
-          <p class="muted">${escapeHtml(description || "这个模块暂未提供说明。")}</p>
+          ${description ? `<p class="muted">${escapeHtml(description)}</p>` : ""}
         </div>
         <div class="module-detail-tags">
           ${module ? moduleBadges(module, detailKey.startsWith("appearance:") ? "appearance" : module.kind).join("") : ""}
         </div>
       </div>
-      <div class="card-body form">
-        ${module ? moduleDocBlock(module, detailKey) : ""}
+      <div class="module-detail-body form">
         ${moduleSettingsBody(payload, detailKey)}
+      </div>
+      <div class="module-detail-actions">
+        <button class="button" data-settings-back type="button">取消</button>
+        <button class="primary" data-save-close>保存并关闭</button>
       </div>
     </article>
   `;
@@ -1085,44 +1074,38 @@ function moduleSettingsBody(payload, detailKey) {
   const settings = payload.settings;
   if (detailKey === "diary") {
     return `
-      <div class="setting-line"><div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
-      <div class="setting-line"><div><strong>主动回忆</strong><p class="muted">上下文不够时，引导 bot 先检索日记片段。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
+      <div class="setting-line"><div><strong>日记模块</strong><p class="muted">开启后可以记录和查看日记。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
+      <div class="setting-line"><div><strong>自动回想</strong><p class="muted">需要时让 bot 参考以前的日记。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
       <div class="form-grid compact">
-        <label>回忆策略<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>谨慎</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>积极</option></select></label>
-        <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
-        <label>片段长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
-        <label>归档粒度<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>年月日</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>年月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>年</option></select></label>
-      </div>
-      ${check("allow_media_refs", "允许媒体引用", settings.allow_media_refs)}
-      <div class="settings-table compact-table">
-        <div><span>检索后端</span><strong>${escapeHtml(payload.search?.backend || "unknown")}</strong></div>
-        <div><span>FTS5</span><strong>${payload.search?.fts5 ? "可用" : "不可用，已降级"}</strong></div>
+        <label>回想方式<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>只在需要时</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>更主动</option></select></label>
+        <label>每次参考数量<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
+        <label>摘要长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
+        <label>日记保存方式<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>按天</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>按月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>按年</option></select></label>
       </div>
     `;
   }
   if (detailKey === "impressions") {
     return `
-      <div class="setting-line"><div><strong>人物印象模块</strong><p class="muted">控制人物印象的读取、写入、编辑和删除；关闭后工具与页面都会停止写入。</p></div>${switchControl("enable_impressions_module", settings.enable_impressions_module)}</div>
-      <div class="setting-line"><div><strong>日记后自动识别</strong><p class="muted">日记保存后，把内容交给 bot 判断是否要更新印象。不是只要出现名字就建档。</p></div>${switchControl("auto_impression_from_diary", settings.auto_impression_from_diary)}</div>
+      <div class="setting-line"><div><strong>人物印象模块</strong><p class="muted">记录人物关系和长期印象。</p></div>${switchControl("enable_impressions_module", settings.enable_impressions_module)}</div>
+      <div class="setting-line"><div><strong>日记后自动整理</strong><p class="muted">写完日记后，让 bot 判断是否需要更新人物印象。</p></div>${switchControl("auto_impression_from_diary", settings.auto_impression_from_diary)}</div>
       <div class="form-grid compact">
-        <label>写入程度<select name="impression_write_level">
+        <label>写入强度<select name="impression_write_level">
           <option value="off" ${settings.impression_write_level === "off" ? "selected" : ""}>关闭：不自动写印象</option>
-          <option value="light" ${settings.impression_write_level === "light" ? "selected" : ""}>轻量：只补证据日期</option>
-          <option value="balanced" ${settings.impression_write_level === "balanced" ? "selected" : ""}>均衡：稳定证据才更新</option>
-          <option value="deep" ${settings.impression_write_level === "deep" ? "selected" : ""}>深度：允许完整画像补全</option>
+          <option value="light" ${settings.impression_write_level === "light" ? "selected" : ""}>轻量：只记录明确变化</option>
+          <option value="balanced" ${settings.impression_write_level === "balanced" ? "selected" : ""}>均衡：推荐</option>
+          <option value="deep" ${settings.impression_write_level === "deep" ? "selected" : ""}>深入：补充更多细节</option>
         </select></label>
         <label>更新策略<select name="impression_update_strategy">
-          <option value="manual" ${settings.impression_update_strategy === "manual" ? "selected" : ""}>手动：只允许人工或明确工具调用</option>
-          <option value="existing_only" ${settings.impression_update_strategy === "existing_only" ? "selected" : ""}>只更新已有角色</option>
-          <option value="evidence_only" ${settings.impression_update_strategy === "evidence_only" ? "selected" : ""}>证据更新：默认推荐</option>
-          <option value="aggressive" ${settings.impression_update_strategy === "aggressive" ? "selected" : ""}>积极：允许新建候选档</option>
+          <option value="manual" ${settings.impression_update_strategy === "manual" ? "selected" : ""}>手动</option>
+          <option value="existing_only" ${settings.impression_update_strategy === "existing_only" ? "selected" : ""}>只更新已有人物</option>
+          <option value="evidence_only" ${settings.impression_update_strategy === "evidence_only" ? "selected" : ""}>有证据才更新</option>
+          <option value="aggressive" ${settings.impression_update_strategy === "aggressive" ? "selected" : ""}>允许新建人物</option>
         </select></label>
-        <label>最低置信度<input name="impression_min_confidence" type="number" min="1" max="5" value="${settings.impression_min_confidence || 3}"></label>
+        <label>确认程度<input name="impression_min_confidence" type="number" min="1" max="5" value="${settings.impression_min_confidence || 3}"></label>
       </div>
-      ${check("impression_allow_new_people", "允许自动新建人物候选档", settings.impression_allow_new_people)}
-      ${check("show_impression_prompt", "写日记页显示人物印象提示", settings.show_impression_prompt)}
+      ${check("impression_allow_new_people", "允许自动新建人物", settings.impression_allow_new_people)}
+      ${check("show_impression_prompt", "写日记时显示人物提示", settings.show_impression_prompt)}
       <label>印象写入规范<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
-      <div class="notice soft">推荐组合：开启人物印象模块，开启日记后自动识别，写入程度选“均衡”，更新策略选“证据更新”，关闭自动新建人物候选档。这样“老爸”这类称呼不会仅因出现就建档。</div>
     `;
   }
   if (detailKey === "webui") {
@@ -1133,48 +1116,38 @@ function moduleSettingsBody(payload, detailKey) {
           <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
           <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
           <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
-          <label>当前全局样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
-          <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认个性化目录"></label>
+          <label>当前样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
+          <label>自定义页面目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认目录"></label>
         </div>
       </div>
       ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
-      <div class="notice soft">外观模块开关在模块管理总览中。全局替换类外观建议只启用一个；补充拓展类外观可以多个同时启用。</div>
     `;
   }
   if (detailKey === "media") {
     return `
-      <div class="notice soft">媒体归档当前跟随日记模块工作；是否允许日记引用媒体请进入“日记模块”设置。</div>
-      <button class="button" data-module-settings="diary" type="button">打开日记模块设置</button>
+      <div class="setting-line"><div><strong>媒体模块</strong><p class="muted">开启后可以保存图片、语音和附件。</p></div>${switchControl("enable_media_module", settings.enable_media_module)}</div>
+      <div class="setting-line"><div><strong>日记里插入图片</strong><p class="muted">允许日记引用已保存的图片或附件。</p></div>${switchControl("allow_media_refs", settings.allow_media_refs)}</div>
+      <div class="setting-line"><div><strong>bot 自动导入媒体</strong><p class="muted">允许 bot 把图片或附件放进小窝。</p></div>${switchControl("media_allow_bot_import", settings.media_allow_bot_import)}</div>
+      <div class="setting-line"><div><strong>自动整理相册</strong><p class="muted">按日期自动整理媒体。</p></div>${switchControl("media_auto_album", settings.media_auto_album)}</div>
+      <div class="form-grid compact">
+        <label>每天最多保存<input name="media_max_items_per_day" type="number" min="1" max="500" value="${settings.media_max_items_per_day || 80}"></label>
+      </div>
     `;
   }
-  return `<div class="notice soft">这个模块暂未声明可调设置。可以在模块管理总览中启用或停用它。</div>`;
+  return `<div class="notice soft">这个模块暂时没有可调整的选项。</div>`;
 }
 
 function moduleDetailTitle(detailKey) {
   if (detailKey === "diary") return "日记模块";
   if (detailKey === "impressions") return "人物印象模块";
-  if (detailKey === "media") return "媒体归档模块";
-  if (detailKey === "webui") return "外观与前端模块";
+  if (detailKey === "media") return "媒体模块";
+  if (detailKey === "webui") return "小窝 WebUI";
   return detailKey;
 }
 
 function moduleDetailDescription(detailKey) {
-  if (detailKey === "webui") return "管理小窝标题、头像、自定义前端目录和全局样式。";
+  if (detailKey === "webui") return "管理标题、头像和页面样式。";
   return "";
-}
-
-function moduleDocBlock(module, detailKey) {
-  const paths = [module.data_path, module.frontend_path].filter(Boolean);
-  return `
-    <section class="module-doc">
-      <h3>模块说明</h3>
-      <p>${escapeHtml(module.description || "这个模块还没有写说明。")}</p>
-      <div class="chips small">
-        ${moduleBadges(module, detailKey.startsWith("appearance:") ? "appearance" : module.kind).join("")}
-      </div>
-      ${paths.length ? `<p class="module-paths">${escapeHtml(paths.join(" · "))}</p>` : ""}
-    </section>
-  `;
 }
 
 function findModuleByDetailKey(catalog, detailKey) {
@@ -1195,10 +1168,9 @@ function switchControl(name, checked) {
   return `<label class="switch"><input name="${name}" type="checkbox" ${checked ? "checked" : ""}><span></span></label>`;
 }
 
-function moduleWarnings(conflicts, emptyText = "当前没有检测到已启用模块的功能标签冲突。") {
-  return conflicts.length
-    ? `<div class="module-warnings">${conflicts.map((item) => `<div class="notice ${item.level === "danger" ? "error" : "soft"}"><strong>${escapeHtml(item.title)}：</strong>${escapeHtml(item.message)}</div>`).join("")}</div>`
-    : `<div class="notice soft">${escapeHtml(emptyText)}</div>`;
+function moduleWarnings(conflicts) {
+  if (!conflicts.length) return "";
+  return `<div class="module-warnings">${conflicts.map((item) => `<div class="notice ${item.level === "danger" ? "error" : "soft"}"><strong>${escapeHtml(item.title)}：</strong>${escapeHtml(item.message)}</div>`).join("")}</div>`;
 }
 
 function moduleCard(module, enabled = [], inputName, groupKind = "") {
@@ -1238,21 +1210,23 @@ function moduleIcon(module, groupKind = "") {
 }
 
 function moduleBadges(module, groupKind = "") {
-  const tags = module.feature_tags || [];
-  const targets = module.target_modules || [];
-  const replaces = module.replaces || [];
   const conflicts = module.conflicts_with || [];
   const appearanceLabel = groupKind === "appearance" ? (module.entry_label || (module.appearance_mode === "global" ? "全局替换" : "补充拓展")) : "";
   const badges = [
-    `<span class="chip">${escapeHtml(module.kind === "official" ? "官方模块" : module.kind === "custom" ? "自定义模块" : module.kind === "extension" ? "补充拓展" : module.kind === "appearance" ? "外观模块" : moduleTypeLabel(module.type))}</span>`,
-    module.kind === "official" ? `<span class="official-badge">官方</span>` : "",
+    `<span class="chip">${escapeHtml(moduleSourceLabel(module, groupKind))}</span>`,
     appearanceLabel ? `<span class="chip ${module.appearance_mode === "global" ? "danger-chip" : ""}">${escapeHtml(appearanceLabel)}</span>` : "",
-    ...tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`),
-    ...targets.map((target) => `<span class="chip">挂载 ${escapeHtml(target)}</span>`),
-    ...replaces.map((target) => `<span class="chip">替代 ${escapeHtml(target)}</span>`),
-    ...conflicts.map((target) => `<span class="chip">冲突 ${escapeHtml(target)}</span>`),
+    groupKind === "extension" ? `<span class="chip">拓展模块</span>` : "",
+    conflicts.length ? `<span class="chip danger-chip">有冲突</span>` : "",
   ];
   return badges.filter(Boolean);
+}
+
+function moduleSourceLabel(module, groupKind = "") {
+  if (groupKind === "appearance") return "外观模块";
+  if (groupKind === "extension") return "补充拓展";
+  if (module.kind === "official") return "官方模块";
+  if (module.kind === "custom") return "自定义模块";
+  return moduleTypeLabel(module.type);
 }
 
 function moduleTypeLabel(type = "") {
@@ -1285,6 +1259,7 @@ function exportOptions(catalog) {
 
 async function saveSettings(event) {
   event.preventDefault();
+  const shouldClose = event.submitter?.dataset.saveClose !== undefined;
   const formEl = event.currentTarget;
   const form = new FormData(formEl);
   const current = state.settings?.settings || {};
@@ -1310,7 +1285,11 @@ async function saveSettings(event) {
     memory_recall_policy: valueField("memory_recall_policy", current.memory_recall_policy || "conservative"),
     enable_diary_module: boolField("enable_diary_module", current.enable_diary_module),
     diary_archive_granularity: valueField("diary_archive_granularity", current.diary_archive_granularity || "day"),
+    enable_media_module: boolField("enable_media_module", current.enable_media_module),
     allow_media_refs: boolField("allow_media_refs", current.allow_media_refs),
+    media_max_items_per_day: numberField("media_max_items_per_day", current.media_max_items_per_day || 80),
+    media_allow_bot_import: boolField("media_allow_bot_import", current.media_allow_bot_import),
+    media_auto_album: boolField("media_auto_album", current.media_auto_album),
     enable_impressions_module: boolField("enable_impressions_module", current.enable_impressions_module),
     auto_impression_from_diary: boolField("auto_impression_from_diary", current.auto_impression_from_diary),
     impression_write_level: valueField("impression_write_level", current.impression_write_level || "balanced"),
@@ -1329,20 +1308,29 @@ async function saveSettings(event) {
   };
   if (form.getAll("__module_group_present").includes("enabled_official_modules")) {
     payload.enable_diary_module = payload.enabled_official_modules.includes("diary");
+    payload.enable_media_module = payload.enabled_official_modules.includes("media");
     payload.enable_impressions_module = payload.enabled_official_modules.includes("impressions");
   } else {
     if (hasField("enable_diary_module")) {
       payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "diary", payload.enable_diary_module);
+    }
+    if (hasField("enable_media_module")) {
+      payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "media", payload.enable_media_module);
     }
     if (hasField("enable_impressions_module")) {
       payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "impressions", payload.enable_impressions_module);
     }
   }
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
-  state.notice = "设置已保存。";
+  state.toast = "设置已保存";
   state.bootstrap = null;
+  if (shouldClose) state.settingsModuleDetail = "";
   await renderSettings();
   updateShell();
+  window.setTimeout(() => {
+    state.toast = "";
+    updateShell();
+  }, 2200);
 }
 
 function syncEnabledModule(items, moduleId, enabled) {
