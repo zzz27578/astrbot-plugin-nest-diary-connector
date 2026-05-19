@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from dataclasses import asdict
@@ -23,7 +23,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.3.9"
+APP_VERSION = "0.4.0"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -154,11 +154,14 @@ def _module_catalog(ui_settings: ServiceUiSettings) -> dict:
     official = _discover_official_modules()
     custom = _discover_custom_packages(ui_settings, "modules", "module")
     extensions = _discover_custom_packages(ui_settings, "extensions", "extension")
+    appearance = _discover_appearance_modules(ui_settings)
     return {
         "official": official,
         "custom": custom,
         "extensions": extensions,
+        "appearance": appearance,
         "conflicts": _module_conflicts(ui_settings, official, custom, extensions),
+        "appearance_conflicts": _appearance_conflicts(ui_settings, appearance),
     }
 
 
@@ -253,6 +256,38 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
     return sorted(packages.values(), key=lambda item: item["id"])
 
 
+def _discover_appearance_modules(ui_settings: ServiceUiSettings) -> list[dict]:
+    packages: dict[str, dict] = {}
+    frontend_root = _custom_webui_root(ui_settings)
+    for folder_name, default_mode in [("themes", "global"), ("appearance", "global"), ("skins", "global")]:
+        root = frontend_root / folder_name
+        if not root.exists():
+            continue
+        for path in sorted(root.iterdir()):
+            if not path.is_dir():
+                continue
+            loaded = _load_package_manifest(
+                path / "module.json",
+                {
+                    "id": path.name,
+                    "name": path.name,
+                    "type": "appearance",
+                    "description": "替换小窝全局前端外观。",
+                "feature_tags": ["webui-appearance"],
+                    "appearance_scope": default_mode,
+                    "appearance_mode": "global",
+                    "conflicts_with": [],
+                },
+                kind="appearance",
+                frontend_path=str(path),
+            )
+            loaded["appearance_scope"] = str(loaded.get("appearance_scope") or default_mode)
+            loaded["appearance_mode"] = str(loaded.get("appearance_mode") or "global")
+            loaded["entry_label"] = "全局替换" if loaded["appearance_mode"] == "global" else "补充拓展"
+            packages[path.name] = loaded
+    return sorted(packages.values(), key=lambda item: item["id"])
+
+
 def _load_package_manifest(path: Path, fallback: dict, kind: str, data_path: str = "", frontend_path: str = "") -> dict:
     data = dict(fallback)
     if path.exists():
@@ -276,18 +311,35 @@ def _load_package_manifest(path: Path, fallback: dict, kind: str, data_path: str
     return data
 
 
+def _appearance_conflicts(ui_settings: ServiceUiSettings, appearance: list[dict]) -> list[dict]:
+    enabled = [item for item in appearance if item["id"] in ui_settings.enabled_appearance_modules]
+    global_enabled = [item for item in enabled if item.get("appearance_mode") == "global"]
+    if len(global_enabled) <= 1:
+        return []
+    return [
+        {
+            "level": "danger",
+            "title": "全局外观冲突",
+            "message": "、".join(item["name"] for item in global_enabled)
+            + " 都会替换小窝全局前端。建议只开启其中一个；若坚持同时启用，样式、入口或脚本可能互相覆盖。",
+            "packages": [item["id"] for item in global_enabled],
+        }
+    ]
+
+
 def _module_conflicts(ui_settings: ServiceUiSettings, official: list[dict], custom: list[dict], extensions: list[dict]) -> list[dict]:
-    enabled: list[dict] = []
-    enabled.extend(item for item in official if item["id"] in ui_settings.enabled_official_modules)
-    enabled.extend(item for item in custom if item["id"] in ui_settings.enabled_custom_modules)
-    enabled.extend(item for item in extensions if item["id"] in ui_settings.enabled_custom_extensions)
+    enabled_official = [item for item in official if item["id"] in ui_settings.enabled_official_modules]
+    enabled_custom = [item for item in custom if item["id"] in ui_settings.enabled_custom_modules]
+    enabled_extensions = [item for item in extensions if item["id"] in ui_settings.enabled_custom_extensions]
+    enabled: list[dict] = [*enabled_official, *enabled_custom, *enabled_extensions]
 
     warnings: list[dict] = []
     by_id = {item["id"]: item for item in enabled}
     by_tag: dict[str, list[str]] = {}
     for item in enabled:
-        for tag in item.get("feature_tags", []):
-            by_tag.setdefault(tag, []).append(item["id"])
+        if item not in enabled_extensions:
+            for tag in item.get("feature_tags", []):
+                by_tag.setdefault(tag, []).append(item["id"])
         for replaced in item.get("replaces", []):
             if replaced in by_id:
                 warnings.append(
@@ -319,6 +371,17 @@ def _module_conflicts(ui_settings: ServiceUiSettings, official: list[dict], cust
                     "packages": package_ids,
                 }
             )
+    replacement_modules = [item for item in enabled_custom if item.get("replaces") or item.get("conflicts_with")]
+    if len(replacement_modules) > 1:
+        warnings.append(
+            {
+                "level": "danger",
+                "title": "完整替换模块过多",
+                "message": "、".join(item["name"] for item in replacement_modules)
+                + " 都声明会替换或冲突于现有能力。建议一次只启用一个完整替换模块；若坚持同时启用，可能出现入口、数据口径或工具行为冲突。",
+                "packages": [item["id"] for item in replacement_modules],
+            }
+        )
     return warnings
 
 
@@ -347,6 +410,26 @@ def require_bot_token(authorization: str | None = Header(default=None)) -> None:
 def require_diary_module_enabled() -> None:
     if not service_settings.load().enable_diary_module:
         raise HTTPException(status_code=403, detail="Diary module is disabled")
+
+
+def require_impressions_module_enabled() -> None:
+    if not service_settings.load().enable_impressions_module:
+        raise HTTPException(status_code=403, detail="Impressions module is disabled")
+
+
+def _touch_impressions_from_diary(entry: DiaryEntry) -> list[PersonImpression]:
+    ui_settings = service_settings.load()
+    if not ui_settings.enable_impressions_module or not ui_settings.auto_impression_from_diary:
+        return []
+    if ui_settings.impression_write_level == "off" or ui_settings.impression_update_strategy == "manual":
+        return []
+    return impression_service.touch_from_diary(
+        entry,
+        allow_new_people=ui_settings.impression_allow_new_people
+        or ui_settings.impression_update_strategy == "aggressive",
+        update_existing=ui_settings.impression_update_strategy in {"evidence_only", "existing_only", "aggressive"},
+        min_confidence=ui_settings.impression_min_confidence,
+    )
 
 
 @app.get("/api/v1/status")
@@ -379,7 +462,7 @@ async def write_diary(
         source=payload.source,
     )
     saved = diary_service.write_diary(entry, reason=payload.reason)
-    touched = impression_service.touch_from_diary(saved)
+    touched = _touch_impressions_from_diary(saved)
     return {
         "status": "ok",
         "date": saved.date,
@@ -498,11 +581,18 @@ class SettingsUpdateRequest(BaseModel):
     enable_diary_module: bool = True
     diary_archive_granularity: str = "day"
     allow_media_refs: bool = True
+    enable_impressions_module: bool = True
+    auto_impression_from_diary: bool = False
+    impression_write_level: str = "balanced"
+    impression_update_strategy: str = "evidence_only"
+    impression_allow_new_people: bool = False
+    impression_min_confidence: int = 3
     show_impression_prompt: bool = True
     active_frontend_style: str = "default"
     enabled_official_modules: list[str] = Field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
     enabled_custom_modules: list[str] = Field(default_factory=list)
     enabled_custom_extensions: list[str] = Field(default_factory=list)
+    enabled_appearance_modules: list[str] = Field(default_factory=list)
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = ""
@@ -516,12 +606,19 @@ class SecurityUpdateRequest(BaseModel):
 
 
 @app.get("/api/v1/impressions")
-async def list_impressions(_auth: None = Depends(require_bot_token)):
+async def list_impressions(
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_impressions_module_enabled),
+):
     return {"items": [item.__dict__ for item in impression_service.list_people()]}
 
 
 @app.get("/api/v1/impressions/{name}")
-async def read_impression(name: str, _auth: None = Depends(require_bot_token)):
+async def read_impression(
+    name: str,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_impressions_module_enabled),
+):
     impression = impression_service.get(name)
     if not impression:
         raise HTTPException(status_code=404, detail="Person impression not found")
@@ -529,7 +626,11 @@ async def read_impression(name: str, _auth: None = Depends(require_bot_token)):
 
 
 @app.post("/api/v1/impressions/write")
-async def write_impression(payload: ImpressionWriteRequest, _auth: None = Depends(require_bot_token)):
+async def write_impression(
+    payload: ImpressionWriteRequest,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_impressions_module_enabled),
+):
     previous_name = payload.previous_name.strip()
     next_name = payload.name.strip()
     if not next_name:
@@ -557,7 +658,11 @@ async def write_impression(payload: ImpressionWriteRequest, _auth: None = Depend
 
 
 @app.delete("/api/v1/impressions/{name}")
-async def delete_impression(name: str, _auth: None = Depends(require_bot_token)):
+async def delete_impression(
+    name: str,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_impressions_module_enabled),
+):
     if not impression_service.delete(name):
         raise HTTPException(status_code=404, detail="Person impression not found")
     return {"status": "ok"}
@@ -622,7 +727,7 @@ async def ui_write_diary(payload: DiaryWriteRequest, _session: None = Depends(re
         source=payload.source or "admin",
     )
     saved = diary_service.write_diary(entry, reason=payload.reason or "web_app_update")
-    touched = impression_service.touch_from_diary(saved)
+    touched = _touch_impressions_from_diary(saved)
     return {"status": "ok", "entry": _entry_payload(saved), "impressions_touched": [item.name for item in touched]}
 
 
@@ -648,11 +753,15 @@ async def ui_search(q: str = "", top_k: int = 5, _session: None = Depends(requir
 
 @app.get("/api/ui/impressions")
 async def ui_list_impressions(_session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_impressions_module:
+        return {"items": []}
     return {"items": [item.__dict__ for item in impression_service.list_people()]}
 
 
 @app.get("/api/ui/impressions/{name}")
 async def ui_read_impression(name: str, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_impressions_module:
+        raise HTTPException(status_code=403, detail="Impressions module is disabled")
     impression = impression_service.get(name)
     if not impression:
         raise HTTPException(status_code=404, detail="Person impression not found")
@@ -661,6 +770,8 @@ async def ui_read_impression(name: str, _session: None = Depends(require_web_ses
 
 @app.post("/api/ui/impressions")
 async def ui_write_impression(payload: ImpressionWriteRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_impressions_module:
+        raise HTTPException(status_code=403, detail="Impressions module is disabled")
     previous_name = payload.previous_name.strip()
     next_name = payload.name.strip()
     if not next_name:
@@ -689,6 +800,8 @@ async def ui_write_impression(payload: ImpressionWriteRequest, _session: None = 
 
 @app.delete("/api/ui/impressions/{name}")
 async def ui_delete_impression(name: str, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_impressions_module:
+        raise HTTPException(status_code=403, detail="Impressions module is disabled")
     if not impression_service.delete(name):
         raise HTTPException(status_code=404, detail="Person impression not found")
     return {"status": "ok"}
@@ -764,11 +877,18 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             enable_diary_module=payload.enable_diary_module,
             diary_archive_granularity=payload.diary_archive_granularity,
             allow_media_refs=payload.allow_media_refs,
+            enable_impressions_module=payload.enable_impressions_module,
+            auto_impression_from_diary=payload.auto_impression_from_diary,
+            impression_write_level=payload.impression_write_level,
+            impression_update_strategy=payload.impression_update_strategy,
+            impression_allow_new_people=payload.impression_allow_new_people,
+            impression_min_confidence=payload.impression_min_confidence,
             show_impression_prompt=payload.show_impression_prompt,
             active_frontend_style=payload.active_frontend_style,
             enabled_official_modules=payload.enabled_official_modules,
             enabled_custom_modules=payload.enabled_custom_modules,
             enabled_custom_extensions=payload.enabled_custom_extensions,
+            enabled_appearance_modules=payload.enabled_appearance_modules,
             custom_webui_dir=payload.custom_webui_dir,
             backup_custom_before_update=payload.backup_custom_before_update,
             impression_prompt=payload.impression_prompt,

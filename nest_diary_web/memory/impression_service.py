@@ -68,33 +68,44 @@ class ImpressionService:
                 continue
         return sorted(people, key=lambda item: item.updated_at, reverse=True)
 
-    def touch_from_diary(self, entry: DiaryEntry) -> list[PersonImpression]:
+    def touch_from_diary(
+        self,
+        entry: DiaryEntry,
+        *,
+        allow_new_people: bool = False,
+        update_existing: bool = False,
+        min_confidence: int = 3,
+    ) -> list[PersonImpression]:
+        if not allow_new_people and not update_existing:
+            return []
         touched: list[PersonImpression] = []
+        min_confidence = max(1, min(int(min_confidence), 5))
         for raw_name in entry.people:
             name = raw_name.strip()
             if not name:
                 continue
             current = self.get(name)
             if current:
+                if not update_existing:
+                    continue
                 changed = False
                 if entry.date not in current.evidence_dates:
                     current.evidence_dates.append(entry.date)
                     changed = True
-                if not current.summary.strip():
-                    current.summary = self._auto_summary(name, entry.date)
-                    changed = True
                 if changed:
-                    current.notes = self._append_auto_note(current.notes, entry.date)
+                    current.notes = self._append_auto_note(current.notes, entry.date, "自动补充证据")
                     touched.append(self.save(current))
+                continue
+            if not allow_new_people:
                 continue
             touched.append(
                 self.save(
                     PersonImpression(
                         name=name,
-                        summary=self._auto_summary(name, entry.date),
+                        summary=self._auto_summary(name, entry.date, min_confidence),
                         evidence_dates=[entry.date],
-                        confidence=1,
-                        notes=self._append_auto_note("", entry.date),
+                        confidence=min_confidence,
+                        notes=self._append_auto_note("", entry.date, "自动候选建档"),
                     )
                 )
             )
@@ -125,11 +136,15 @@ class ImpressionService:
     def _now(self) -> str:
         return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
-    def _auto_summary(self, name: str, date: str) -> str:
-        return f"{name} 首次出现在 {date} 的日记中，已自动建档；具体印象等待后续日记和机器人主观评价补充。"
+    def _auto_summary(self, name: str, date: str, confidence: int) -> str:
+        return (
+            f"{name} 在 {date} 的日记中被记录为相关人物。"
+            f"这是按当前印象策略生成的候选档案，置信度 {confidence}/5；"
+            "需要后续日记和 bot 主观评价补充后，才应写入稳定印象。"
+        )
 
-    def _append_auto_note(self, notes: str, date: str) -> str:
-        marker = f"自动记录：该人物出现在 {date} 的日记关联人物中。"
+    def _append_auto_note(self, notes: str, date: str, reason: str) -> str:
+        marker = f"{reason}：该人物出现在 {date} 的日记关联人物中。"
         if marker in notes:
             return notes
         return f"{notes.rstrip()}\n{marker}".strip()

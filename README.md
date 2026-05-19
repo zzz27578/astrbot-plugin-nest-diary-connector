@@ -1,6 +1,6 @@
 # AstrBot 小窝插件
 
-版本：`0.3.9`
+版本：`0.4.0`
 
 小窝是给 bot 使用的私有空间框架。日记只是第一个官方模块，不再把整个插件定义成“小窝日记”。
 
@@ -14,7 +14,7 @@
 - 日记、媒体、人物印象等官方模块
 - 自定义前端和自定义模块目录
 - 内置 skills
-- 定时提示，让 bot 自主调用工具
+- 后台定时任务，隐藏调用 bot 的模型与小窝工具
 
 ## 默认运行方式
 
@@ -108,6 +108,15 @@ framework/user_custom/webui/
 framework/user_custom/webui/themes/<theme-id>/style.css
 ```
 
+外观模块建议：
+
+```text
+framework/user_custom/webui/appearance/<appearance-id>/
+  module.json
+  style.css
+  static/
+```
+
 自定义模块建议：
 
 ```text
@@ -133,6 +142,7 @@ modules/extensions/<extension-id>/
 
 - 完整模块：提供一整套功能，例如 `diary-plus`、`memory-map`。
 - 拓展包：挂在某个模块旁边增强能力，例如 `diary-emotion-chart`。
+- 外观模块：替换全局前端或补充视觉能力，例如 `quiet-console`、`extra-panels`。
 
 每个完整功能模块都应该有独立目录：
 
@@ -185,6 +195,8 @@ framework/user_custom/webui/extensions/<extension-id>/
 - 不建议直接修改官方模块代码。若要替代官方日记模块，请创建 `diary-plus` 这类完整模块并声明 `replaces` / `conflicts_with`。
 - 优先做拓展包；只有需要重构整套功能时才做完整模块。
 
+人物印象是独立官方模块。日记写完后不会再因为 `people` 字段里出现一个名字就自动建档；是否交给 bot 识别、是否允许新建候选档、写入程度和更新策略都在 WebUI 的“模块管理 → 人物印象”详情页里控制。
+
 ## 模块控制台
 
 设置页的模块控制台会展示：
@@ -192,11 +204,14 @@ framework/user_custom/webui/extensions/<extension-id>/
 - 官方模块
 - 自定义完整模块
 - 拓展包
+- 外观模块
 - 功能标签 `feature_tags`
 - 替代关系 `replaces`
 - 显式冲突 `conflicts_with`
 
-如果两个已启用包具有相同功能标签，或声明互相替代/冲突，小窝只提示风险，不强制禁用。用户可以同时启用，但需要知道可能出现入口重复、工具重复或数据口径不一致。
+完整模块如果具有相同功能标签，或声明互相替代/冲突，小窝会提示风险，不强制禁用。用户可以同时启用，但需要知道可能出现入口重复、工具重复或数据口径不一致。
+
+外观模块分为“全局替换”和“补充拓展”。全局替换类建议只启用一个；如果同时启用多个，小窝会显示红色冲突提示。补充拓展不限制多个同时启用。
 
 ## 分层导入导出
 
@@ -269,6 +284,7 @@ title: 用一句话概括当天记忆，不要直接使用日期。
 ```
 
 在目标会话发送，复制返回的 `unified_msg_origin`，填入插件配置 `daily_target_origin`。
+后台归档会以这个会话为上下文执行，但不会把系统任务规范原文发到聊天窗口。
 
 ## API Key
 

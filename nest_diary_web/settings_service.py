@@ -42,6 +42,18 @@ class ServiceSettingsStore:
         if settings.diary_archive_granularity not in {"day", "month", "year"}:
             settings.diary_archive_granularity = "day"
         settings.allow_media_refs = bool(settings.allow_media_refs)
+        settings.enable_impressions_module = bool(settings.enable_impressions_module)
+        settings.auto_impression_from_diary = bool(settings.auto_impression_from_diary)
+        if settings.impression_write_level not in {"off", "light", "balanced", "deep"}:
+            settings.impression_write_level = "balanced"
+        if settings.impression_update_strategy not in {"manual", "evidence_only", "existing_only", "aggressive"}:
+            settings.impression_update_strategy = "evidence_only"
+        settings.impression_allow_new_people = bool(settings.impression_allow_new_people)
+        settings.impression_min_confidence = max(1, min(int(settings.impression_min_confidence), 5))
+        if settings.impression_write_level == "off":
+            settings.auto_impression_from_diary = False
+        if settings.impression_update_strategy in {"manual", "existing_only"}:
+            settings.impression_allow_new_people = False
         settings.show_impression_prompt = bool(settings.show_impression_prompt)
         settings.active_frontend_style = (settings.active_frontend_style or "").strip() or "default"
         if not isinstance(settings.enabled_official_modules, list):
@@ -50,6 +62,8 @@ class ServiceSettingsStore:
             settings.enabled_custom_modules = []
         if not isinstance(settings.enabled_custom_extensions, list):
             settings.enabled_custom_extensions = []
+        if not isinstance(settings.enabled_appearance_modules, list):
+            settings.enabled_appearance_modules = []
         settings.enabled_official_modules = [
             item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
         ]
@@ -58,6 +72,9 @@ class ServiceSettingsStore:
         ]
         settings.enabled_custom_extensions = [
             item.strip() for item in settings.enabled_custom_extensions if self._safe_package_id(item.strip())
+        ]
+        settings.enabled_appearance_modules = [
+            item.strip() for item in settings.enabled_appearance_modules if self._safe_package_id(item.strip())
         ]
         settings.custom_webui_dir = (settings.custom_webui_dir or "").strip()
         settings.backup_custom_before_update = bool(settings.backup_custom_before_update)

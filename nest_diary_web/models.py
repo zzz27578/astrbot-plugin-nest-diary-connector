@@ -49,11 +49,18 @@ class ServiceUiSettings:
     memory_recall_policy: str = "conservative"
     diary_archive_granularity: str = "day"
     allow_media_refs: bool = True
+    enable_impressions_module: bool = True
+    auto_impression_from_diary: bool = False
+    impression_write_level: str = "balanced"
+    impression_update_strategy: str = "evidence_only"
+    impression_allow_new_people: bool = False
+    impression_min_confidence: int = 3
     show_impression_prompt: bool = True
     active_frontend_style: str = "default"
     enabled_official_modules: list[str] = field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
     enabled_custom_modules: list[str] = field(default_factory=list)
     enabled_custom_extensions: list[str] = field(default_factory=list)
+    enabled_appearance_modules: list[str] = field(default_factory=list)
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = (

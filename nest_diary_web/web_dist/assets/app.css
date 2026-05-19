@@ -745,6 +745,8 @@ textarea {
   color: var(--muted);
   background: transparent;
   border-color: transparent;
+  border-radius: 8px;
+  text-align: left;
 }
 
 .settings-tab:hover,
@@ -760,6 +762,55 @@ textarea {
   min-width: 0;
 }
 
+.module-manager-head,
+.module-detail-head {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.module-manager-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.module-detail-head {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.module-detail-back {
+  align-self: start;
+  padding-left: 0;
+}
+
+.module-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.module-doc {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: #fffaf1;
+}
+
+.module-doc h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.module-doc p {
+  margin: 0;
+}
+
 .settings-panel {
   display: none;
 }
@@ -767,6 +818,22 @@ textarea {
 .settings-panel.active {
   display: grid;
   gap: 16px;
+}
+
+.settings-panel .card {
+  display: grid;
+  gap: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-head .meta {
+  padding-top: 4px;
 }
 
 .form-grid.compact {
@@ -799,6 +866,10 @@ textarea {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.compact-table {
+  margin-top: 2px;
 }
 
 .setting-line {
@@ -894,14 +965,13 @@ details[open] > *:not(summary) {
 .module-group {
   display: grid;
   gap: 10px;
-  padding: 12px;
+  padding: 0;
   border: 1px solid var(--line);
   background: #fff;
 }
 
 .module-group-head {
-  display: grid;
-  gap: 4px;
+  padding: 12px 12px 0;
 }
 
 .module-group-head p {
@@ -910,20 +980,18 @@ details[open] > *:not(summary) {
 
 .module-card {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: 14px;
   align-items: start;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
+  padding: 14px 12px;
+  border-top: 1px solid var(--line);
   color: var(--ink);
   background: var(--paper);
   font-weight: 400;
 }
 
-.module-card input {
-  width: 18px;
-  min-height: 18px;
-  margin-top: 3px;
+.module-group .module-card:first-of-type {
+  border-top: 0;
 }
 
 .module-card-main {
@@ -933,6 +1001,9 @@ details[open] > *:not(summary) {
 }
 
 .module-card-main strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 16px;
 }
 
@@ -948,14 +1019,82 @@ details[open] > *:not(summary) {
   font-size: 12px;
 }
 
+.module-card-toggle {
+  display: inline-grid;
+  gap: 8px;
+  justify-items: center;
+  align-content: start;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.module-card-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.module-card-actions {
+  display: flex;
+  align-items: start;
+  justify-content: flex-end;
+}
+
 .module-warnings {
   display: grid;
   gap: 8px;
 }
 
+.module-warnings .notice.error {
+  background: #fff0ee;
+  border-color: #ffb4a8;
+}
+
+.module-warnings .notice.soft {
+  background: #fff8ef;
+}
+
 .chips.small {
   margin: 0;
   gap: 6px;
+}
+
+.official-badge,
+.danger-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.official-badge {
+  color: var(--ink);
+  background: #f0f5ff;
+}
+
+.danger-chip {
+  color: #8a1f11;
+  border-color: #f1a19a;
+  background: #fff0ee;
+}
+
+.module-console-card .notice.soft {
+  margin: 0 0 4px;
+}
+
+.settings-panel .setting-line:last-child {
+  border-bottom: 0;
+}
+
+.module-empty {
+  padding: 8px 0 0;
 }
 
 .upload-zone {
@@ -1039,6 +1178,23 @@ details[open] > *:not(summary) {
   .settings-menu {
     position: static;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .module-manager-head,
+  .module-detail-head {
+    grid-template-columns: 1fr;
+  }
+
+  .module-detail-tags {
+    justify-content: flex-start;
+  }
+
+  .module-card {
+    grid-template-columns: 1fr;
+  }
+
+  .module-card-actions {
+    justify-content: flex-start;
   }
 }
 

@@ -36,7 +36,7 @@ data/
 - 是否启用 WebUI
 - WebUI 监听地址和端口
 - 数据根目录
-- 定时提示发送到哪个会话
+- 后台定时任务使用哪个会话作为上下文
 - 日记模块是否启用
 
 小窝 WebUI 设置负责小窝自身：
@@ -45,6 +45,8 @@ data/
 - 可选外部 API Key
 - 前端主题
 - 自定义模块显示
+- 人物印象模块、自动识别、写入程度和更新策略
+- 外观模块启用状态与冲突提示
 - 导入、导出、备份
 - 版本检测和更新
 
@@ -85,7 +87,9 @@ modules/extensions/<extension-id>/
 
 推荐优先做拓展包。只有确实要替代整套能力时，才创建完整模块并声明 `replaces` / `conflicts_with`。例如重构日记模块时，不要直接修改官方 `diary`，而是创建 `diary-plus`。
 
-模块控制台只提示冲突，不强制禁用。用户可以保留多个模块，但需要承担入口重复、工具重复或数据口径不一致的风险。
+模块控制台只提示完整模块冲突，不强制禁用。用户可以保留多个完整模块，但需要承担入口重复、工具重复或数据口径不一致的风险。拓展包用于补充增强，不因功能标签重叠被限制。
+
+人物印象是独立官方模块。日记保存后不会直接因为 `people` 字段出现新称呼就自动建档；是否交给 bot 自动识别、是否允许新建候选档、写入程度和更新策略由 WebUI 的“模块管理 → 人物印象”详情页控制。
 
 ## 自定义前端
 
@@ -99,6 +103,7 @@ framework/user_custom/webui/
 
 ```text
 framework/user_custom/webui/themes/<theme-id>/style.css
+framework/user_custom/webui/appearance/<appearance-id>/
 framework/user_custom/webui/modules/<module-id>/
 framework/user_custom/webui/extensions/<extension-id>/
 framework/user_custom/webui/static/
@@ -106,6 +111,8 @@ framework/user_custom/webui/templates/
 ```
 
 官方更新只更新插件默认文件，不覆盖 `framework/user_custom/webui/`。
+
+外观模块可以声明 `type: "appearance"` 和 `appearance_mode`。`appearance_mode: "global"` 表示全局替换，建议只启用一个；其他值按补充拓展处理，可以多个同时启用。多个全局替换外观同时开启时，WebUI 会显示红色冲突提示。
 
 如果自定义前端或模块对其他人也有价值，建议整理成 PR 提交到项目仓库。PR 应该聚焦，不要一次提交过多无关改动。
 

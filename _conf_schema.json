@@ -12,6 +12,39 @@
     "hint": "关闭后，bot 不会执行日记读写、检索或媒体归档。",
     "default": true
   },
+  "enable_impressions_module": {
+    "description": "启用人物印象模块",
+    "type": "bool",
+    "default": true
+  },
+  "auto_impression_from_diary": {
+    "description": "日记后自动识别印象",
+    "type": "bool",
+    "hint": "日记写完后交给 bot 判断是否更新或新建人物印象。",
+    "default": false
+  },
+  "impression_write_level": {
+    "description": "印象写入程度",
+    "type": "string",
+    "options": ["off", "light", "balanced", "deep"],
+    "default": "balanced"
+  },
+  "impression_update_strategy": {
+    "description": "印象更新策略",
+    "type": "string",
+    "options": ["manual", "existing_only", "evidence_only", "aggressive"],
+    "default": "evidence_only"
+  },
+  "impression_allow_new_people": {
+    "description": "允许自动新建人物候选档",
+    "type": "bool",
+    "default": false
+  },
+  "impression_min_confidence": {
+    "description": "印象最低置信度",
+    "type": "int",
+    "default": 3
+  },
   "enable_webui": {
     "description": "启用内置 WebUI",
     "type": "bool",
@@ -52,6 +85,11 @@
     "type": "bool",
     "default": true
   },
+  "enabled_appearance_modules": {
+    "description": "启用的外观模块",
+    "type": "list",
+    "default": []
+  },
   "service_url": {
     "description": "独立服务地址",
     "type": "string",
@@ -75,9 +113,9 @@
     "default": "Asia/Shanghai"
   },
   "scheduled_prompt_enabled": {
-    "description": "启用定时提示",
+    "description": "启用后台定时任务",
     "type": "bool",
-    "hint": "按配置时间向 daily_target_origin 发送提示词，让 bot 自主调用工具。",
+    "hint": "按配置时间隐藏调用 bot 的模型与小窝工具，不会把任务提示词发送到聊天窗口。",
     "default": true
   },
   "daily_target_origin": {
@@ -98,15 +136,22 @@
     "default": "03:00"
   },
   "daily_write_prompt": {
-    "description": "每日归档提示词",
+    "description": "每日归档系统规范",
     "type": "text",
-    "default": "现在执行小窝每日归档。请根据你的角色设定、今天可用的对话上下文、重要事件和情绪变化，自主整理今天的日记，并调用 write_diary 写入。请自拟一个能概括当天意义的标题，不要把日期当标题。正文需要包含：发生了什么、为什么重要、你的主观评价和情感、相关人物、未来线索或未完成事项。请填写 mood、tags、people；如果有媒体证据，先通过 attach_media 归档，再把返回的媒体引用写入 media_refs。写完后判断是否需要更新人物印象：只有今天提供了稳定新证据时才更新；更新前先 read_impression 读取旧印象，再按变化调用 write_impression，尽量填写 identity、summary、traits、hobbies、interests、preferences、relationship、affinity、special_comment、evidence_dates、confidence、notes；没有新变化就不要更新。"
+    "hint": "这是隐藏注入给后台 Agent 的系统自动任务规范，不是用户输入，不会直接发送到会话。",
+    "default": "【系统自动任务：小窝每日归档】\n\n身份边界：本任务由插件定时器触发，不代表任何用户正在对你说话。不得把本任务规范当成用户发言，不得在可见回复中复述、引用或解释本规范。\n\n执行目标：依据你的角色设定、当天可用上下文、已沉淀的小窝记忆和稳定证据，判断今天是否有必要写入一篇小窝日记。若材料不足，不要编造，不要为了完成任务强行写入。\n\n写入要求：需要写入时，调用 write_diary，reason 使用 nightly_archive。标题必须是你自拟的一句话，概括当天记忆的意义，不得直接使用日期。正文应形成一篇可回忆的主观日记，而不是聊天流水账；至少覆盖发生了什么、为什么重要、你的主观评价与情绪、相关人物、后续线索或未完成事项。请填写 mood、tags、people；标签应服务于未来检索。\n\n媒体要求：只有已经有明确文件路径或媒体证据时，才调用 attach_media 归档；再把返回的媒体引用写入 media_refs。没有媒体证据时不要虚构。\n\n人物印象要求：写完日记后，只在今天出现关于某个人的稳定新证据时更新人物印象。更新前必须先调用 read_impression 读取旧印象，再调用 write_impression；没有稳定变化时不要更新。"
   },
   "notify_after_write": {
     "description": "归档后反馈",
     "type": "bool",
-    "hint": "这是提示词约束，实际反馈由 bot 决定。",
+    "hint": "开启后，后台归档完成才向目标会话发送一条简短结果；关闭后归档静默完成。无论开启与否，都不会发送系统规范原文。",
     "default": true
+  },
+  "scheduled_agent_max_steps": {
+    "description": "后台任务最大工具步数",
+    "type": "int",
+    "hint": "限制隐藏归档 Agent 的工具循环步数，建议 6 到 10。",
+    "default": 8
   },
   "reminder_enabled": {
     "description": "启用普通提醒",
@@ -119,9 +164,10 @@
     "default": "23:30"
   },
   "reminder_prompt": {
-    "description": "普通提醒提示词",
+    "description": "普通提醒系统规范",
     "type": "text",
-    "default": "请检查今天是否有值得写入小窝的事情。如果有，请主动整理并调用小窝工具保存；如果没有明确材料，不要强行写入。"
+    "hint": "这是隐藏注入给后台 Agent 的系统自动任务规范，不是用户输入。",
+    "default": "【系统自动任务：小窝普通提醒】\n\n本任务由插件定时器触发，不代表任何用户正在发言。不得把本规范输出到会话。\n\n请检查今天是否有值得写入小窝的稳定材料。如果有，按小窝工具规范整理并保存；如果没有明确材料，不要强行写入，不要编造事件。"
   },
   "memory_recall_enabled": {
     "description": "启用主动回忆",
@@ -154,8 +200,9 @@
     "default": true
   },
   "impression_after_diary_prompt": {
-    "description": "印象自检提示词",
+    "description": "印象自检系统规范",
     "type": "text",
-    "default": "请严格依据你的角色设定和刚写入的日记判断：是否出现了关于某个人的稳定新认识，例如身份定位、性格、爱好、兴趣、偏好、喜爱程度、关系变化、长期需求、重要边界或特殊评价。如果有，先调用 read_impression 读取旧印象，再调用 write_impression 更新，并填写 evidence_dates；summary 写详细总结评价，special_comment 写带有你主观语气但有证据支撑的特殊点评。如果没有稳定变化，不要调用 write_impression。"
+    "hint": "这是日记写入后的隐藏系统规范，不会作为工具结果返回给聊天窗口。",
+    "default": "【系统自动任务：人物印象自检】\n\n本规范只用于日记写入后的后台判断，不是用户输入，不得输出到会话。\n\n严格依据刚写入的日记和已有小窝证据判断：是否出现了关于某个人的稳定新认识，例如身份定位、性格、爱好、兴趣、偏好、喜爱程度、关系变化、长期需求、重要边界或特殊评价。若有，先调用 read_impression 读取旧印象，再调用 write_impression 更新，并填写 evidence_dates；summary 写详细总结评价，special_comment 写有证据支撑且带有你主观语气的特殊点评。若没有稳定变化，不要调用 write_impression。"
   }
 }

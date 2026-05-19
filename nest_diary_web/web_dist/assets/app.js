@@ -1,4 +1,4 @@
-const APP_VERSION = "0.3.9";
+const APP_VERSION = "0.4.0";
 
 const app = document.getElementById("app");
 const state = {
@@ -24,7 +24,8 @@ const state = {
   notice: "",
   error: "",
   rendered: new Set(),
-  settingsSection: "diary",
+  settingsSection: "modules",
+  settingsModuleDetail: "",
 };
 
 const navItems = [
@@ -213,7 +214,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-settings-section]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-settings-section], [data-module-settings], [data-settings-back]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -260,6 +261,14 @@ document.addEventListener(
     }
     if (target.dataset.settingsSection) {
       switchSettingsSection(target.dataset.settingsSection);
+      return;
+    }
+    if (target.dataset.moduleSettings) {
+      openModuleSettings(target.dataset.moduleSettings);
+      return;
+    }
+    if (target.dataset.settingsBack !== undefined) {
+      closeModuleSettings();
     }
   },
   true
@@ -313,7 +322,7 @@ function renderDashboard() {
         <div class="card-head"><h2>小窝状态</h2></div>
         <div class="card-body home-quiet-list">
           <p><strong>归档</strong><span>日记按年月日保存，保留修订快照。</span></p>
-          <p><strong>印象</strong><span>日记出现的人物会进入人物印象，后续按证据更新。</span></p>
+          <p><strong>印象</strong><span>人物印象独立管理；日记后是否更新由策略和 bot 判断。</span></p>
           <p><strong>个性化</strong><span>外观、模块和拓展包都放在独立目录中。</span></p>
         </div>
       </article>
@@ -833,70 +842,22 @@ async function renderSettings() {
   const payload = await api("/api/ui/settings");
   state.settings = payload;
   const settings = payload.settings;
+  if (!["modules", "access", "backup"].includes(state.settingsSection)) state.settingsSection = "modules";
   panel("settings").innerHTML = `
     ${pageHead("", "设置")}
     <section class="settings-layout">
       <aside class="settings-menu">
-        ${settingsTab("diary", "日记与回忆")}
-        ${settingsTab("appearance", "外观设置")}
-        ${settingsTab("modules", "模块控制台")}
+        ${settingsTab("modules", "模块管理")}
         ${settingsTab("access", "访问密钥")}
         ${settingsTab("backup", "导入导出")}
       </aside>
       <div class="settings-content">
-        <form data-action="save-settings">
-          <section class="settings-panel ${settingsPanelClass("diary")}" data-settings-panel="diary">
-            <article class="card">
-              <div class="card-head"><div><h2>日记与回忆</h2></div></div>
-              <div class="card-body form">
-                <div class="setting-line"><div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
-                <div class="setting-line"><div><strong>主动回忆</strong><p class="muted">上下文不够时，引导 bot 先检索日记片段。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
-                <div class="form-grid compact">
-                  <label>回忆策略<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>谨慎</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>积极</option></select></label>
-                  <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
-                  <label>片段长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
-                  <label>归档粒度<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>年月日</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>年月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>年</option></select></label>
-                </div>
-                ${check("allow_media_refs", "允许媒体引用", settings.allow_media_refs)}
-                ${check("show_impression_prompt", "启用人物印象提示", settings.show_impression_prompt)}
-                <label>人物印象提示词<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
-              </div>
-            </article>
-          </section>
-          <section class="settings-panel ${settingsPanelClass("appearance")}" data-settings-panel="appearance">
-            <article class="card">
-              <div class="card-head"><div><h2>外观设置</h2></div></div>
-              <div class="card-body form">
-                <div class="brand-settings">
-                  <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
-                  <div class="form-grid compact">
-                    <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
-                    <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
-                    <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
-                    <label>前端样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
-                    <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认个性化目录"></label>
-                  </div>
-                </div>
-                ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
-              </div>
-            </article>
-          </section>
-          <section class="settings-panel ${settingsPanelClass("modules")}" data-settings-panel="modules">
-            <article class="card module-console-card">
-              <div class="card-head"><div><h2>模块控制台</h2></div><span class="meta">官方稳定，自定义隔离</span></div>
-              <div class="card-body form">
-                <div class="notice soft">官方模块会随插件更新；改官方能力时优先做拓展包。只有要替代整套功能时，才创建自定义完整模块并声明功能标签、替代关系和冲突关系。</div>
-                ${moduleWarnings(payload.module_catalog.conflicts || [])}
-                <div class="module-console">
-                  ${moduleGroup("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules", "插件更新可能替换官方实现；数据仍在数据目录中。")}
-                  ${moduleGroup("自定义完整模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules", "用于替代或新增完整功能，数据放 modules/<module-id>/。")}
-                  ${moduleGroup("拓展包", payload.module_catalog.extensions || [], settings.enabled_custom_extensions || [], "enabled_custom_extensions", "用于增强现有模块，数据放 modules/extensions/<extension-id>/。")}
-                </div>
-              </div>
-            </article>
-          </section>
-          <div class="sticky-save settings-save ${settingsSaveClass()}"><button class="primary">保存设置</button></div>
-        </form>
+        <section class="settings-panel ${settingsPanelClass("modules")}" data-settings-panel="modules">
+          <form data-action="save-settings">
+            ${state.settingsModuleDetail ? moduleDetailPage(payload, state.settingsModuleDetail) : moduleManagerPage(payload)}
+            <div class="sticky-save settings-save active"><button class="primary">保存设置</button></div>
+          </form>
+        </section>
         <section class="settings-panel ${settingsPanelClass("access")}" data-settings-panel="access">
           <article class="card">
             <div class="card-head"><div><h2>访问密钥</h2></div></div>
@@ -947,14 +908,190 @@ function settingsPanelClass(id) {
 }
 
 function settingsSaveClass() {
-  return ["diary", "appearance", "modules"].includes(state.settingsSection) ? "active" : "";
+  return ["diary", "impressions", "appearance", "modules"].includes(state.settingsSection) ? "active" : "";
 }
 
-function switchSettingsSection(id) {
+async function switchSettingsSection(id) {
   state.settingsSection = id;
-  document.querySelectorAll("[data-settings-section]").forEach((node) => node.classList.toggle("active", node.dataset.settingsSection === id));
-  document.querySelectorAll("[data-settings-panel]").forEach((node) => node.classList.toggle("active", node.dataset.settingsPanel === id));
-  document.querySelectorAll(".settings-save").forEach((node) => node.classList.toggle("active", settingsSaveClass() === "active"));
+  state.settingsModuleDetail = "";
+  await renderSettings();
+  updateShell();
+}
+
+async function openModuleSettings(id) {
+  state.settingsSection = "modules";
+  state.settingsModuleDetail = id || "";
+  await renderSettings();
+  updateShell();
+}
+
+async function closeModuleSettings() {
+  state.settingsModuleDetail = "";
+  await renderSettings();
+  updateShell();
+}
+
+function moduleManagerPage(payload) {
+  const settings = payload.settings;
+  return `
+    <article class="card module-console-card">
+      <div class="card-head">
+        <div>
+          <h2>模块管理</h2>
+          <p class="muted">像插件一样管理小窝能力：开关、来源、说明和模块设置都集中在这里。</p>
+        </div>
+        <span class="meta">官方模块 / 自定义模块 / 外观模块</span>
+      </div>
+      <div class="card-body form">
+        <div class="module-manager-head">
+          <div>
+            <strong>模块总览</strong>
+            <p class="muted">官方模块随插件维护；完整模块可能替换一整套能力；补充拓展包只增强已有能力，允许多个同时开启。</p>
+          </div>
+          <button class="button" data-module-settings="webui" type="button">外观与前端设置</button>
+        </div>
+        ${moduleWarnings(payload.module_catalog.conflicts || [], "当前没有检测到已启用完整模块的冲突。")}
+        ${moduleWarnings(payload.module_catalog.appearance_conflicts || [], "当前没有检测到全局外观冲突。")}
+        <div class="module-console">
+          ${moduleGroup("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules", "随插件更新提供，关闭后对应工具或页面会停止使用。", "official")}
+          ${moduleGroup("自定义完整模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules", "替代或新增完整功能，可能与官方模块冲突。", "custom")}
+          ${moduleGroup("补充拓展包", payload.module_catalog.extensions || [], settings.enabled_custom_extensions, "enabled_custom_extensions", "增强现有模块；允许多个同时开启。", "extension")}
+          ${moduleGroup("外观模块", payload.module_catalog.appearance || [], settings.enabled_appearance_modules || [], "enabled_appearance_modules", "中文标签会注明全局替换或补充拓展。全局替换建议只启用一个；补充拓展不限。", "appearance")}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function moduleDetailPage(payload, detailKey) {
+  const settings = payload.settings;
+  const module = findModuleByDetailKey(payload.module_catalog, detailKey);
+  const title = module?.name || moduleDetailTitle(detailKey);
+  const description = module?.description || moduleDetailDescription(detailKey);
+  return `
+    <article class="card module-detail-card">
+      <div class="module-detail-head">
+        <button class="text-button module-detail-back" data-settings-back type="button">← 返回模块管理</button>
+        <div>
+          <h2>${escapeHtml(title)}</h2>
+          <p class="muted">${escapeHtml(description || "这个模块暂未提供说明。")}</p>
+        </div>
+        <div class="module-detail-tags">
+          ${module ? moduleBadges(module, detailKey.startsWith("appearance:") ? "appearance" : module.kind).join("") : ""}
+        </div>
+      </div>
+      <div class="card-body form">
+        ${module ? moduleDocBlock(module, detailKey) : ""}
+        ${moduleSettingsBody(payload, detailKey)}
+      </div>
+    </article>
+  `;
+}
+
+function moduleSettingsBody(payload, detailKey) {
+  const settings = payload.settings;
+  if (detailKey === "diary") {
+    return `
+      <div class="setting-line"><div><strong>日记模块</strong><p class="muted">控制 bot 与网页的日记写入、读取、归档和检索。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
+      <div class="setting-line"><div><strong>主动回忆</strong><p class="muted">上下文不够时，引导 bot 先检索日记片段。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
+      <div class="form-grid compact">
+        <label>回忆策略<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>谨慎</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>积极</option></select></label>
+        <label>默认检索条数<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
+        <label>片段长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
+        <label>归档粒度<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>年月日</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>年月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>年</option></select></label>
+      </div>
+      ${check("allow_media_refs", "允许媒体引用", settings.allow_media_refs)}
+      <div class="settings-table compact-table">
+        <div><span>检索后端</span><strong>${escapeHtml(payload.search?.backend || "unknown")}</strong></div>
+        <div><span>FTS5</span><strong>${payload.search?.fts5 ? "可用" : "不可用，已降级"}</strong></div>
+      </div>
+    `;
+  }
+  if (detailKey === "impressions") {
+    return `
+      <div class="setting-line"><div><strong>人物印象模块</strong><p class="muted">控制人物印象的读取、写入、编辑和删除；关闭后工具与页面都会停止写入。</p></div>${switchControl("enable_impressions_module", settings.enable_impressions_module)}</div>
+      <div class="setting-line"><div><strong>日记后自动识别</strong><p class="muted">日记保存后，把内容交给 bot 判断是否要更新印象。不是只要出现名字就建档。</p></div>${switchControl("auto_impression_from_diary", settings.auto_impression_from_diary)}</div>
+      <div class="form-grid compact">
+        <label>写入程度<select name="impression_write_level">
+          <option value="off" ${settings.impression_write_level === "off" ? "selected" : ""}>关闭：不自动写印象</option>
+          <option value="light" ${settings.impression_write_level === "light" ? "selected" : ""}>轻量：只补证据日期</option>
+          <option value="balanced" ${settings.impression_write_level === "balanced" ? "selected" : ""}>均衡：稳定证据才更新</option>
+          <option value="deep" ${settings.impression_write_level === "deep" ? "selected" : ""}>深度：允许完整画像补全</option>
+        </select></label>
+        <label>更新策略<select name="impression_update_strategy">
+          <option value="manual" ${settings.impression_update_strategy === "manual" ? "selected" : ""}>手动：只允许人工或明确工具调用</option>
+          <option value="existing_only" ${settings.impression_update_strategy === "existing_only" ? "selected" : ""}>只更新已有角色</option>
+          <option value="evidence_only" ${settings.impression_update_strategy === "evidence_only" ? "selected" : ""}>证据更新：默认推荐</option>
+          <option value="aggressive" ${settings.impression_update_strategy === "aggressive" ? "selected" : ""}>积极：允许新建候选档</option>
+        </select></label>
+        <label>最低置信度<input name="impression_min_confidence" type="number" min="1" max="5" value="${settings.impression_min_confidence || 3}"></label>
+      </div>
+      ${check("impression_allow_new_people", "允许自动新建人物候选档", settings.impression_allow_new_people)}
+      ${check("show_impression_prompt", "写日记页显示人物印象提示", settings.show_impression_prompt)}
+      <label>印象写入规范<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
+      <div class="notice soft">推荐组合：开启人物印象模块，开启日记后自动识别，写入程度选“均衡”，更新策略选“证据更新”，关闭自动新建人物候选档。这样“老爸”这类称呼不会仅因出现就建档。</div>
+    `;
+  }
+  if (detailKey === "webui") {
+    return `
+      <div class="brand-settings">
+        <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
+        <div class="form-grid compact">
+          <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
+          <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
+          <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+          <label>当前全局样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
+          <label>自定义前端目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认个性化目录"></label>
+        </div>
+      </div>
+      ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
+      <div class="notice soft">外观模块开关在模块管理总览中。全局替换类外观建议只启用一个；补充拓展类外观可以多个同时启用。</div>
+    `;
+  }
+  if (detailKey === "media") {
+    return `
+      <div class="notice soft">媒体归档当前跟随日记模块工作；是否允许日记引用媒体请进入“日记模块”设置。</div>
+      <button class="button" data-module-settings="diary" type="button">打开日记模块设置</button>
+    `;
+  }
+  return `<div class="notice soft">这个模块暂未声明可调设置。可以在模块管理总览中启用或停用它。</div>`;
+}
+
+function moduleDetailTitle(detailKey) {
+  if (detailKey === "diary") return "日记模块";
+  if (detailKey === "impressions") return "人物印象模块";
+  if (detailKey === "media") return "媒体归档模块";
+  if (detailKey === "webui") return "外观与前端模块";
+  return detailKey;
+}
+
+function moduleDetailDescription(detailKey) {
+  if (detailKey === "webui") return "管理小窝标题、头像、自定义前端目录和全局样式。";
+  return "";
+}
+
+function moduleDocBlock(module, detailKey) {
+  const paths = [module.data_path, module.frontend_path].filter(Boolean);
+  return `
+    <section class="module-doc">
+      <h3>模块说明</h3>
+      <p>${escapeHtml(module.description || "这个模块还没有写说明。")}</p>
+      <div class="chips small">
+        ${moduleBadges(module, detailKey.startsWith("appearance:") ? "appearance" : module.kind).join("")}
+      </div>
+      ${paths.length ? `<p class="module-paths">${escapeHtml(paths.join(" · "))}</p>` : ""}
+    </section>
+  `;
+}
+
+function findModuleByDetailKey(catalog, detailKey) {
+  const all = [
+    ...(catalog.official || []).map((item) => ({ ...item, detailKey: item.id })),
+    ...(catalog.custom || []).map((item) => ({ ...item, detailKey: `custom:${item.id}` })),
+    ...(catalog.extensions || []).map((item) => ({ ...item, detailKey: `extension:${item.id}` })),
+    ...(catalog.appearance || []).map((item) => ({ ...item, detailKey: `appearance:${item.id}` })),
+  ];
+  return all.find((item) => item.detailKey === detailKey || item.id === detailKey);
 }
 
 function check(name, label, checked) {
@@ -965,48 +1102,66 @@ function switchControl(name, checked) {
   return `<label class="switch"><input name="${name}" type="checkbox" ${checked ? "checked" : ""}><span></span></label>`;
 }
 
-function moduleWarnings(conflicts) {
+function moduleWarnings(conflicts, emptyText = "当前没有检测到已启用模块的功能标签冲突。") {
   return conflicts.length
     ? `<div class="module-warnings">${conflicts.map((item) => `<div class="notice ${item.level === "danger" ? "error" : "soft"}"><strong>${escapeHtml(item.title)}：</strong>${escapeHtml(item.message)}</div>`).join("")}</div>`
-    : `<div class="notice soft">当前没有检测到已启用模块的功能标签冲突。</div>`;
+    : `<div class="notice soft">${escapeHtml(emptyText)}</div>`;
 }
 
-function moduleGroup(title, modules, enabled, inputName, hint) {
+function moduleGroup(title, modules, enabled = [], inputName, hint, groupKind = "") {
   return `
     <section class="module-group">
       <div class="module-group-head"><h3>${escapeHtml(title)}</h3><p class="muted">${escapeHtml(hint)}</p></div>
-      ${modules.length ? modules.map((module) => moduleCard(module, enabled, inputName)).join("") : `<p class="muted">暂无。</p>`}
+      <input name="__module_group_present" value="${escapeHtml(inputName)}" type="hidden">
+      ${modules.length ? modules.map((module) => moduleCard(module, enabled, inputName, groupKind)).join("") : `<p class="muted module-empty">暂无。</p>`}
     </section>
   `;
 }
 
-function moduleCard(module, enabled, inputName) {
+function moduleCard(module, enabled = [], inputName, groupKind = "") {
+  const detailKey = groupKind === "custom" ? `custom:${module.id}` : groupKind === "extension" ? `extension:${module.id}` : groupKind === "appearance" ? `appearance:${module.id}` : module.id;
+  const checked = enabled.includes(module.id);
+  return `
+    <article class="module-card ${checked ? "enabled" : ""}">
+      <label class="module-card-toggle">
+        <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" ${checked ? "checked" : ""}>
+        <span>${checked ? "已开启" : "已关闭"}</span>
+      </label>
+      <div class="module-card-main">
+        <strong>${escapeHtml(module.name || module.id)}</strong>
+        <em>${escapeHtml(module.description || "没有说明。")}</em>
+        <span class="chips small">${moduleBadges(module, groupKind).join("")}</span>
+        ${(module.data_path || module.frontend_path) ? `<span class="module-paths">${escapeHtml([module.data_path, module.frontend_path].filter(Boolean).join(" · "))}</span>` : ""}
+      </div>
+      <div class="module-card-actions">
+        <button class="button" data-module-settings="${escapeHtml(detailKey)}" type="button">设置</button>
+      </div>
+    </article>
+  `;
+}
+
+function moduleBadges(module, groupKind = "") {
   const tags = module.feature_tags || [];
   const targets = module.target_modules || [];
   const replaces = module.replaces || [];
   const conflicts = module.conflicts_with || [];
-  return `
-    <label class="module-card">
-      <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" ${enabled.includes(module.id) ? "checked" : ""}>
-      <span class="module-card-main">
-        <strong>${escapeHtml(module.name || module.id)}</strong>
-        <em>${escapeHtml(module.description || "没有说明。")}</em>
-        <span class="chips small">
-          <span class="chip">${escapeHtml(moduleTypeLabel(module.type))}</span>
-          ${tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("")}
-          ${targets.map((target) => `<span class="chip">挂载 ${escapeHtml(target)}</span>`).join("")}
-          ${replaces.map((target) => `<span class="chip">替代 ${escapeHtml(target)}</span>`).join("")}
-          ${conflicts.map((target) => `<span class="chip">冲突 ${escapeHtml(target)}</span>`).join("")}
-        </span>
-        ${(module.data_path || module.frontend_path) ? `<span class="module-paths">${escapeHtml([module.data_path, module.frontend_path].filter(Boolean).join(" · "))}</span>` : ""}
-      </span>
-    </label>
-  `;
+  const appearanceLabel = groupKind === "appearance" ? (module.entry_label || (module.appearance_mode === "global" ? "全局替换" : "补充拓展")) : "";
+  const badges = [
+    `<span class="chip">${escapeHtml(module.kind === "official" ? "官方模块" : module.kind === "custom" ? "自定义模块" : module.kind === "extension" ? "补充拓展" : module.kind === "appearance" ? "外观模块" : moduleTypeLabel(module.type))}</span>`,
+    module.kind === "official" ? `<span class="official-badge">官方</span>` : "",
+    appearanceLabel ? `<span class="chip ${module.appearance_mode === "global" ? "danger-chip" : ""}">${escapeHtml(appearanceLabel)}</span>` : "",
+    ...tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`),
+    ...targets.map((target) => `<span class="chip">挂载 ${escapeHtml(target)}</span>`),
+    ...replaces.map((target) => `<span class="chip">替代 ${escapeHtml(target)}</span>`),
+    ...conflicts.map((target) => `<span class="chip">冲突 ${escapeHtml(target)}</span>`),
+  ];
+  return badges.filter(Boolean);
 }
 
 function moduleTypeLabel(type = "") {
   if (type === "extension") return "拓展包";
   if (type === "module") return "完整模块";
+  if (type === "appearance") return "外观模块";
   return type || "模块";
 }
 
@@ -1033,36 +1188,71 @@ function exportOptions(catalog) {
 
 async function saveSettings(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  let avatarUrl = String(form.get("brand_avatar_url") || "");
+  const formEl = event.currentTarget;
+  const form = new FormData(formEl);
+  const current = state.settings?.settings || {};
+  const hasField = (name) => formEl.querySelector(`[name="${CSS.escape(name)}"]`) !== null;
+  const valueField = (name, fallback = "") => (hasField(name) ? form.get(name) : fallback);
+  const boolField = (name, fallback = false) => (hasField(name) ? form.has(name) : Boolean(fallback));
+  const numberField = (name, fallback = 0) => Number(valueField(name, fallback) || fallback || 0);
+  const listField = (name, fallback = []) => {
+    if (form.getAll("__module_group_present").includes(name)) return form.getAll(name);
+    return hasField(name) ? form.getAll(name) : fallback;
+  };
+  let avatarUrl = String(valueField("brand_avatar_url", current.brand_avatar_url || ""));
   const avatarFile = form.get("brand_avatar_file");
   if (avatarFile && avatarFile.size) {
     avatarUrl = await uploadAvatar(avatarFile);
   }
   const payload = {
-    site_title: form.get("site_title"),
+    site_title: valueField("site_title", current.site_title || "小窝"),
     brand_avatar_url: avatarUrl,
-    search_default_top_k: Number(form.get("search_default_top_k") || 5),
-    search_snippet_chars: Number(form.get("search_snippet_chars") || 180),
-    memory_recall_enabled: form.has("memory_recall_enabled"),
-    memory_recall_policy: form.get("memory_recall_policy"),
-    enable_diary_module: form.has("enable_diary_module"),
-    diary_archive_granularity: form.get("diary_archive_granularity"),
-    allow_media_refs: form.has("allow_media_refs"),
-    show_impression_prompt: form.has("show_impression_prompt"),
-    active_frontend_style: form.get("active_frontend_style"),
-    enabled_official_modules: form.getAll("enabled_official_modules"),
-    enabled_custom_modules: form.getAll("enabled_custom_modules"),
-    enabled_custom_extensions: form.getAll("enabled_custom_extensions"),
-    custom_webui_dir: form.get("custom_webui_dir"),
-    backup_custom_before_update: form.has("backup_custom_before_update"),
-    impression_prompt: form.get("impression_prompt"),
+    search_default_top_k: numberField("search_default_top_k", current.search_default_top_k || 5),
+    search_snippet_chars: numberField("search_snippet_chars", current.search_snippet_chars || 180),
+    memory_recall_enabled: boolField("memory_recall_enabled", current.memory_recall_enabled),
+    memory_recall_policy: valueField("memory_recall_policy", current.memory_recall_policy || "conservative"),
+    enable_diary_module: boolField("enable_diary_module", current.enable_diary_module),
+    diary_archive_granularity: valueField("diary_archive_granularity", current.diary_archive_granularity || "day"),
+    allow_media_refs: boolField("allow_media_refs", current.allow_media_refs),
+    enable_impressions_module: boolField("enable_impressions_module", current.enable_impressions_module),
+    auto_impression_from_diary: boolField("auto_impression_from_diary", current.auto_impression_from_diary),
+    impression_write_level: valueField("impression_write_level", current.impression_write_level || "balanced"),
+    impression_update_strategy: valueField("impression_update_strategy", current.impression_update_strategy || "evidence_only"),
+    impression_allow_new_people: boolField("impression_allow_new_people", current.impression_allow_new_people),
+    impression_min_confidence: numberField("impression_min_confidence", current.impression_min_confidence || 3),
+    show_impression_prompt: boolField("show_impression_prompt", current.show_impression_prompt),
+    active_frontend_style: valueField("active_frontend_style", current.active_frontend_style || "default"),
+    enabled_official_modules: listField("enabled_official_modules", current.enabled_official_modules || []),
+    enabled_custom_modules: listField("enabled_custom_modules", current.enabled_custom_modules || []),
+    enabled_custom_extensions: listField("enabled_custom_extensions", current.enabled_custom_extensions || []),
+    enabled_appearance_modules: listField("enabled_appearance_modules", current.enabled_appearance_modules || []),
+    custom_webui_dir: valueField("custom_webui_dir", current.custom_webui_dir || ""),
+    backup_custom_before_update: boolField("backup_custom_before_update", current.backup_custom_before_update),
+    impression_prompt: valueField("impression_prompt", current.impression_prompt || ""),
   };
+  if (form.getAll("__module_group_present").includes("enabled_official_modules")) {
+    payload.enable_diary_module = payload.enabled_official_modules.includes("diary");
+    payload.enable_impressions_module = payload.enabled_official_modules.includes("impressions");
+  } else {
+    if (hasField("enable_diary_module")) {
+      payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "diary", payload.enable_diary_module);
+    }
+    if (hasField("enable_impressions_module")) {
+      payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "impressions", payload.enable_impressions_module);
+    }
+  }
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
   state.notice = "设置已保存。";
   state.bootstrap = null;
   await renderSettings();
   updateShell();
+}
+
+function syncEnabledModule(items, moduleId, enabled) {
+  const next = new Set(items || []);
+  if (enabled) next.add(moduleId);
+  else next.delete(moduleId);
+  return Array.from(next);
 }
 
 async function uploadAvatar(file) {
