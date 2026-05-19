@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.8";
+const APP_VERSION = "0.4.9";
 
 const app = document.getElementById("app");
 const state = {
@@ -31,6 +31,7 @@ const state = {
   mediaFloatPositions: {},
   mediaFolderModalOpen: false,
   mediaFolderEditingId: "",
+  mediaNoteEditing: false,
   settings: null,
   notice: "",
   toast: "",
@@ -285,7 +286,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
@@ -356,6 +357,14 @@ document.addEventListener(
       closeMediaDetail();
       return;
     }
+    if (target.dataset.mediaNoteEdit !== undefined) {
+      state.mediaNoteEditing = true;
+      state.toast = "备注可以编辑了，写好后点保存备注";
+      renderGlobalDialogs();
+      updateShell();
+      clearToastSoon();
+      return;
+    }
     if (target.dataset.mediaFolderCreate !== undefined) {
       openMediaFolderModal();
       return;
@@ -391,6 +400,13 @@ document.addEventListener(
     if (target.dataset.mediaMode) {
       state.mediaMode = target.dataset.mediaMode;
       state.activeMediaFolderId = "";
+      state.expandedMediaFolderId = "";
+      renderMedia();
+      return;
+    }
+    if (target.dataset.mediaFolderCollapse) {
+      if (Date.now() < state.mediaSuppressClickUntil) return;
+      captureMediaFloatPositions();
       state.expandedMediaFolderId = "";
       renderMedia();
       return;
@@ -1153,14 +1169,16 @@ function mediaFolderCard(folder) {
   const tags = Array.isArray(folder.tags) ? folder.tags.filter(Boolean) : [];
   return `
     <article class="media-card folder-card ${expanded ? "expanded" : ""}" draggable="true" data-media-item="folder" data-media-id="${escapeHtml(folder.id)}" data-media-folder-drop="${escapeHtml(folder.id)}" data-media-folder-expand="${escapeHtml(folder.id)}">
-      <button class="media-thumb folder-thumb" data-media-folder-open="${escapeHtml(folder.id)}" type="button">${iconImg("modules", folder.name)}<span class="folder-mouth">${count ? "打开" : "空"}</span></button>
+      <button class="media-thumb folder-thumb" data-media-folder-open="${escapeHtml(folder.id)}" type="button">
+        ${iconImg("modules", folder.name)}
+        <span class="folder-mouth">${expanded ? "打开文件夹，把图片拖到这里" : count ? "打开" : "空"}</span>
+      </button>
       <span class="media-card-info">
         <strong>${escapeHtml(folder.name)}</strong>
         <em>${escapeHtml(folder.note || `${count} 个文件`)}</em>
       </span>
-      <button class="text-button folder-edit-button" data-media-folder-edit="${escapeHtml(folder.id)}" type="button">编辑</button>
       ${tags.length ? `<span class="folder-tags">${tags.map((tag) => `<b>${escapeHtml(tag)}</b>`).join("")}</span>` : ""}
-      ${expanded ? `<div class="folder-drop-mouth"><span>把图片拖进来</span></div>` : ""}
+      ${expanded ? `<button class="folder-drop-mouth folder-collapse-button" data-media-folder-collapse="${escapeHtml(folder.id)}" type="button">取消</button>` : ""}
     </article>
   `;
 }
@@ -1190,6 +1208,7 @@ function mediaFolderHeader(folder) {
         <h2>${escapeHtml(folder.name)}</h2>
         <p class="muted">把图片拖出这个区域即可移出文件夹。</p>
       </div>
+      <button class="button ghost folder-header-edit" data-media-folder-edit="${escapeHtml(folder.id)}" type="button">编辑文件夹</button>
     </section>
   `;
 }
@@ -1211,11 +1230,13 @@ function mediaFloatHeight(count) {
 
 function openMediaDetail(id) {
   state.selectedMedia = allMediaAssets().find((asset) => [asset.sha256, asset.url, asset.path, asset.original_name].includes(id)) || null;
+  state.mediaNoteEditing = false;
   renderGlobalDialogs();
 }
 
 function closeMediaDetail() {
   state.selectedMedia = null;
+  state.mediaNoteEditing = false;
   renderGlobalDialogs();
 }
 
@@ -1233,6 +1254,8 @@ function mediaDialog(asset) {
   const layout = wide ? "landscape" : "portrait";
   const name = asset.original_name || asset.sha256 || "未命名媒体";
   const savedAt = formatDateTime(asset.saved_at) || asset.date || "";
+  const note = asset.note || "";
+  const noteEditing = Boolean(state.mediaNoteEditing);
   return `
     <div class="media-dialog-backdrop" data-media-close>
       <article class="media-dialog ${layout}" role="dialog" aria-modal="true" aria-label="${escapeHtml(name)}" onclick="event.stopPropagation()">
@@ -1246,12 +1269,12 @@ function mediaDialog(asset) {
             <div><dt>保存日期</dt><dd>${escapeHtml(savedAt || "未记录")}</dd></div>
             <div><dt>文件大小</dt><dd>${escapeHtml(formatBytes(asset.size_bytes || 0))}</dd></div>
           </dl>
-          <form class="media-note-form" data-action="save-media-note">
+          <form class="media-note-form ${noteEditing ? "editing" : ""}" data-action="save-media-note">
             <input type="hidden" name="sha256" value="${escapeHtml(asset.sha256 || "")}">
-            <label>备注<textarea name="note" rows="3" placeholder="给这张图片补充备注">${escapeHtml(asset.note || "")}</textarea></label>
+            <label>备注<textarea name="note" rows="3" placeholder="给这张图片补充备注" ${noteEditing ? "" : "readonly"}>${escapeHtml(note)}</textarea></label>
             <div class="actions dialog-actions">
               <button class="button ghost" data-media-open-original type="button">打开原图</button>
-              <button class="primary" type="submit">保存备注</button>
+              ${noteEditing ? `<button class="primary" type="submit">保存备注</button>` : `<button class="primary" data-media-note-edit type="button">修改备注</button>`}
             </div>
           </form>
         </div>
@@ -1317,41 +1340,59 @@ function mediaFolderCreateDialog() {
 
 async function createMediaFolder(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formElement = event.target.closest('[data-action="create-media-folder"]');
+  if (!formElement) return;
+  const form = new FormData(formElement);
   const folderId = String(form.get("folder_id") || "");
   const payload = {
     name: form.get("name") || "新建文件夹",
     tags: splitWords(form.get("tags") || ""),
     note: form.get("note") || "",
   };
-  if (folderId) {
-    await api("/api/ui/media/folders/update", { method: "POST", body: JSON.stringify({ ...payload, folder_id: folderId }) });
-  } else {
-    await api("/api/ui/media/folders", { method: "POST", body: JSON.stringify(payload) });
+  try {
+    if (folderId) {
+      await api("/api/ui/media/folders/update", { method: "POST", body: JSON.stringify({ ...payload, folder_id: folderId }) });
+    } else {
+      await api("/api/ui/media/folders", { method: "POST", body: JSON.stringify(payload) });
+    }
+    state.mediaFolderModalOpen = false;
+    state.mediaFolderEditingId = "";
+    state.toast = folderId ? "文件夹已保存" : "文件夹已创建";
+    await renderMedia();
+    updateShell();
+    clearToastSoon();
+  } catch (err) {
+    state.toast = `保存失败：${err.message}`;
+    updateShell();
+    clearToastSoon();
   }
-  state.mediaFolderModalOpen = false;
-  state.mediaFolderEditingId = "";
-  state.toast = folderId ? "文件夹已保存" : "文件夹已创建";
-  await renderMedia();
-  updateShell();
-  clearToastSoon();
 }
 
 async function saveMediaNote(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const formElement = event.target.closest('[data-action="save-media-note"]');
+  if (!formElement) return;
+  const form = new FormData(formElement);
   const sha256 = String(form.get("sha256") || "");
   const note = String(form.get("note") || "");
-  const result = await api("/api/ui/media/note", { method: "POST", body: JSON.stringify({ sha256, note }) });
-  if (state.selectedMedia?.sha256 === sha256) state.selectedMedia = { ...state.selectedMedia, note: result.asset.note || note };
-  state.media = state.media.map((manifest) => ({
-    ...manifest,
-    assets: (manifest.assets || []).map((asset) => asset.sha256 === sha256 ? { ...asset, note: result.asset.note || note } : asset),
-  }));
-  state.toast = "备注已保存";
-  renderGlobalDialogs();
-  updateShell();
-  clearToastSoon();
+  try {
+    const result = await api("/api/ui/media/note", { method: "POST", body: JSON.stringify({ sha256, note }) });
+    const savedNote = result.asset.note ?? note;
+    if (state.selectedMedia?.sha256 === sha256) state.selectedMedia = { ...state.selectedMedia, note: savedNote };
+    state.media = state.media.map((manifest) => ({
+      ...manifest,
+      assets: (manifest.assets || []).map((asset) => asset.sha256 === sha256 ? { ...asset, note: savedNote } : asset),
+    }));
+    state.mediaNoteEditing = false;
+    state.toast = "备注已保存";
+    renderGlobalDialogs();
+    updateShell();
+    clearToastSoon();
+  } catch (err) {
+    state.toast = `保存失败：${err.message}`;
+    updateShell();
+    clearToastSoon();
+  }
 }
 
 async function moveMediaToFolder(sha256, folderId) {
@@ -1561,8 +1602,10 @@ function startMediaFloat() {
       h: rect.height || 180,
       locked: node.classList.contains("expanded"),
     };
+    item.x = Math.max(0, Math.min(item.x, Math.max(0, bounds.width - item.w)));
+    item.y = Math.max(0, Math.min(item.y, Math.max(0, bounds.height - item.h)));
     node.dataset.floatReady = "true";
-    node.style.transform = `translate(${x}px, ${y}px)`;
+    node.style.transform = `translate(${item.x}px, ${item.y}px)`;
     node.addEventListener("pointerdown", startFloatDrag);
     return item;
   });
@@ -1749,8 +1792,20 @@ function pointInsideElement(point, element) {
 }
 
 function captureMediaFloatPositions() {
+  if (!state.mediaFloating) return;
+  if (mediaFloatItems.length) {
+    mediaFloatItems.forEach((item) => {
+      state.mediaFloatPositions[item.key] = {
+        x: item.x,
+        y: item.y,
+        vx: 0,
+        vy: 0,
+      };
+    });
+    return;
+  }
   const gallery = document.querySelector("[data-media-gallery]");
-  if (!gallery || !state.mediaFloating) return;
+  if (!gallery) return;
   const galleryRect = gallery.getBoundingClientRect();
   gallery.querySelectorAll("[data-media-item]").forEach((node) => {
     const key = mediaFloatKey(node);

@@ -804,7 +804,7 @@ textarea {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 20;
+  z-index: 90;
   min-width: 148px;
   padding: 12px 16px;
   border: 1px solid var(--line-strong);
@@ -1031,11 +1031,7 @@ textarea {
 
 .media-gallery.floating .folder-card.expanded {
   width: 268px;
-}
-
-.folder-edit-button {
-  justify-self: start;
-  color: var(--accent);
+  animation: none;
 }
 
 .folder-thumb {
@@ -1057,6 +1053,14 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   font-weight: 900;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.folder-card.expanded .folder-thumb {
+  border-style: dashed;
+  border-color: var(--accent);
+  background: rgba(220, 239, 235, 0.58);
 }
 
 .folder-tags {
@@ -1075,14 +1079,23 @@ textarea {
 }
 
 .folder-drop-mouth {
-  min-height: 76px;
+  min-height: 48px;
   display: grid;
   place-items: center;
-  border: 1px dashed var(--accent);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
-  color: var(--accent);
-  background: rgba(220, 239, 235, 0.58);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.82);
   font-weight: 900;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.folder-drop-mouth:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #fff;
+  transform: translateY(-1px);
 }
 
 .folder-card.drop-ready .folder-drop-mouth,
@@ -1092,11 +1105,10 @@ textarea {
 
 @keyframes folder-open {
   from {
-    transform: scaleY(0.92);
-    transform-origin: center top;
+    opacity: 0.72;
   }
   to {
-    transform: scaleY(1);
+    opacity: 1;
   }
 }
 
@@ -1110,6 +1122,11 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.82);
+}
+
+.folder-header-edit {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .media-folder-shell h2 {
@@ -1294,9 +1311,25 @@ textarea {
   gap: 10px;
 }
 
+.media-note-form label {
+  color: var(--muted);
+  font-weight: 900;
+}
+
 .media-note-form textarea {
   min-height: 84px;
   max-height: 130px;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.media-note-form textarea[readonly] {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  cursor: default;
 }
 
 .media-dialog-close {

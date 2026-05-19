@@ -260,7 +260,7 @@ class MediaService:
             digest = self._extract_digest(item_id)
             if not digest:
                 raise ValueError("Media asset not found")
-            self._delete_asset_everywhere(digest)
+            self._delete_asset_everywhere(digest, strict=False)
             organization["asset_locations"].pop(digest, None)
             organization["trash"] = [
                 item for item in organization["trash"] if not (item.get("type") == "asset" and item.get("id") == digest)
@@ -270,7 +270,7 @@ class MediaService:
                 digest for digest, folder_id in organization["asset_locations"].items() if folder_id == item_id
             ]
             for digest in folder_assets:
-                self._delete_asset_everywhere(digest)
+                self._delete_asset_everywhere(digest, strict=False)
                 organization["asset_locations"].pop(digest, None)
             organization["folders"] = [folder for folder in organization["folders"] if folder.get("id") != item_id]
             organization["trash"] = [
@@ -323,7 +323,7 @@ class MediaService:
     def _organization_path(self) -> Path:
         return self.paths.media_dir / "organization.json"
 
-    def _delete_asset_everywhere(self, digest: str) -> None:
+    def _delete_asset_everywhere(self, digest: str, strict: bool = True) -> None:
         found = False
         root = self.paths.media_dir / "by-date"
         if root.exists():
@@ -343,7 +343,7 @@ class MediaService:
         if blob:
             blob.unlink(missing_ok=True)
             found = True
-        if not found:
+        if strict and not found:
             raise ValueError("Media asset not found")
 
     def _normalize_folder(self, folder: dict) -> dict:
