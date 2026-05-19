@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.6"
+APP_VERSION = "0.4.7"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -542,6 +542,8 @@ class MediaResolveRequest(BaseModel):
 
 class MediaFolderCreateRequest(BaseModel):
     name: str = ""
+    tags: list[str] = Field(default_factory=list)
+    note: str = ""
 
 
 class MediaMoveRequest(BaseModel):
@@ -888,7 +890,7 @@ async def ui_media(_session: None = Depends(require_web_session)):
 async def ui_create_media_folder(payload: MediaFolderCreateRequest, _session: None = Depends(require_web_session)):
     if not service_settings.load().enable_media_module:
         raise HTTPException(status_code=403, detail="Media module is disabled")
-    folder = media_service.create_folder(payload.name)
+    folder = media_service.create_folder(payload.name, tags=payload.tags, note=payload.note)
     return {"status": "ok", "folder": folder, "organization": media_service.load_organization()}
 
 

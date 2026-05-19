@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.6";
+const APP_VERSION = "0.4.7";
 
 const app = document.getElementById("app");
 const state = {
@@ -29,6 +29,7 @@ const state = {
   expandedMediaFolderId: "",
   mediaSuppressClickUntil: 0,
   mediaFloatPositions: {},
+  mediaFolderModalOpen: false,
   settings: null,
   notice: "",
   toast: "",
@@ -155,6 +156,7 @@ function ensureShell() {
         <section class="view-panel" id="view-media" data-panel="media"></section>
         <section class="view-panel" id="view-settings" data-panel="settings"></section>
       </main>
+      <div id="global-dialog-root"></div>
     </div>
   `;
 }
@@ -258,7 +260,12 @@ async function loadBootstrap() {
 }
 
 async function setView(view, options = {}) {
-  if (view !== "media") stopMediaFloat();
+  if (view !== "media") {
+    stopMediaFloat();
+    state.selectedMedia = null;
+    state.mediaFolderModalOpen = false;
+    renderGlobalDialogs();
+  }
   state.view = view;
   state.notice = options.keepNotice ? state.notice : "";
   state.error = "";
@@ -276,7 +283,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-folder-create], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-folder-create], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -332,7 +339,7 @@ document.addEventListener(
       return;
     }
     if (target.dataset.mediaOpen) {
-      if (Date.now() < state.mediaSuppressClickUntil) return;
+      if (Date.now() < state.mediaSuppressClickUntil && !target.closest("button, .button")) return;
       openMediaDetail(target.dataset.mediaOpen);
       return;
     }
@@ -341,7 +348,11 @@ document.addEventListener(
       return;
     }
     if (target.dataset.mediaFolderCreate !== undefined) {
-      createMediaFolder();
+      openMediaFolderModal();
+      return;
+    }
+    if (target.dataset.mediaFolderModalClose !== undefined) {
+      closeMediaFolderModal();
       return;
     }
     if (target.dataset.mediaTrash) {
@@ -361,8 +372,7 @@ document.addEventListener(
       return;
     }
     if (target.dataset.mediaToggleFloat !== undefined) {
-      state.mediaFloating = !state.mediaFloating;
-      renderMedia();
+      toggleMediaFloat();
       return;
     }
     if (target.dataset.mediaMode) {
@@ -380,6 +390,11 @@ document.addEventListener(
     }
     if (target.dataset.mediaFolderOpen) {
       if (Date.now() < state.mediaSuppressClickUntil) return;
+      if (state.mediaFloating && state.expandedMediaFolderId !== target.dataset.mediaFolderOpen) {
+        state.expandedMediaFolderId = target.dataset.mediaFolderOpen;
+        renderMedia();
+        return;
+      }
       openMediaFolder(target.dataset.mediaFolderOpen);
       return;
     }
@@ -410,6 +425,12 @@ document.addEventListener("change", (event) => {
   const target = event.target.closest("[data-module-toggle]");
   if (!target) return;
   saveModuleToggle(target);
+});
+
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest('[data-action="create-media-folder"]');
+  if (!form) return;
+  createMediaFolder(event);
 });
 
 async function loadView() {
@@ -983,7 +1004,7 @@ async function renderMedia() {
   const trashed = trashedMediaItems();
   const itemCount = state.mediaMode === "trash" ? trashed.length : assets.length + (state.mediaMode === "main" ? folders.length : 0);
   panel("media").innerHTML = `
-    ${pageHead("", mediaPageTitle(), mediaToolbar(assets, folders, trashed))}
+    ${mediaHead(assets, folders, trashed)}
     ${state.mediaMode === "folder" ? mediaFolderHeader(currentFolder) : ""}
     <section class="media-workspace ${state.mediaFloating ? "floating" : ""} ${state.mediaMode === "folder" ? "folder-mode" : ""} ${state.mediaMode === "trash" ? "trash-mode" : ""}" data-media-workspace>
       <div class="media-gallery ${state.mediaFloating ? "floating" : ""}" data-media-gallery style="${state.mediaFloating ? `min-height:${mediaFloatHeight(itemCount)}px` : ""}">
@@ -993,11 +1014,21 @@ async function renderMedia() {
         ${mediaEmptyState(assets, folders)}
       </div>
     </section>
-    <div id="media-dialog-root">${state.selectedMedia ? mediaDialog(state.selectedMedia) : ""}</div>
   `;
+  renderGlobalDialogs();
   bindMediaInteractions();
   if (state.mediaFloating) startMediaFloat();
   else stopMediaFloat();
+}
+
+async function toggleMediaFloat() {
+  if (state.mediaFloating) {
+    await animateFloatToGrid();
+    state.mediaFloating = false;
+  } else {
+    state.mediaFloating = true;
+  }
+  renderMedia();
 }
 
 function allMediaAssets() {
@@ -1052,16 +1083,24 @@ function trashedMediaItems() {
   });
 }
 
+function mediaHead(assets, folders, trashed) {
+  return `
+    <header class="topbar media-topbar">
+      <div class="page-title media-title">
+        <h1>${escapeHtml(mediaPageTitle())}</h1>
+        <span class="media-storage-inline">${escapeHtml(state.mediaStorage.label || formatBytes(state.mediaStorage.bytes || 0))} · 回收站 ${trashed.length}</span>
+      </div>
+      <div class="actions">${mediaToolbar(assets, folders, trashed)}</div>
+    </header>
+  `;
+}
+
 function mediaToolbar(assets, folders, trashed) {
   return `
     <div class="media-toolbar">
       <button class="media-float-toggle ${state.mediaFloating ? "active" : ""}" data-media-toggle-float type="button">
         ${iconImg("appearance", "漂浮模式")}<span>${state.mediaFloating ? "关闭漂浮" : "漂浮模式"}</span>
       </button>
-      <div class="media-storage">
-        <strong>${escapeHtml(state.mediaStorage.label || formatBytes(state.mediaStorage.bytes || 0))}</strong>
-        <span>${escapeHtml(mediaStorageSubtitle(assets, folders, trashed))}</span>
-      </div>
       <div class="media-organize-tools">
         ${state.mediaMode === "main" ? `<button class="button ghost" data-media-folder-create type="button">${iconImg("modules", "新建文件夹")}<span>新建文件夹</span></button>` : `<button class="button ghost" data-media-mode="main" type="button">返回媒体</button>`}
         <button class="media-trash-drop ${state.mediaMode === "trash" ? "active" : ""}" data-media-trash-zone data-media-mode="trash" type="button" title="拖到这里回收"><span class="trash-symbol" aria-hidden="true"></span><span>${trashed.length}</span></button>
@@ -1095,13 +1134,15 @@ function mediaCard(asset) {
 function mediaFolderCard(folder) {
   const count = visibleMediaAssets().filter((asset) => asset.folder_id === folder.id).length;
   const expanded = state.expandedMediaFolderId === folder.id;
+  const tags = Array.isArray(folder.tags) ? folder.tags.filter(Boolean) : [];
   return `
     <article class="media-card folder-card ${expanded ? "expanded" : ""}" draggable="true" data-media-item="folder" data-media-id="${escapeHtml(folder.id)}" data-media-folder-drop="${escapeHtml(folder.id)}" data-media-folder-expand="${escapeHtml(folder.id)}">
       <button class="media-thumb folder-thumb" data-media-folder-open="${escapeHtml(folder.id)}" type="button">${iconImg("modules", folder.name)}<span class="folder-mouth">${count ? "打开" : "空"}</span></button>
       <span class="media-card-info">
         <strong>${escapeHtml(folder.name)}</strong>
-        <em>${count} 个文件</em>
+        <em>${escapeHtml(folder.note || `${count} 个文件`)}</em>
       </span>
+      ${tags.length ? `<span class="folder-tags">${tags.map((tag) => `<b>${escapeHtml(tag)}</b>`).join("")}</span>` : ""}
       ${expanded ? `<div class="folder-drop-mouth"><span>把图片拖进来</span></div>` : ""}
     </article>
   `;
@@ -1153,12 +1194,21 @@ function mediaFloatHeight(count) {
 
 function openMediaDetail(id) {
   state.selectedMedia = allMediaAssets().find((asset) => [asset.sha256, asset.url, asset.path, asset.original_name].includes(id)) || null;
-  renderMedia();
+  renderGlobalDialogs();
 }
 
 function closeMediaDetail() {
   state.selectedMedia = null;
-  renderMedia();
+  renderGlobalDialogs();
+}
+
+function renderGlobalDialogs() {
+  const root = document.getElementById("global-dialog-root");
+  if (!root) return;
+  root.innerHTML = `
+    ${state.selectedMedia ? mediaDialog(state.selectedMedia) : ""}
+    ${state.mediaFolderModalOpen ? mediaFolderCreateDialog() : ""}
+  `;
 }
 
 function mediaDialog(asset) {
@@ -1205,10 +1255,46 @@ function closeMediaFolder() {
   renderMedia();
 }
 
-async function createMediaFolder() {
-  const name = prompt("文件夹名称", "新建文件夹");
-  if (name === null) return;
-  await api("/api/ui/media/folders", { method: "POST", body: JSON.stringify({ name }) });
+function openMediaFolderModal() {
+  state.mediaFolderModalOpen = true;
+  renderGlobalDialogs();
+}
+
+function closeMediaFolderModal() {
+  state.mediaFolderModalOpen = false;
+  renderGlobalDialogs();
+}
+
+function mediaFolderCreateDialog() {
+  return `
+    <div class="media-dialog-backdrop soft" data-media-folder-modal-close>
+      <article class="nest-dialog folder-create-dialog" role="dialog" aria-modal="true" aria-label="新建文件夹" onclick="event.stopPropagation()">
+        <button class="media-dialog-close" data-media-folder-modal-close type="button" aria-label="关闭">×</button>
+        <h2>新建文件夹</h2>
+        <form class="form" data-action="create-media-folder">
+          <label>文件夹名称<input name="name" value="新建文件夹" maxlength="40" required></label>
+          <label>标签<input name="tags" placeholder="用逗号分开，例如：旅行，头像"></label>
+          <label>备注 / 副标题<textarea name="note" rows="3" placeholder="给这个文件夹写一句说明"></textarea></label>
+          <div class="actions dialog-actions">
+            <button class="button ghost" data-media-folder-modal-close type="button">取消</button>
+            <button class="primary" type="submit">创建</button>
+          </div>
+        </form>
+      </article>
+    </div>
+  `;
+}
+
+async function createMediaFolder(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const payload = {
+    name: form.get("name") || "新建文件夹",
+    tags: splitWords(form.get("tags") || ""),
+    note: form.get("note") || "",
+  };
+  await api("/api/ui/media/folders", { method: "POST", body: JSON.stringify(payload) });
+  state.mediaFolderModalOpen = false;
   state.toast = "文件夹已创建";
   await renderMedia();
   updateShell();
@@ -1225,8 +1311,6 @@ async function moveMediaToFolder(sha256, folderId) {
 
 async function trashMediaItem(type, id, sourceNode = null) {
   if (!id) return;
-  const label = type === "folder" ? "这个文件夹" : "这张图片";
-  if (!confirm(`把${label}放入回收站？`)) return;
   if (sourceNode) await animateTrashDrop(sourceNode);
   await api("/api/ui/media/trash", { method: "POST", body: JSON.stringify({ item_type: type, item_id: id }) });
   state.toast = "已放入回收站";
@@ -1506,6 +1590,7 @@ function collideFloatItems(a, b) {
 
 function startFloatDrag(event) {
   if (!state.mediaFloating) return;
+  if (event.target.closest("button, a, input, textarea, select, [data-media-restore], [data-media-delete], [data-media-folder-open]")) return;
   const item = mediaFloatItems.find((candidate) => candidate.node === event.currentTarget);
   if (!item) return;
   event.preventDefault();
@@ -1572,7 +1657,15 @@ async function endFloatDrag(event) {
   const id = node.dataset.mediaId || "";
   const point = { x: event.clientX, y: event.clientY };
   mediaFloatDrag = null;
-  if (!drag.moved) return;
+  if (!drag.moved) {
+    state.mediaSuppressClickUntil = Date.now() + 450;
+    if (type === "asset") openMediaDetail(id);
+    if (type === "folder" && state.mediaFloating) {
+      state.expandedMediaFolderId = state.expandedMediaFolderId === id ? "" : id;
+      renderMedia();
+    }
+    return;
+  }
   if (pointInsideElement(point, document.querySelector("[data-media-trash-zone]"))) {
     await trashMediaItem(type, id, node);
     return;
@@ -1599,6 +1692,45 @@ function pointInsideElement(point, element) {
   if (!element) return false;
   const rect = element.getBoundingClientRect();
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+async function animateFloatToGrid() {
+  const gallery = document.querySelector("[data-media-gallery]");
+  if (!gallery) return;
+  const cards = Array.from(gallery.querySelectorAll("[data-media-item]"));
+  if (!cards.length) return;
+  if (mediaFloatFrame) cancelAnimationFrame(mediaFloatFrame);
+  mediaFloatFrame = 0;
+  const floating = cards.map((node) => ({ node, rect: node.getBoundingClientRect() }));
+  gallery.classList.add("settling");
+  gallery.classList.remove("floating");
+  gallery.style.minHeight = "";
+  cards.forEach((node) => {
+    node.removeEventListener("pointerdown", startFloatDrag);
+    node.style.transform = "";
+    node.dataset.floatReady = "false";
+  });
+  const settled = new Map(cards.map((node) => [node, node.getBoundingClientRect()]));
+  await Promise.all(
+    floating.map(({ node, rect }) => {
+      const target = settled.get(node);
+      if (!target) return Promise.resolve();
+      const dx = rect.left - target.left;
+      const dy = rect.top - target.top;
+      return node
+        .animate(
+          [
+            { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.96 },
+            { transform: "translate(0, 0)", opacity: 1 },
+          ],
+          { duration: 320, easing: "cubic-bezier(.2,.8,.2,1)" }
+        )
+        .finished.catch(() => {});
+    })
+  );
+  gallery.classList.remove("settling");
+  mediaFloatDrag = null;
+  mediaFloatItems = [];
 }
 
 function formatBytes(value = 0) {

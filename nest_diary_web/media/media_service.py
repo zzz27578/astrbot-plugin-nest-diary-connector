@@ -169,12 +169,14 @@ class MediaService:
             "trash": data.get("trash", []) if isinstance(data.get("trash"), list) else [],
         }
 
-    def create_folder(self, name: str = "") -> dict:
+    def create_folder(self, name: str = "", tags: list[str] | None = None, note: str = "") -> dict:
         organization = self.load_organization()
         folder_id = f"folder-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
         folder = {
             "id": folder_id,
             "name": (name or "新建文件夹").strip() or "新建文件夹",
+            "tags": [str(item).strip() for item in (tags or []) if str(item).strip()],
+            "note": (note or "").strip(),
             "created_at": datetime.now(timezone.utc).isoformat(),
             "trashed": False,
         }
@@ -313,6 +315,8 @@ class MediaService:
         return {
             "id": str(folder.get("id") or "").strip(),
             "name": str(folder.get("name") or "新建文件夹").strip() or "新建文件夹",
+            "tags": [str(item).strip() for item in folder.get("tags", []) if str(item).strip()] if isinstance(folder.get("tags"), list) else [],
+            "note": str(folder.get("note") or "").strip(),
             "created_at": str(folder.get("created_at") or ""),
             "trashed": bool(folder.get("trashed", False)),
         }

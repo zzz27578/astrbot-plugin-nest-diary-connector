@@ -820,62 +820,58 @@ textarea {
   gap: 8px;
 }
 
-.topbar:has(.media-toolbar) {
+.media-topbar {
   position: sticky;
   top: 0;
   z-index: 12;
-  align-items: flex-start;
+  align-items: center;
   padding: 0 0 12px;
   background: linear-gradient(180deg, var(--wash) 0%, rgba(244, 240, 232, 0.94) 72%, rgba(244, 240, 232, 0) 100%);
   backdrop-filter: blur(10px);
 }
 
+.media-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.media-storage-inline {
+  color: var(--muted);
+  font-weight: 900;
+}
+
 .media-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.media-storage {
-  display: grid;
-  gap: 2px;
-  min-width: 132px;
-  padding: 10px 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 18px rgba(47, 51, 64, 0.08);
-}
-
-.media-storage strong {
-  font-size: 18px;
-}
-
-.media-storage span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .media-organize-tools {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.media-organize-tools .button {
+.media-organize-tools .button,
+.media-float-toggle,
+.media-trash-drop {
   gap: 8px;
-  min-height: 40px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 8px;
+}
+
+.media-organize-tools .button {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.94);
 }
 
 .media-float-toggle {
-  gap: 8px;
-  min-height: 42px;
   color: var(--ink);
   background: rgba(255, 255, 255, 0.94);
 }
@@ -888,9 +884,7 @@ textarea {
 
 .media-trash-drop {
   position: relative;
-  min-width: 58px;
-  min-height: 48px;
-  gap: 8px;
+  min-width: 64px;
   color: #fff;
   border-color: #8a1f11;
   background: var(--danger);
@@ -966,6 +960,12 @@ textarea {
   overflow: visible;
 }
 
+.media-gallery.settling {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+}
+
 .media-card {
   min-height: auto;
   display: grid;
@@ -1007,6 +1007,12 @@ textarea {
   transition: box-shadow 180ms ease, border-color 180ms ease, background 180ms ease, width 220ms ease, min-height 220ms ease;
 }
 
+.media-gallery.settling .media-card {
+  position: relative;
+  width: auto;
+  will-change: transform;
+}
+
 .folder-card {
   position: relative;
 }
@@ -1046,6 +1052,21 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   font-weight: 900;
+}
+
+.folder-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.folder-tags b {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 11px;
 }
 
 .folder-drop-mouth {
@@ -1134,6 +1155,10 @@ textarea {
   cursor: default;
 }
 
+.media-gallery.floating .trash-card {
+  min-height: 236px;
+}
+
 .trash-card-actions {
   display: flex;
   gap: 8px;
@@ -1154,19 +1179,22 @@ textarea {
   z-index: 40;
   display: grid;
   justify-items: center;
-  align-items: start;
-  padding: max(96px, 12vh) 26px 42px;
+  align-items: center;
+  padding: 24px;
   background: rgba(32, 36, 42, 0.52);
   backdrop-filter: blur(8px);
   animation: panel-in 160ms ease both;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+}
+
+.media-dialog-backdrop.soft {
+  background: rgba(32, 36, 42, 0.34);
 }
 
 .media-dialog {
   position: relative;
-  width: fit-content;
-  max-width: min(1180px, 96vw);
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
   display: grid;
   gap: 18px;
   padding: 18px;
@@ -1174,17 +1202,17 @@ textarea {
   border-radius: 8px;
   background: var(--paper);
   box-shadow: 0 24px 70px rgba(32, 36, 42, 0.28);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .media-dialog.portrait {
-  grid-template-columns: minmax(220px, auto) minmax(260px, 360px);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  align-items: center;
 }
 
 .media-dialog.landscape {
   grid-template-columns: minmax(0, 1fr);
-  width: min(1060px, 96vw);
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .media-dialog-visual {
@@ -1195,8 +1223,8 @@ textarea {
 }
 
 .media-dialog-visual img {
-  max-width: min(820px, 68vw);
-  max-height: calc(100vh - 190px);
+  max-width: 100%;
+  max-height: calc(100vh - 112px);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -1206,7 +1234,12 @@ textarea {
 
 .media-dialog.landscape .media-dialog-visual img {
   max-width: 100%;
-  max-height: min(68vh, 720px);
+  max-height: calc(100vh - 246px);
+}
+
+.media-dialog.landscape .media-dialog-meta {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
 }
 
 .media-dialog-meta {
@@ -1255,6 +1288,26 @@ textarea {
   padding: 0;
   border-radius: 999px;
   z-index: 1;
+}
+
+.nest-dialog {
+  position: relative;
+  width: min(480px, calc(100vw - 48px));
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 24px 70px rgba(32, 36, 42, 0.24);
+}
+
+.folder-create-dialog textarea {
+  min-height: 96px;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
 }
 
 .settings-layout {
