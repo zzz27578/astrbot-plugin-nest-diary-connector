@@ -4,6 +4,7 @@
   "type": "module",
   "version": "0.4.2",
   "description": "管理小窝页面、模块开关、外观样式和导入导出。",
+  "ui_category": "appearance",
   "feature_tags": ["webui-core"],
   "replaces": [],
   "conflicts_with": [],

@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.2";
+const APP_VERSION = "0.4.3";
 
 const app = document.getElementById("app");
 const state = {
@@ -25,6 +25,7 @@ const state = {
   toast: "",
   error: "",
   rendered: new Set(),
+  settingsMenuOpen: initialViewFromLocation() === "settings",
   settingsSection: "modules",
   settingsModuleDetail: "",
   moduleFilter: "all",
@@ -169,6 +170,10 @@ function updateShell() {
   const navLinks = document.getElementById("nav-links");
   if (navLinks) navLinks.innerHTML = renderNavLinks();
   document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === state.view));
+  document.querySelectorAll("[data-settings-toggle]").forEach((node) => {
+    node.classList.toggle("open", state.settingsMenuOpen);
+    node.setAttribute("aria-expanded", String(state.settingsMenuOpen));
+  });
   document.querySelectorAll("[data-panel]").forEach((node) => {
     node.hidden = node.dataset.panel !== state.view;
   });
@@ -185,16 +190,32 @@ function renderNavLinks() {
     .filter(([key]) => key !== "media" || isMediaEnabled())
     .map(([key, label]) => {
       const children =
-        key === "settings" && state.view === "settings"
+        key === "settings" && state.settingsMenuOpen
           ? `<div class="nav-submenu">
               ${settingsTab("modules", "模块管理")}
               ${settingsTab("access", "访问密钥")}
               ${settingsTab("backup", "导入导出")}
             </div>`
           : "";
-      return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}</button>${children}</div>`;
+      const attrs = key === "settings" ? `data-settings-toggle aria-expanded="${state.settingsMenuOpen}"` : "";
+      return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" ${attrs} type="button">${iconImg(navIcon(key), label)}<span>${label}</span></button>${children}</div>`;
     })
     .join("");
+}
+
+function iconImg(name, label = "") {
+  return `<img class="ui-icon" src="/app-assets/icons/${escapeHtml(name)}.svg" alt="${escapeHtml(label)}" loading="lazy">`;
+}
+
+function navIcon(key) {
+  return {
+    dashboard: "home",
+    diary: "diary",
+    search: "search",
+    impressions: "impressions",
+    media: "media",
+    settings: "settings",
+  }[key] || "settings";
 }
 
 function isMediaEnabled() {
@@ -204,6 +225,10 @@ function isMediaEnabled() {
 
 function currentSiteTitle() {
   return state.bootstrap?.settings?.site_title || state.settings?.settings?.site_title || "小窝";
+}
+
+function currentSiteSubtitle() {
+  return state.bootstrap?.settings?.site_subtitle || state.settings?.settings?.site_subtitle || "把今天安放好，旧事也能被轻轻找回来";
 }
 
 function currentAvatarUrl() {
@@ -247,6 +272,16 @@ document.addEventListener(
     event.preventDefault();
     event.stopPropagation();
     if (target.dataset.view) {
+      if (target.dataset.view === "settings") {
+        if (state.view === "settings" && state.settingsMenuOpen) {
+          state.settingsMenuOpen = false;
+          updateShell();
+          return;
+        }
+        state.settingsMenuOpen = true;
+      } else {
+        state.settingsMenuOpen = false;
+      }
       if (target.dataset.view === "write") {
         openDiaryComposer();
         return;
@@ -305,6 +340,12 @@ document.addEventListener(
   true
 );
 
+document.addEventListener("change", (event) => {
+  const target = event.target.closest("[data-module-toggle]");
+  if (!target) return;
+  saveModuleToggle(target);
+});
+
 async function loadView() {
   try {
     ensureShell();
@@ -329,11 +370,12 @@ function renderDashboard() {
   const stats = state.bootstrap.stats;
   const recent = state.bootstrap.recent_entries || [];
   const siteTitle = currentSiteTitle();
+  const siteSubtitle = currentSiteSubtitle();
   target.innerHTML = `
     <section class="home-hero">
       <div class="home-hero-copy">
         <h1>${escapeHtml(siteTitle)}</h1>
-        <p class="home-lead">把今天安放好，旧事也能被轻轻找回来</p>
+        <p class="home-lead">${escapeHtml(siteSubtitle)}</p>
         <div class="home-actions">
           <button class="button primary" data-open-write type="button">写日记</button>
           <button class="button" data-view="diary" type="button">看日记</button>
@@ -942,6 +984,7 @@ function settingsPanelClass(id) {
 
 async function switchSettingsSection(id) {
   state.view = "settings";
+  state.settingsMenuOpen = true;
   state.settingsSection = id;
   state.settingsModuleDetail = "";
   await renderSettings();
@@ -1001,10 +1044,14 @@ function moduleManagerPage(payload) {
 }
 
 function moduleCatalogItems(payload, settings) {
+  const official = payload.module_catalog.official || [];
+  const officialCore = official.filter((module) => module.id !== "webui");
+  const officialAppearance = official.filter((module) => module.id === "webui");
   return [
-    ...decorateModules(payload.module_catalog.official || [], settings.enabled_official_modules, "enabled_official_modules", "official", "core"),
+    ...decorateModules(officialCore, settings.enabled_official_modules, "enabled_official_modules", "official", "core"),
     ...decorateModules(payload.module_catalog.custom || [], settings.enabled_custom_modules, "enabled_custom_modules", "custom", "core"),
     ...decorateModules(payload.module_catalog.extensions || [], settings.enabled_custom_extensions, "enabled_custom_extensions", "extension", "extension"),
+    ...decorateModules(officialAppearance, settings.enabled_official_modules, "enabled_official_modules", "official", "appearance"),
     ...decorateModules(payload.module_catalog.appearance || [], settings.enabled_appearance_modules || [], "enabled_appearance_modules", "appearance", "appearance"),
   ];
 }
@@ -1028,15 +1075,21 @@ function moduleFilterButton(id, label, count) {
 function moduleHiddenInputs(modules) {
   const names = Array.from(new Set(modules.map((module) => module.inputName)));
   const enabledByName = {};
+  const visibleByName = {};
   for (const module of modules) {
     if (!enabledByName[module.inputName]) enabledByName[module.inputName] = [];
+    if (!visibleByName[module.inputName]) visibleByName[module.inputName] = new Set();
     if (module.enabled) enabledByName[module.inputName].push(module.id);
+    if (state.moduleFilter === "all" || module.category === state.moduleFilter) visibleByName[module.inputName].add(module.id);
   }
   return names
     .map((name) => {
       const visibleName = state.moduleFilter === "all" || modules.some((module) => module.inputName === name && module.category === state.moduleFilter);
       const present = visibleName ? `<input name="__module_group_present" value="${escapeHtml(name)}" type="hidden">` : "";
-      const preserved = visibleName ? "" : (enabledByName[name] || []).map((id) => `<input name="${escapeHtml(name)}" value="${escapeHtml(id)}" type="hidden">`).join("");
+      const preserved = (enabledByName[name] || [])
+        .filter((id) => !visibleByName[name]?.has(id))
+        .map((id) => `<input name="${escapeHtml(name)}" value="${escapeHtml(id)}" type="hidden" data-preserved-module="${escapeHtml(id)}">`)
+        .join("");
       return present + preserved;
     })
     .join("");
@@ -1114,6 +1167,7 @@ function moduleSettingsBody(payload, detailKey) {
         <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
         <div class="form-grid compact">
           <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
+          <label>小窝副标题<input name="site_subtitle" value="${escapeHtml(settings.site_subtitle || "把今天安放好，旧事也能被轻轻找回来")}" placeholder="显示在首页标题下面"></label>
           <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
           <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
           <label>当前样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
@@ -1178,7 +1232,7 @@ function moduleCard(module, enabled = [], inputName, groupKind = "") {
   const checked = enabled.includes(module.id);
   return `
     <article class="module-card ${checked ? "enabled" : ""}">
-      <div class="module-card-icon">${escapeHtml(moduleIcon(module, groupKind))}</div>
+      <div class="module-card-icon">${iconImg(moduleIcon(module, groupKind), module.name || module.id)}</div>
       <div class="module-card-main">
         <div class="module-card-title">
           <strong>${escapeHtml(module.name || module.id)}</strong>
@@ -1189,9 +1243,9 @@ function moduleCard(module, enabled = [], inputName, groupKind = "") {
       </div>
       <div class="module-card-actions">
         <button class="button" data-module-settings="${escapeHtml(detailKey)}" type="button">配置</button>
-        <label class="module-card-toggle">
-          <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" ${checked ? "checked" : ""}>
-          <span>${checked ? "关闭" : "启用"}</span>
+        <label class="module-card-toggle ${checked ? "on" : "off"}">
+          <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" data-module-toggle data-module-id="${escapeHtml(module.id)}" data-module-input="${escapeHtml(inputName)}" ${checked ? "checked" : ""}>
+          <span>${checked ? "已开启" : "已关闭"}</span>
         </label>
       </div>
     </article>
@@ -1199,19 +1253,19 @@ function moduleCard(module, enabled = [], inputName, groupKind = "") {
 }
 
 function moduleIcon(module, groupKind = "") {
-  const name = String(module.name || module.id || "模").trim();
-  if (groupKind === "appearance") return "外";
-  if (groupKind === "extension") return "拓";
-  if (module.id === "diary") return "日";
-  if (module.id === "impressions") return "印";
-  if (module.id === "media") return "媒";
-  if (module.id === "webui") return "界";
-  return name.slice(0, 1) || "模";
+  if (module.id === "diary") return "diary";
+  if (module.id === "impressions") return "impressions";
+  if (module.id === "media") return "media";
+  if (module.id === "webui") return "webui";
+  if (groupKind === "appearance") return "appearance";
+  if (groupKind === "extension") return "modules";
+  return "modules";
 }
 
 function moduleBadges(module, groupKind = "") {
   const conflicts = module.conflicts_with || [];
-  const appearanceLabel = groupKind === "appearance" ? (module.entry_label || (module.appearance_mode === "global" ? "全局替换" : "补充拓展")) : "";
+  const isAppearance = groupKind === "appearance" || module.id === "webui";
+  const appearanceLabel = isAppearance ? (module.entry_label || (module.appearance_mode === "global" ? "全局替换" : "外观模块")) : "";
   const badges = [
     `<span class="chip">${escapeHtml(moduleSourceLabel(module, groupKind))}</span>`,
     appearanceLabel ? `<span class="chip ${module.appearance_mode === "global" ? "danger-chip" : ""}">${escapeHtml(appearanceLabel)}</span>` : "",
@@ -1222,9 +1276,9 @@ function moduleBadges(module, groupKind = "") {
 }
 
 function moduleSourceLabel(module, groupKind = "") {
-  if (groupKind === "appearance") return "外观模块";
   if (groupKind === "extension") return "补充拓展";
   if (module.kind === "official") return "官方模块";
+  if (groupKind === "appearance") return "外观模块";
   if (module.kind === "custom") return "自定义模块";
   return moduleTypeLabel(module.type);
 }
@@ -1278,6 +1332,7 @@ async function saveSettings(event) {
   }
   const payload = {
     site_title: valueField("site_title", current.site_title || "小窝"),
+    site_subtitle: valueField("site_subtitle", current.site_subtitle || "把今天安放好，旧事也能被轻轻找回来"),
     brand_avatar_url: avatarUrl,
     search_default_top_k: numberField("search_default_top_k", current.search_default_top_k || 5),
     search_snippet_chars: numberField("search_snippet_chars", current.search_snippet_chars || 180),
@@ -1306,7 +1361,24 @@ async function saveSettings(event) {
     backup_custom_before_update: boolField("backup_custom_before_update", current.backup_custom_before_update),
     impression_prompt: valueField("impression_prompt", current.impression_prompt || ""),
   };
+  if (event.submitter?.dataset.moduleToggle !== undefined) {
+    const moduleId = event.submitter.dataset.moduleId;
+    const moduleInput = event.submitter.dataset.moduleInput;
+    if (moduleInput === "enabled_official_modules") {
+      payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, moduleId, event.submitter.checked);
+      payload.enable_diary_module = payload.enabled_official_modules.includes("diary");
+      payload.enable_media_module = payload.enabled_official_modules.includes("media");
+      payload.enable_impressions_module = payload.enabled_official_modules.includes("impressions");
+    } else if (moduleInput === "enabled_custom_modules") {
+      payload.enabled_custom_modules = syncEnabledModule(payload.enabled_custom_modules, moduleId, event.submitter.checked);
+    } else if (moduleInput === "enabled_custom_extensions") {
+      payload.enabled_custom_extensions = syncEnabledModule(payload.enabled_custom_extensions, moduleId, event.submitter.checked);
+    } else if (moduleInput === "enabled_appearance_modules") {
+      payload.enabled_appearance_modules = syncEnabledModule(payload.enabled_appearance_modules, moduleId, event.submitter.checked);
+    }
+  }
   if (form.getAll("__module_group_present").includes("enabled_official_modules")) {
+    payload.enabled_official_modules = Array.from(new Set(payload.enabled_official_modules));
     payload.enable_diary_module = payload.enabled_official_modules.includes("diary");
     payload.enable_media_module = payload.enabled_official_modules.includes("media");
     payload.enable_impressions_module = payload.enabled_official_modules.includes("impressions");
@@ -1323,6 +1395,7 @@ async function saveSettings(event) {
   }
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
   state.toast = "设置已保存";
+  state.error = "";
   state.bootstrap = null;
   if (shouldClose) state.settingsModuleDetail = "";
   await renderSettings();
@@ -1331,6 +1404,17 @@ async function saveSettings(event) {
     state.toast = "";
     updateShell();
   }, 2200);
+}
+
+async function saveModuleToggle(input) {
+  const formEl = input.closest("form");
+  if (!formEl) return;
+  try {
+    await saveSettings({ preventDefault() {}, currentTarget: formEl, submitter: input });
+  } catch (err) {
+    state.error = err.message || "保存失败";
+    updateShell();
+  }
 }
 
 function syncEnabledModule(items, moduleId, enabled) {

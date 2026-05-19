@@ -41,6 +41,7 @@ class PersonImpression:
 @dataclass
 class ServiceUiSettings:
     site_title: str = "小窝"
+    site_subtitle: str = "把今天安放好，旧事也能被轻轻找回来"
     brand_avatar_url: str = ""
     enable_diary_module: bool = True
     search_default_top_k: int = 5

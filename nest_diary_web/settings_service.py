@@ -32,6 +32,7 @@ class ServiceSettingsStore:
 
     def _normalize(self, settings: ServiceUiSettings) -> ServiceUiSettings:
         settings.site_title = (settings.site_title or "").strip() or "小窝"
+        settings.site_subtitle = (settings.site_subtitle or "").strip() or "把今天安放好，旧事也能被轻轻找回来"
         settings.brand_avatar_url = (settings.brand_avatar_url or "").strip()
         settings.enable_diary_module = bool(settings.enable_diary_module)
         settings.search_default_top_k = max(1, min(int(settings.search_default_top_k), 20))

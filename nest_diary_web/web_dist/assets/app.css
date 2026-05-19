@@ -9,9 +9,10 @@
   --wash: #f4f0e8;
   --accent: #176f66;
   --accent-soft: #dcefeb;
+  --accent-warm: #f6c667;
   --danger: #b3261e;
   --ok: #1f7a4d;
-  --shadow: 5px 5px 0 #2f3340;
+  --shadow: 0 14px 30px rgba(47, 51, 64, 0.13);
 }
 
 * {
@@ -66,7 +67,8 @@ a {
   gap: 18px;
   padding: 20px;
   border-right: 1px solid var(--line-strong);
-  background: rgba(255, 253, 248, 0.94);
+  background: rgba(255, 253, 248, 0.96);
+  backdrop-filter: blur(12px);
 }
 
 .brand {
@@ -133,13 +135,16 @@ a {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 10px;
   padding: 0 12px;
   border: 1px solid transparent;
+  border-radius: 8px;
   color: var(--muted);
   background: transparent;
   font-weight: 800;
   text-align: left;
   cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .nav-link:hover,
@@ -150,25 +155,49 @@ a {
 }
 
 .nav-link span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.ui-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: block;
+  object-fit: contain;
+}
+
+.nav-link[data-settings-toggle]::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 180ms ease;
+}
+
+.nav-link[data-settings-toggle].open::after {
+  transform: rotate(225deg);
 }
 
 .nav-submenu {
   display: grid;
   gap: 6px;
-  margin-left: 0;
-  padding-left: 0;
-  border-left: 0;
+  margin: 2px 0 2px 12px;
+  padding: 4px 0 4px 14px;
+  border-left: 2px solid var(--accent);
+  animation: submenu-open 180ms ease both;
 }
 
 .nav-submenu .settings-tab {
-  min-height: 42px;
+  min-height: 38px;
   padding: 0 14px;
-  border-radius: 0;
-  background: rgba(255, 255, 255, 0.54);
-  font-size: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 15px;
   font-weight: 900;
 }
 
@@ -183,6 +212,28 @@ a {
   line-height: 1.7;
 }
 
+@keyframes submenu-open {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .main {
   width: min(1180px, 100%);
   min-width: 0;
@@ -192,6 +243,10 @@ a {
 
 .view-panel[hidden] {
   display: none !important;
+}
+
+.view-panel {
+  animation: panel-in 180ms ease both;
 }
 
 .topbar {
@@ -254,12 +309,15 @@ button {
   cursor: pointer;
   font-weight: 800;
   text-decoration: none;
+  border-radius: 8px;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
 
 button:hover,
 .button:hover,
 .row:hover {
-  transform: translate(-1px, -1px);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(47, 51, 64, 0.12);
 }
 
 .button.primary,
@@ -308,6 +366,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
   margin-bottom: 18px;
   border: 1px solid var(--line-strong);
+  border-radius: 8px;
   background:
     repeating-linear-gradient(90deg, transparent 0 23px, rgba(47, 51, 64, 0.045) 23px 24px),
     var(--paper);
@@ -421,7 +480,9 @@ button.ghost {
 
 .card {
   border: 1px solid var(--line);
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
 }
 
 .grid > .card,
@@ -1020,7 +1081,9 @@ details[open] > *:not(summary) {
   gap: 4px;
   padding: 12px 14px;
   border: 1px solid var(--line-strong);
+  border-radius: 8px;
   background: var(--panel);
+  box-shadow: 0 8px 18px rgba(47, 51, 64, 0.08);
 }
 
 .module-stat span {
@@ -1046,6 +1109,7 @@ details[open] > *:not(summary) {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
+  border-radius: 999px;
   color: var(--muted);
   background: var(--panel);
 }
@@ -1057,6 +1121,7 @@ details[open] > *:not(summary) {
   place-items: center;
   padding: 0 6px;
   border: 1px solid var(--line);
+  border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
   font-size: 12px;
@@ -1065,6 +1130,10 @@ details[open] > *:not(summary) {
 .module-filter.active {
   color: var(--ink);
   background: var(--accent-soft);
+}
+
+.module-filter:hover {
+  color: var(--ink);
 }
 
 .module-card-grid {
@@ -1082,10 +1151,17 @@ details[open] > *:not(summary) {
   min-height: 208px;
   padding: 16px;
   border: 1px solid var(--line-strong);
+  border-radius: 8px;
   color: var(--ink);
   background: var(--panel);
   font-weight: 400;
-  box-shadow: 3px 3px 0 rgba(47, 51, 64, 0.3);
+  box-shadow: var(--shadow);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.module-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 34px rgba(47, 51, 64, 0.16);
 }
 
 .module-card.enabled {
@@ -1098,9 +1174,13 @@ details[open] > *:not(summary) {
   display: grid;
   place-items: center;
   border: 1px solid var(--line-strong);
+  border-radius: 8px;
   background: var(--accent-soft);
-  font-size: 22px;
-  font-weight: 900;
+}
+
+.module-card-icon .ui-icon {
+  width: 30px;
+  height: 30px;
 }
 
 .module-card-main {
@@ -1137,18 +1217,21 @@ details[open] > *:not(summary) {
 
 .module-card-toggle {
   position: relative;
-  min-height: 36px;
+  min-height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 10px;
+  min-width: 94px;
+  padding: 0 12px;
   border: 1px solid var(--line-strong);
+  border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
   cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .module-card-toggle input {
@@ -1158,13 +1241,22 @@ details[open] > *:not(summary) {
 }
 
 .module-card-toggle span {
-  min-width: 46px;
+  min-width: 52px;
   text-align: center;
 }
 
 .module-card.enabled .module-card-toggle {
   background: #eefaf3;
   color: var(--ok);
+}
+
+.module-card-toggle.off {
+  color: var(--muted);
+  background: #f8f6f0;
+}
+
+.module-card-toggle:hover {
+  transform: translateY(-1px);
 }
 
 .module-card-actions {
@@ -1188,6 +1280,7 @@ details[open] > *:not(summary) {
   align-items: center;
   padding: 0 8px;
   border: 1px solid var(--line);
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 900;
 }

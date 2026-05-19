@@ -23,7 +23,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -169,21 +169,22 @@ def _discover_official_modules() -> list[dict]:
     modules_root = Path(__file__).resolve().parents[1] / "modules"
     modules: list[dict] = []
     for module_id in ["diary", "impressions", "media", "webui"]:
-        modules.append(
-            _load_package_manifest(
-                modules_root / module_id / "module.json",
-                {
-                    "id": module_id,
-                    "name": module_id,
-                    "type": "module",
-                    "description": "",
-                    "feature_tags": [f"{module_id}-core"],
-                    "replaces": [],
-                    "conflicts_with": [],
-                },
-                kind="official",
-            )
+        item = _load_package_manifest(
+            modules_root / module_id / "module.json",
+            {
+                "id": module_id,
+                "name": module_id,
+                "type": "module",
+                "description": "",
+                "feature_tags": [f"{module_id}-core"],
+                "replaces": [],
+                "conflicts_with": [],
+                "ui_category": "appearance" if module_id == "webui" else "core",
+            },
+            kind="official",
         )
+        item["ui_category"] = item.get("ui_category") or ("appearance" if module_id == "webui" else "core")
+        modules.append(item)
     return modules
 
 
@@ -585,6 +586,7 @@ class ImpressionWriteRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     site_title: str = "小窝"
+    site_subtitle: str = "把今天安放好，旧事也能被轻轻找回来"
     brand_avatar_url: str = ""
     search_default_top_k: int = 5
     search_snippet_chars: int = 180
@@ -889,6 +891,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
     saved = service_settings.save(
         ServiceUiSettings(
             site_title=payload.site_title,
+            site_subtitle=payload.site_subtitle,
             brand_avatar_url=payload.brand_avatar_url,
             search_default_top_k=payload.search_default_top_k,
             search_snippet_chars=payload.search_snippet_chars,
