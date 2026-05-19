@@ -42,7 +42,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.4.3"
+PLUGIN_VERSION = "0.4.4"
 
 
 class NestDiaryHttpClient:
@@ -92,6 +92,16 @@ class NestDiaryHttpClient:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.post(
                 f"{self.service_url}/api/v1/media/attach",
+                json=payload,
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def resolve_media(self, payload: dict) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.post(
+                f"{self.service_url}/api/v1/media/resolve",
                 json=payload,
                 headers=self._headers(),
             ) as response:
@@ -239,8 +249,23 @@ class EmbeddedNestClient:
             source,
             date=payload["date"],
             original_name=payload.get("original_name"),
+            note=payload.get("note", ""),
+            storage_strategy=ui_settings.media_storage_strategy,
         )
         return {"status": "ok", "asset": record}
+
+    async def resolve_media(self, payload: dict) -> dict:
+        ui_settings = self.service_settings.load()
+        if not ui_settings.enable_media_module:
+            raise RuntimeError("Media module is disabled")
+        asset = self.media_service.find_asset(
+            media_ref=payload.get("media_ref", ""),
+            date=payload.get("date", ""),
+            original_name=payload.get("original_name", ""),
+        )
+        if not asset:
+            raise FileNotFoundError("Media asset not found")
+        return {"status": "ok", "asset": asset}
 
     async def list_impressions(self) -> dict:
         if not self.service_settings.load().enable_impressions_module:
@@ -323,9 +348,20 @@ class NestDiaryTools:
     async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
         return await self.client.search_diary(query, top_k=top_k, snippet_chars=snippet_chars)
 
-    async def attach_media(self, source_path: str, date: str, original_name: str | None = None) -> dict:
+    async def attach_media(
+        self,
+        source_path: str,
+        date: str,
+        original_name: str | None = None,
+        note: str = "",
+    ) -> dict:
         return await self.client.attach_media(
-            {"source_path": source_path, "date": date, "original_name": original_name}
+            {"source_path": source_path, "date": date, "original_name": original_name, "note": note}
+        )
+
+    async def resolve_media(self, media_ref: str = "", date: str = "", original_name: str = "") -> dict:
+        return await self.client.resolve_media(
+            {"media_ref": media_ref, "date": date, "original_name": original_name}
         )
 
     async def list_impressions(self) -> dict:
@@ -467,7 +503,7 @@ if FunctionTool is not None:
 
     @pydantic_dataclass
     class NestAttachMediaTool(FunctionTool[AstrAgentContext]):
-        """把图片、语音或附件归档到指定日期的媒体库。"""
+        """把图片、语音或附件归档到指定日期的媒体库。备注请写清保存位置、保存情景、bot 自己的评价、已知用户评价。"""
 
         plugin: object = Field(default=None, repr=False, exclude=True)
 
@@ -477,12 +513,34 @@ if FunctionTool is not None:
             source_path: str = Field(description="AstrBot 容器内可访问的文件绝对路径。"),
             date: str = Field(description="归档日期，格式 YYYY-MM-DD。"),
             original_name: str = Field(default="", description="原始文件名，可为空。"),
+            note: str = Field(default="", description="隐藏备注：在哪里、什么情景保存、bot 自己评价、已知用户评价；未知就写未知，不要编造。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
-            result = await owner.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None)
+            result = await owner.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None, note=note)
             asset = result.get("asset") or {}
             media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""
             return _tool_text(f"已归档媒体：{media_id}")
+
+
+    @pydantic_dataclass
+    class NestSendMediaTool(FunctionTool[AstrAgentContext]):
+        """按用户要求发送小窝媒体库中的原图，不压缩画质。"""
+
+        plugin: object = Field(default=None, repr=False, exclude=True)
+
+        async def run(
+            self,
+            ctx: ContextWrapper,
+            media_ref: str = Field(default="", description="媒体 URL、sha256 或已知引用。"),
+            date: str = Field(default="", description="可选日期，格式 YYYY-MM-DD，用来缩小查找范围。"),
+            original_name: str = Field(default="", description="可选文件名。"),
+        ) -> ToolExecResult:
+            owner = _tool_owner(self)
+            result = await owner.tools.resolve_media(media_ref=media_ref, date=date, original_name=original_name)
+            asset = result.get("asset") or {}
+            path = asset.get("path", "")
+            await owner._send_image_to_event(ctx, path)
+            return _tool_text(f"已发送图片：{asset.get('original_name') or asset.get('sha256') or media_ref}")
 
 
     @pydantic_dataclass
@@ -846,6 +904,36 @@ class NestDiaryConnectorPlugin(Star):
     def _module_disabled_message(self, module_name: str) -> str:
         return f"{module_name} 模块当前已在插件配置中关闭，未执行工具调用。"
 
+    async def _send_image_to_event(self, event: AstrMessageEvent, image_path: str, caption: str = "") -> None:
+        path = Path(image_path)
+        if not path.exists():
+            raise FileNotFoundError(f"图片文件不存在：{path}")
+        origin = getattr(event, "unified_msg_origin", "")
+        if not origin:
+            raise RuntimeError("当前会话不支持主动发送图片。")
+        chain = MessageChain()
+        if caption:
+            chain = chain.message(caption)
+        if hasattr(chain, "file_image"):
+            chain = chain.file_image(str(path))
+        else:
+            image_component = self._filesystem_image_component(path)
+            if image_component is None or not hasattr(chain, "chain"):
+                raise RuntimeError("当前 AstrBot 版本缺少可用的图片发送接口。")
+            chain = chain.chain([image_component])
+        await self.context.send_message(origin, chain)
+
+    def _filesystem_image_component(self, path: Path):
+        for module_name in ("astrbot.api.message_components", "astrbot.core.message.components"):
+            try:
+                module = __import__(module_name, fromlist=["Image"])
+                image = getattr(module, "Image", None)
+                if image and hasattr(image, "fromFileSystem"):
+                    return image.fromFileSystem(str(path))
+            except Exception:
+                continue
+        return None
+
     @filter.llm_tool(name="write_diary")
     async def write_diary_tool(
         self,
@@ -953,6 +1041,7 @@ class NestDiaryConnectorPlugin(Star):
         source_path: str,
         date: str,
         original_name: str = "",
+        note: str = "",
     ):
         """把图片、语音或附件归档到指定日期的媒体库。
 
@@ -960,6 +1049,7 @@ class NestDiaryConnectorPlugin(Star):
             source_path(string): AstrBot 容器内可访问的文件绝对路径。
             date(string): 归档到哪一天，格式 YYYY-MM-DD。
             original_name(string): 原始文件名，可为空。
+            note(string): 隐藏备注，写清保存位置、保存情景、bot 自己评价和已知用户评价。
         """
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
         if not ui_settings.enable_media_module:
@@ -971,13 +1061,39 @@ class NestDiaryConnectorPlugin(Star):
                 used = len(self.client.media_service.list_by_date(date).get("assets", []))
                 if used >= ui_settings.media_max_items_per_day:
                     return f"{date} 的媒体数量已经达到上限，未继续保存。"
-            result = await self.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None)
+            result = await self.tools.attach_media(
+                source_path=source_path,
+                date=date,
+                original_name=original_name or None,
+                note=note,
+            )
             asset = result.get("asset") or {}
             media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""
             message = f"已把媒体归档到 {date}：{media_id}"
         except Exception as exc:
             message = f"归档媒体失败：{_brief_error(exc)}"
         return message
+
+    @filter.llm_tool(name="send_media")
+    async def send_media_tool(
+        self,
+        event: AstrMessageEvent,
+        media_ref: str,
+        date: str = "",
+        original_name: str = "",
+    ):
+        """把小窝媒体库里的原图直接发送给当前会话，不压缩画质。"""
+        ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+        if not ui_settings.enable_media_module:
+            return self._module_disabled_message("媒体")
+        try:
+            result = await self.tools.resolve_media(media_ref=media_ref, date=date, original_name=original_name)
+            asset = result.get("asset") or {}
+            path = asset.get("path") or ""
+            await self._send_image_to_event(event, path)
+            return f"已发送图片：{asset.get('original_name') or asset.get('sha256') or media_ref}"
+        except Exception as exc:
+            return f"发送图片失败：{_brief_error(exc)}"
 
     async def _scheduled_prompt_loop(self):
         while True:

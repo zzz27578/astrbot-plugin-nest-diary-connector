@@ -116,6 +116,13 @@
             <input name="allow_media_refs" type="checkbox" {{ 'checked' if settings.allow_media_refs else '' }}>
             允许日记填写图片 / 媒体引用
           </label>
+          <label>
+            图片保存方式
+            <select name="media_storage_strategy">
+              <option value="copy" {{ 'selected' if settings.media_storage_strategy != 'move' else '' }}>复制：保留原文件</option>
+              <option value="move" {{ 'selected' if settings.media_storage_strategy == 'move' else '' }}>剪切：移入小窝</option>
+            </select>
+          </label>
           <label class="check-row">
             <input name="show_impression_prompt" type="checkbox" {{ 'checked' if settings.show_impression_prompt else '' }}>
             写日记页显示人物印象提示
@@ -226,6 +233,7 @@
           <input type="hidden" name="search_snippet_chars" value="{{ settings.search_snippet_chars }}">
           <input type="hidden" name="memory_recall_policy" value="{{ settings.memory_recall_policy }}">
           <input type="hidden" name="diary_archive_granularity" value="{{ settings.diary_archive_granularity }}">
+          <input type="hidden" name="media_storage_strategy" value="{{ settings.media_storage_strategy }}">
           <input type="hidden" name="active_frontend_style" value="{{ settings.active_frontend_style }}">
           <input type="hidden" name="custom_webui_dir" value="{{ settings.custom_webui_dir }}">
           <input type="hidden" name="impression_prompt" value="{{ settings.impression_prompt }}">

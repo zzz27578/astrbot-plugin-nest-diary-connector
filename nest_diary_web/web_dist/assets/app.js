@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.3";
+const APP_VERSION = "0.4.4";
 
 const app = document.getElementById("app");
 const state = {
@@ -20,6 +20,8 @@ const state = {
   impressions: [],
   selectedImpression: null,
   media: [],
+  mediaStorage: { bytes: 0, count: 0, label: "0 B" },
+  selectedMedia: null,
   settings: null,
   notice: "",
   toast: "",
@@ -266,7 +268,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -319,6 +321,14 @@ document.addEventListener(
     }
     if (target.dataset.newImpression !== undefined) {
       newImpression();
+      return;
+    }
+    if (target.dataset.mediaOpen) {
+      openMediaDetail(target.dataset.mediaOpen);
+      return;
+    }
+    if (target.dataset.mediaClose !== undefined) {
+      closeMediaDetail();
       return;
     }
     if (target.dataset.settingsSection) {
@@ -903,13 +913,93 @@ async function deleteImpression(event) {
 }
 
 async function renderMedia() {
-  state.media = (await api("/api/ui/media")).items;
+  const payload = await api("/api/ui/media");
+  state.media = payload.items || [];
+  state.mediaStorage = payload.storage || { bytes: 0, count: 0, label: "0 B" };
+  const assets = allMediaAssets();
   panel("media").innerHTML = `
-    ${pageHead("", "媒体")}
-    <section class="grid">
-      ${state.media.map((manifest) => `<article class="card"><div class="card-head"><h2>${escapeHtml(manifest.date)}</h2><span class="meta">${manifest.assets?.length || 0} 个文件</span></div><div class="card-body">${(manifest.assets || []).map((asset) => `<p><a href="${asset.url}" target="_blank" rel="noreferrer">${escapeHtml(asset.original_name || asset.sha256)}</a></p>`).join("")}</div></article>`).join("") || `<article class="card"><div class="card-body muted">还没有媒体归档。</div></article>`}
+    ${pageHead("", "媒体", `<div class="media-storage"><strong>${escapeHtml(state.mediaStorage.label || formatBytes(state.mediaStorage.bytes || 0))}</strong><span>${assets.length} 个文件</span></div>`)}
+    <section class="media-gallery">
+      ${assets.map(mediaCard).join("") || `<article class="card"><div class="card-body muted">还没有媒体归档。</div></article>`}
     </section>
+    <div id="media-dialog-root">${state.selectedMedia ? mediaDialog(state.selectedMedia) : ""}</div>
   `;
+}
+
+function allMediaAssets() {
+  return state.media.flatMap((manifest) =>
+    (manifest.assets || []).map((asset) => ({ ...asset, date: asset.date || manifest.date }))
+  );
+}
+
+function mediaCard(asset) {
+  const id = asset.sha256 || asset.url || asset.path || asset.original_name;
+  const name = asset.original_name || asset.sha256 || "未命名媒体";
+  return `
+    <button class="media-card" data-media-open="${escapeHtml(id)}" type="button">
+      <span class="media-thumb ${asset.is_image ? "" : "file-thumb"}">
+        ${asset.is_image ? `<img src="${escapeHtml(asset.url)}" alt="${escapeHtml(name)}" loading="lazy">` : iconImg("media", name)}
+      </span>
+      <span class="media-card-info">
+        <strong>${escapeHtml(name)}</strong>
+        <em>${escapeHtml(asset.date || "")} · ${escapeHtml(formatBytes(asset.size_bytes || 0))}</em>
+      </span>
+    </button>
+  `;
+}
+
+function openMediaDetail(id) {
+  state.selectedMedia = allMediaAssets().find((asset) => [asset.sha256, asset.url, asset.path, asset.original_name].includes(id)) || null;
+  renderMedia();
+}
+
+function closeMediaDetail() {
+  state.selectedMedia = null;
+  renderMedia();
+}
+
+function mediaDialog(asset) {
+  const wide = Number(asset.width || 0) >= Number(asset.height || 0);
+  const layout = wide ? "landscape" : "portrait";
+  const name = asset.original_name || asset.sha256 || "未命名媒体";
+  const savedAt = formatDateTime(asset.saved_at) || asset.date || "";
+  return `
+    <div class="media-dialog-backdrop" data-media-close>
+      <article class="media-dialog ${layout}" role="dialog" aria-modal="true" aria-label="${escapeHtml(name)}" onclick="event.stopPropagation()">
+        <button class="media-dialog-close" data-media-close type="button" aria-label="关闭">×</button>
+        <div class="media-dialog-visual">
+          ${asset.is_image ? `<img src="${escapeHtml(asset.url)}" alt="${escapeHtml(name)}">` : iconImg("media", name)}
+        </div>
+        <div class="media-dialog-meta">
+          <h2>${escapeHtml(name)}</h2>
+          <dl>
+            <div><dt>保存日期</dt><dd>${escapeHtml(savedAt || "未记录")}</dd></div>
+            <div><dt>文件大小</dt><dd>${escapeHtml(formatBytes(asset.size_bytes || 0))}</dd></div>
+            ${asset.width && asset.height ? `<div><dt>图片尺寸</dt><dd>${escapeHtml(asset.width)} × ${escapeHtml(asset.height)}</dd></div>` : ""}
+            <div><dt>备注</dt><dd>${escapeHtml(asset.note || "暂无备注")}</dd></div>
+          </dl>
+          <a class="button ghost" href="${escapeHtml(asset.url)}" target="_blank" rel="noreferrer">打开原图</a>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function formatBytes(value = 0) {
+  let size = Number(value) || 0;
+  const units = ["B", "KB", "MB", "GB"];
+  for (const unit of units) {
+    if (size < 1024 || unit === "GB") return unit === "B" ? `${Math.round(size)} B` : `${size.toFixed(1)} ${unit}`;
+    size /= 1024;
+  }
+  return `${value} B`;
+}
+
+function formatDateTime(value = "") {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 async function renderSettings() {
@@ -1185,6 +1275,10 @@ function moduleSettingsBody(payload, detailKey) {
       <div class="setting-line"><div><strong>自动整理相册</strong><p class="muted">按日期自动整理媒体。</p></div>${switchControl("media_auto_album", settings.media_auto_album)}</div>
       <div class="form-grid compact">
         <label>每天最多保存<input name="media_max_items_per_day" type="number" min="1" max="500" value="${settings.media_max_items_per_day || 80}"></label>
+        <label>图片保存方式<select name="media_storage_strategy">
+          <option value="copy" ${settings.media_storage_strategy !== "move" ? "selected" : ""}>复制：保留原文件</option>
+          <option value="move" ${settings.media_storage_strategy === "move" ? "selected" : ""}>剪切：移入小窝</option>
+        </select></label>
       </div>
     `;
   }
@@ -1345,6 +1439,7 @@ async function saveSettings(event) {
     media_max_items_per_day: numberField("media_max_items_per_day", current.media_max_items_per_day || 80),
     media_allow_bot_import: boolField("media_allow_bot_import", current.media_allow_bot_import),
     media_auto_album: boolField("media_auto_album", current.media_auto_album),
+    media_storage_strategy: valueField("media_storage_strategy", current.media_storage_strategy || "copy"),
     enable_impressions_module: boolField("enable_impressions_module", current.enable_impressions_module),
     auto_impression_from_diary: boolField("auto_impression_from_diary", current.auto_impression_from_diary),
     impression_write_level: valueField("impression_write_level", current.impression_write_level || "balanced"),

@@ -1,6 +1,6 @@
 # AstrBot 小窝插件
 
-版本：`0.4.3`
+版本：`0.4.4`
 
 小窝是给 bot 使用的私有空间框架。日记只是第一个官方模块，不再把整个插件定义成“小窝日记”。
 
@@ -15,6 +15,7 @@
 - 自定义前端和自定义模块目录
 - 内置 skills
 - 后台定时任务，隐藏调用 bot 的模型与小窝工具
+- 媒体图片预览、备注、容量统计和原图发送工具
 
 ## 默认运行方式
 
@@ -260,6 +261,7 @@ modules/diary/snapshots/
 - `search_diary`
 - `read_diary`
 - `attach_media`
+- `send_media`
 - `list_impressions`
 - `read_impression`
 - `write_impression`

@@ -14,31 +14,90 @@
     <section class="workspace">
       <header class="page-head">
         <div>
-          <p class="eyebrow">Evidence</p>
+          <p class="eyebrow">Media</p>
           <h1>媒体</h1>
         </div>
       </header>
       <section class="section">
         {% if manifests %}
-        {% for manifest in manifests %}
-        <div class="subsection">
-          <h3>{{ manifest.date }}</h3>
-          <div class="list">
-            {% for asset in manifest.assets %}
-            <div class="row">
-              <span>{{ asset.original_name }}</span>
-              <strong>{{ asset.sha256[:16] }}...</strong>
-              <em>{{ asset.path }}</em>
-            </div>
-            {% endfor %}
-          </div>
+        <div class="media-gallery">
+          {% for manifest in manifests %}
+          {% for asset in manifest.assets %}
+          <button
+            class="media-card"
+            type="button"
+            data-media-name="{{ asset.original_name or asset.sha256 }}"
+            data-media-url="{{ asset.url }}"
+            data-media-date="{{ asset.saved_at or manifest.date }}"
+            data-media-size="{{ asset.size_bytes or 0 }}"
+            data-media-note="{{ asset.note or '' }}"
+            data-media-width="{{ asset.width or 0 }}"
+            data-media-height="{{ asset.height or 0 }}"
+          >
+            <span class="media-thumb">
+              {% if asset.is_image %}
+              <img src="{{ asset.url }}" alt="{{ asset.original_name or asset.sha256 }}" loading="lazy">
+              {% else %}
+              <strong>文件</strong>
+              {% endif %}
+            </span>
+            <span class="media-card-info">
+              <strong>{{ asset.original_name or asset.sha256 }}</strong>
+              <em>{{ manifest.date }}</em>
+            </span>
+          </button>
+          {% endfor %}
+          {% endfor %}
         </div>
-        {% endfor %}
         {% else %}
         <p class="muted">还没有媒体归档。</p>
         {% endif %}
       </section>
     </section>
   </main>
+  <dialog class="media-modal" id="media-modal">
+    <button class="media-modal-close" type="button" data-media-close>×</button>
+    <div class="media-modal-visual"><img id="media-modal-img" alt=""></div>
+    <div class="media-modal-meta">
+      <h2 id="media-modal-name"></h2>
+      <p><strong>保存日期</strong><span id="media-modal-date"></span></p>
+      <p><strong>文件大小</strong><span id="media-modal-size"></span></p>
+      <p><strong>图片尺寸</strong><span id="media-modal-dimensions"></span></p>
+      <p><strong>备注</strong><span id="media-modal-note"></span></p>
+      <a class="primary-action" id="media-modal-link" target="_blank" rel="noreferrer">打开原图</a>
+    </div>
+  </dialog>
+  <script>
+    const modal = document.getElementById("media-modal");
+    const sizeText = (value) => {
+      let size = Number(value) || 0;
+      for (const unit of ["B", "KB", "MB", "GB"]) {
+        if (size < 1024 || unit === "GB") return unit === "B" ? `${Math.round(size)} B` : `${size.toFixed(1)} ${unit}`;
+        size /= 1024;
+      }
+      return "0 B";
+    };
+    document.querySelectorAll("[data-media-url]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const width = Number(button.dataset.mediaWidth || 0);
+        const height = Number(button.dataset.mediaHeight || 0);
+        modal.classList.toggle("landscape", width >= height && width > 0);
+        modal.classList.toggle("portrait", width < height && height > 0);
+        document.getElementById("media-modal-img").src = button.dataset.mediaUrl;
+        document.getElementById("media-modal-img").alt = button.dataset.mediaName;
+        document.getElementById("media-modal-name").textContent = button.dataset.mediaName;
+        document.getElementById("media-modal-date").textContent = button.dataset.mediaDate || "未记录";
+        document.getElementById("media-modal-size").textContent = sizeText(button.dataset.mediaSize);
+        document.getElementById("media-modal-dimensions").textContent = width && height ? `${width} × ${height}` : "未记录";
+        document.getElementById("media-modal-note").textContent = button.dataset.mediaNote || "暂无备注";
+        document.getElementById("media-modal-link").href = button.dataset.mediaUrl;
+        modal.showModal();
+      });
+    });
+    document.querySelector("[data-media-close]")?.addEventListener("click", () => modal.close());
+    modal?.addEventListener("click", (event) => {
+      if (event.target === modal) modal.close();
+    });
+  </script>
 </body>
 </html>

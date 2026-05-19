@@ -47,6 +47,10 @@ class ServiceSettingsStore:
         settings.media_max_items_per_day = max(1, min(int(settings.media_max_items_per_day), 500))
         settings.media_allow_bot_import = bool(settings.media_allow_bot_import)
         settings.media_auto_album = bool(settings.media_auto_album)
+        if settings.media_storage_strategy not in {"copy", "move", "cut"}:
+            settings.media_storage_strategy = "copy"
+        if settings.media_storage_strategy == "cut":
+            settings.media_storage_strategy = "move"
         settings.enable_impressions_module = bool(settings.enable_impressions_module)
         settings.auto_impression_from_diary = bool(settings.auto_impression_from_diary)
         if settings.impression_write_level not in {"off", "light", "balanced", "deep"}:

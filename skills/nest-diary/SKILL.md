@@ -13,7 +13,7 @@ Available tools:
 - `search_diary`: retrieve relevant diary candidates by keyword, person, event, date clue, or emotion.
 - `read_diary`: read one known date.
 - `write_diary`: create or revise one date's diary entry with an agent-authored title.
-- `attach_media`: archive a file that already exists at an accessible path.
+- `attach_media`: archive a file that already exists at an accessible path, with hidden note metadata for source, situation, bot evaluation, and known user evaluation.
 - `list_impressions`: list known people impressions.
 - `read_impression`: read one person's long-term impression.
 - `write_impression`: create or revise one person's impression.
@@ -83,7 +83,7 @@ The diary is allowed to sound personal. It should not sound like a database row.
 
 ### D. Media or attachment should become memory
 
-Use `attach_media(source_path, date, original_name)` when a file should be preserved.
+Use `attach_media(source_path, date, original_name, note)` when a file should be preserved. Put the note into hidden metadata, not visible reply text. Capture where it came from, what situation it was saved in, your own evaluation, and any known user evaluation.
 
 After attaching, consider whether the file needs narrative context. If yes, call `write_diary` or update the day's diary to explain:
 
@@ -158,7 +158,8 @@ Attach media:
 attach_media(
   source_path="/AstrBot/data/attachments/example.png",
   date="2026-05-13",
-  original_name="example.png"
+  original_name="example.png",
+  note="source: chat screenshot; situation: casual memory; bot evaluation: useful; user evaluation: liked"
 )
 ```
 

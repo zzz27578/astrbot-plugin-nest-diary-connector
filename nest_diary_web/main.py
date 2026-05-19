@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from dataclasses import asdict
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.3"
+APP_VERSION = "0.4.4"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -530,6 +531,13 @@ class MediaAttachRequest(BaseModel):
     source_path: str
     date: str
     original_name: str | None = None
+    note: str = ""
+
+
+class MediaResolveRequest(BaseModel):
+    media_ref: str = ""
+    date: str = ""
+    original_name: str = ""
 
 
 @app.post("/api/v1/media/attach")
@@ -546,8 +554,30 @@ async def attach_media(
     source = Path(payload.source_path)
     if not source.exists():
         raise HTTPException(status_code=404, detail="Media source file not found")
-    record = media_service.save_media(source, date=payload.date, original_name=payload.original_name)
+    record = media_service.save_media(
+        source,
+        date=payload.date,
+        original_name=payload.original_name,
+        note=payload.note,
+        storage_strategy=ui_settings.media_storage_strategy,
+    )
     return {"status": "ok", "asset": record}
+
+
+@app.post("/api/v1/media/resolve")
+async def resolve_media(
+    payload: MediaResolveRequest,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_media_module_enabled),
+):
+    asset = media_service.find_asset(
+        media_ref=payload.media_ref,
+        date=payload.date,
+        original_name=payload.original_name,
+    )
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return {"status": "ok", "asset": asset}
 
 
 @app.get("/api/v1/media/by-date/{date}")
@@ -564,7 +594,8 @@ async def read_media_blob(digest: str):
     blob = media_service.find_blob(digest)
     if not blob:
         raise HTTPException(status_code=404, detail="Media blob not found")
-    return FileResponse(blob)
+    media_type = mimetypes.guess_type(blob.name)[0] or "application/octet-stream"
+    return FileResponse(blob, media_type=media_type)
 
 
 class ImpressionWriteRequest(BaseModel):
@@ -599,6 +630,7 @@ class SettingsUpdateRequest(BaseModel):
     media_max_items_per_day: int = 80
     media_allow_bot_import: bool = True
     media_auto_album: bool = True
+    media_storage_strategy: str = "copy"
     enable_impressions_module: bool = True
     auto_impression_from_diary: bool = False
     impression_write_level: str = "balanced"
@@ -830,8 +862,8 @@ async def ui_delete_impression(name: str, _session: None = Depends(require_web_s
 @app.get("/api/ui/media")
 async def ui_media(_session: None = Depends(require_web_session)):
     if not service_settings.load().enable_media_module:
-        return {"items": []}
-    return {"items": media_service.list_manifests()}
+        return {"items": [], "storage": {"bytes": 0, "count": 0, "label": "0 B"}}
+    return {"items": media_service.list_manifests(), "storage": media_service.storage_summary()}
 
 
 @app.get("/api/ui/settings")
@@ -904,6 +936,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             media_max_items_per_day=payload.media_max_items_per_day,
             media_allow_bot_import=payload.media_allow_bot_import,
             media_auto_album=payload.media_auto_album,
+            media_storage_strategy=payload.media_storage_strategy,
             enable_impressions_module=payload.enable_impressions_module,
             auto_impression_from_diary=payload.auto_impression_from_diary,
             impression_write_level=payload.impression_write_level,

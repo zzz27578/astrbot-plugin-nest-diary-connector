@@ -54,6 +54,7 @@ class ServiceUiSettings:
     media_max_items_per_day: int = 80
     media_allow_bot_import: bool = True
     media_auto_album: bool = True
+    media_storage_strategy: str = "copy"
     enable_impressions_module: bool = True
     auto_impression_from_diary: bool = False
     impression_write_level: str = "balanced"
