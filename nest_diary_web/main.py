@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.4"
+APP_VERSION = "0.4.5"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -540,6 +540,20 @@ class MediaResolveRequest(BaseModel):
     original_name: str = ""
 
 
+class MediaFolderCreateRequest(BaseModel):
+    name: str = ""
+
+
+class MediaMoveRequest(BaseModel):
+    sha256: str
+    folder_id: str = ""
+
+
+class MediaTrashRequest(BaseModel):
+    item_type: str
+    item_id: str
+
+
 @app.post("/api/v1/media/attach")
 async def attach_media(
     payload: MediaAttachRequest,
@@ -862,8 +876,50 @@ async def ui_delete_impression(name: str, _session: None = Depends(require_web_s
 @app.get("/api/ui/media")
 async def ui_media(_session: None = Depends(require_web_session)):
     if not service_settings.load().enable_media_module:
-        return {"items": [], "storage": {"bytes": 0, "count": 0, "label": "0 B"}}
-    return {"items": media_service.list_manifests(), "storage": media_service.storage_summary()}
+        return {"items": [], "storage": {"bytes": 0, "count": 0, "label": "0 B"}, "organization": media_service.load_organization()}
+    return {
+        "items": media_service.list_manifests(),
+        "storage": media_service.storage_summary(),
+        "organization": media_service.load_organization(),
+    }
+
+
+@app.post("/api/ui/media/folders")
+async def ui_create_media_folder(payload: MediaFolderCreateRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    folder = media_service.create_folder(payload.name)
+    return {"status": "ok", "folder": folder, "organization": media_service.load_organization()}
+
+
+@app.post("/api/ui/media/move")
+async def ui_move_media(payload: MediaMoveRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    try:
+        organization = media_service.move_asset_to_folder(payload.sha256, payload.folder_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "organization": organization}
+
+
+@app.post("/api/ui/media/trash")
+async def ui_trash_media(payload: MediaTrashRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    try:
+        organization = media_service.trash_item(payload.item_type, payload.item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "organization": organization}
+
+
+@app.post("/api/ui/media/restore")
+async def ui_restore_media(payload: MediaTrashRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    organization = media_service.restore_item(payload.item_type, payload.item_id)
+    return {"status": "ok", "organization": organization}
 
 
 @app.get("/api/ui/settings")

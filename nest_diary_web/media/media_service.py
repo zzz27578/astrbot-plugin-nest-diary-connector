@@ -88,12 +88,14 @@ class MediaService:
         root = self.paths.media_dir / "by-date"
         if not root.exists():
             return []
+        organization = self.load_organization()
         manifests = []
         for path in sorted(root.glob("*/*/*/manifest.json"), reverse=True):
             try:
                 manifest = json.loads(path.read_text(encoding="utf-8"))
                 manifest["assets"] = [
-                    self._with_output_metadata(asset, manifest.get("date", "")) for asset in manifest.get("assets", [])
+                    self._with_output_metadata(asset, manifest.get("date", ""), organization)
+                    for asset in manifest.get("assets", [])
                 ]
                 manifests.append(manifest)
             except Exception:
@@ -101,8 +103,11 @@ class MediaService:
         return manifests
 
     def list_by_date(self, date: str) -> dict:
+        organization = self.load_organization()
         manifest = self._read_manifest(self._manifest_path(date), date)
-        manifest["assets"] = [self._with_output_metadata(asset, date) for asset in manifest.get("assets", [])]
+        manifest["assets"] = [
+            self._with_output_metadata(asset, date, organization) for asset in manifest.get("assets", [])
+        ]
         return manifest
 
     def find_blob(self, digest: str) -> Path | None:
@@ -149,8 +154,117 @@ class MediaService:
                     count += 1
         return {"bytes": total, "count": count, "label": self._format_bytes(total)}
 
-    def _with_output_metadata(self, asset: dict, date: str) -> dict:
+    def load_organization(self) -> dict:
+        path = self._organization_path()
+        if not path.exists():
+            return {"folders": [], "asset_locations": {}, "trash": []}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        folders = [self._normalize_folder(item) for item in data.get("folders", []) if isinstance(item, dict)]
+        return {
+            "folders": folders,
+            "asset_locations": data.get("asset_locations", {}) if isinstance(data.get("asset_locations"), dict) else {},
+            "trash": data.get("trash", []) if isinstance(data.get("trash"), list) else [],
+        }
+
+    def create_folder(self, name: str = "") -> dict:
+        organization = self.load_organization()
+        folder_id = f"folder-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+        folder = {
+            "id": folder_id,
+            "name": (name or "新建文件夹").strip() or "新建文件夹",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "trashed": False,
+        }
+        organization["folders"].append(folder)
+        self.save_organization(organization)
+        return folder
+
+    def move_asset_to_folder(self, digest: str, folder_id: str) -> dict:
+        organization = self.load_organization()
+        if folder_id and not any(item["id"] == folder_id and not item.get("trashed") for item in organization["folders"]):
+            raise ValueError("Folder not found")
+        digest = self._extract_digest(digest)
+        if not digest:
+            raise ValueError("Media asset not found")
+        organization["asset_locations"][digest] = folder_id
+        organization["trash"] = [
+            item for item in organization["trash"] if not (item.get("type") == "asset" and item.get("id") == digest)
+        ]
+        self.save_organization(organization)
+        return self.load_organization()
+
+    def trash_item(self, item_type: str, item_id: str) -> dict:
+        organization = self.load_organization()
+        if item_type == "asset":
+            item_id = self._extract_digest(item_id)
+            if not item_id:
+                raise ValueError("Media asset not found")
+        elif item_type == "folder":
+            folder = next((item for item in organization["folders"] if item["id"] == item_id), None)
+            if not folder:
+                raise ValueError("Folder not found")
+            folder["trashed"] = True
+            for digest, folder_id in organization["asset_locations"].items():
+                if folder_id == item_id and not any(
+                    item.get("type") == "asset" and item.get("id") == digest for item in organization["trash"]
+                ):
+                    organization["trash"].append(
+                        {"type": "asset", "id": digest, "trashed_at": datetime.now(timezone.utc).isoformat()}
+                    )
+        else:
+            raise ValueError("Unsupported item type")
+        if not any(item.get("type") == item_type and item.get("id") == item_id for item in organization["trash"]):
+            organization["trash"].append(
+                {"type": item_type, "id": item_id, "trashed_at": datetime.now(timezone.utc).isoformat()}
+            )
+        self.save_organization(organization)
+        return self.load_organization()
+
+    def restore_item(self, item_type: str, item_id: str) -> dict:
+        organization = self.load_organization()
+        organization["trash"] = [
+            item for item in organization["trash"] if not (item.get("type") == item_type and item.get("id") == item_id)
+        ]
+        if item_type == "folder":
+            for folder in organization["folders"]:
+                if folder["id"] == item_id:
+                    folder["trashed"] = False
+            folder_assets = [digest for digest, folder_id in organization["asset_locations"].items() if folder_id == item_id]
+            organization["trash"] = [
+                item
+                for item in organization["trash"]
+                if not (item.get("type") == "asset" and item.get("id") in folder_assets)
+            ]
+        self.save_organization(organization)
+        return self.load_organization()
+
+    def save_organization(self, organization: dict) -> None:
+        path = self._organization_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        normalized = {
+            "folders": [self._normalize_folder(item) for item in organization.get("folders", [])],
+            "asset_locations": organization.get("asset_locations", {}),
+            "trash": organization.get("trash", []),
+        }
+        path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _organization_path(self) -> Path:
+        return self.paths.media_dir / "organization.json"
+
+    def _normalize_folder(self, folder: dict) -> dict:
+        return {
+            "id": str(folder.get("id") or "").strip(),
+            "name": str(folder.get("name") or "新建文件夹").strip() or "新建文件夹",
+            "created_at": str(folder.get("created_at") or ""),
+            "trashed": bool(folder.get("trashed", False)),
+        }
+
+    def _with_output_metadata(self, asset: dict, date: str, organization: dict | None = None) -> dict:
         output = dict(asset)
+        organization = organization or self.load_organization()
         output.setdefault("date", date)
         blob = self.find_blob(output.get("sha256", ""))
         if blob:
@@ -158,6 +272,9 @@ class MediaService:
             output.update({key: value for key, value in self._file_metadata(blob).items() if output.get(key) in ("", None, 0)})
         output.setdefault("note", "")
         output.setdefault("url", f"/media/blobs/{output.get('sha256', '')}")
+        digest = output.get("sha256", "")
+        output["folder_id"] = organization.get("asset_locations", {}).get(digest, "")
+        output["trashed"] = any(item.get("type") == "asset" and item.get("id") == digest for item in organization.get("trash", []))
         return output
 
     def _file_metadata(self, path: Path) -> dict:

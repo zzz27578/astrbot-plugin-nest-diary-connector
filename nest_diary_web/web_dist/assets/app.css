@@ -816,6 +816,13 @@ textarea {
   gap: 8px;
 }
 
+.media-toolbar {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  gap: 10px;
+  align-items: start;
+}
+
 .media-storage {
   display: grid;
   gap: 2px;
@@ -837,10 +844,89 @@ textarea {
   font-weight: 800;
 }
 
+.media-organize-tools {
+  display: grid;
+  gap: 8px;
+}
+
+.media-organize-tools .button {
+  gap: 8px;
+  min-height: 40px;
+  color: var(--ink);
+}
+
+.media-float-toggle {
+  gap: 8px;
+  min-height: 42px;
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.media-float-toggle.active {
+  background: var(--accent-soft);
+}
+
+.media-trash-drop {
+  position: relative;
+  min-height: 48px;
+  gap: 10px;
+  color: #fff;
+  border-color: #8a1f11;
+  background: var(--danger);
+}
+
+.media-trash-drop.drop-ready {
+  box-shadow: 0 0 0 4px rgba(179, 38, 30, 0.18), var(--shadow);
+  transform: translateY(-2px);
+}
+
+.trash-symbol {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  display: inline-block;
+}
+
+.trash-symbol::before,
+.trash-symbol::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border: 2px solid currentColor;
+}
+
+.trash-symbol::before {
+  top: 1px;
+  height: 4px;
+  border-bottom: 0;
+  transform: rotate(-4deg);
+}
+
+.trash-symbol::after {
+  top: 8px;
+  bottom: 1px;
+  border-radius: 2px;
+}
+
+.media-workspace {
+  min-height: 360px;
+}
+
 .media-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 14px;
+  transition: min-height 280ms ease;
+}
+
+.media-gallery.floating {
+  position: relative;
+  min-height: min(62vh, 620px);
+  border: 1px dashed rgba(47, 51, 64, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.64);
+  overflow: hidden;
 }
 
 .media-card {
@@ -854,6 +940,37 @@ textarea {
   background: var(--panel);
   text-align: left;
   box-shadow: 0 10px 22px rgba(47, 51, 64, 0.1);
+  cursor: grab;
+  transition: transform 260ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.media-card:active {
+  cursor: grabbing;
+}
+
+.media-card.dragging {
+  opacity: 0.58;
+}
+
+.media-card.drop-ready {
+  border-color: var(--accent);
+  background: #edf8f4;
+}
+
+.media-gallery.floating .media-card {
+  position: absolute;
+  width: 210px;
+  will-change: transform;
+  transition: box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.folder-card .media-thumb {
+  background: #eef7f4;
+}
+
+.folder-thumb .ui-icon {
+  width: 58px;
+  height: 58px;
 }
 
 .media-thumb {
@@ -896,22 +1013,60 @@ textarea {
   font-size: 12px;
 }
 
+.media-trash-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.media-trash-panel h2 {
+  margin-bottom: 10px;
+}
+
+.media-trash-list {
+  display: grid;
+  gap: 8px;
+}
+
+.media-trash-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.media-trash-row span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.media-trash-row strong {
+  overflow-wrap: anywhere;
+}
+
 .media-dialog-backdrop {
   position: fixed;
   inset: 0;
   z-index: 30;
   display: grid;
   place-items: center;
-  padding: 26px;
+  align-items: center;
+  padding: max(76px, 9vh) 26px 32px;
   background: rgba(32, 36, 42, 0.46);
   backdrop-filter: blur(8px);
   animation: panel-in 160ms ease both;
+  overflow: auto;
 }
 
 .media-dialog {
   position: relative;
   max-width: min(1120px, 96vw);
-  max-height: 92vh;
+  max-height: min(820px, 78vh);
   display: grid;
   gap: 18px;
   padding: 18px;
@@ -941,7 +1096,7 @@ textarea {
 
 .media-dialog-visual img {
   max-width: 100%;
-  max-height: 76vh;
+  max-height: min(660px, 64vh);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -950,7 +1105,7 @@ textarea {
 }
 
 .media-dialog.landscape .media-dialog-visual img {
-  max-height: 62vh;
+  max-height: min(560px, 56vh);
 }
 
 .media-dialog-meta {
@@ -1645,6 +1800,10 @@ details[open] > *:not(summary) {
 
   .topbar {
     display: grid;
+  }
+
+  .media-toolbar {
+    grid-template-columns: 1fr;
   }
 
   .searchbar {
