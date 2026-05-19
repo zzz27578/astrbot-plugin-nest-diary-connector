@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.4.1";
 
 const app = document.getElementById("app");
 const state = {
@@ -26,6 +26,7 @@ const state = {
   rendered: new Set(),
   settingsSection: "modules",
   settingsModuleDetail: "",
+  moduleFilter: "all",
 };
 
 const navItems = [
@@ -130,8 +131,8 @@ function ensureShell() {
           <span class="brand-mark" id="brand-mark">窝</span>
           <span><strong id="brand-title">小窝</strong><small>私有空间</small></span>
         </button>
-        <nav class="nav-links">
-          ${navItems.map(([key, label]) => `<button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}</button>`).join("")}
+        <nav class="nav-links" id="nav-links">
+          ${renderNavLinks()}
         </nav>
       </aside>
       <main class="main" id="view">
@@ -164,6 +165,8 @@ function updateShell() {
       ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(siteTitle)}">`
       : `${escapeHtml(siteTitle.slice(0, 1) || "窝")}`;
   }
+  const navLinks = document.getElementById("nav-links");
+  if (navLinks) navLinks.innerHTML = renderNavLinks();
   document.querySelectorAll("[data-nav]").forEach((node) => node.classList.toggle("active", node.dataset.nav === state.view));
   document.querySelectorAll("[data-panel]").forEach((node) => {
     node.hidden = node.dataset.panel !== state.view;
@@ -173,6 +176,22 @@ function updateShell() {
     ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
     ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
   `;
+}
+
+function renderNavLinks() {
+  return navItems
+    .map(([key, label]) => {
+      const children =
+        key === "settings" && state.view === "settings"
+          ? `<div class="nav-submenu">
+              ${settingsTab("modules", "模块管理")}
+              ${settingsTab("access", "访问密钥")}
+              ${settingsTab("backup", "导入导出")}
+            </div>`
+          : "";
+      return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" type="button">${label}</button>${children}</div>`;
+    })
+    .join("");
 }
 
 function currentSiteTitle() {
@@ -214,7 +233,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-settings-section], [data-module-settings], [data-settings-back]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -261,6 +280,10 @@ document.addEventListener(
     }
     if (target.dataset.settingsSection) {
       switchSettingsSection(target.dataset.settingsSection);
+      return;
+    }
+    if (target.dataset.moduleFilter) {
+      setModuleFilter(target.dataset.moduleFilter);
       return;
     }
     if (target.dataset.moduleSettings) {
@@ -845,12 +868,7 @@ async function renderSettings() {
   if (!["modules", "access", "backup"].includes(state.settingsSection)) state.settingsSection = "modules";
   panel("settings").innerHTML = `
     ${pageHead("", "设置")}
-    <section class="settings-layout">
-      <aside class="settings-menu">
-        ${settingsTab("modules", "模块管理")}
-        ${settingsTab("access", "访问密钥")}
-        ${settingsTab("backup", "导入导出")}
-      </aside>
+    <section class="settings-layout settings-layout-single">
       <div class="settings-content">
         <section class="settings-panel ${settingsPanelClass("modules")}" data-settings-panel="modules">
           <form data-action="save-settings">
@@ -859,9 +877,13 @@ async function renderSettings() {
           </form>
         </section>
         <section class="settings-panel ${settingsPanelClass("access")}" data-settings-panel="access">
-          <article class="card">
-            <div class="card-head"><div><h2>访问密钥</h2></div></div>
-            <form class="card-body form" data-action="save-security">
+          <section class="settings-page">
+            <div class="settings-page-head">
+              <p class="module-page-kicker">安全设置</p>
+              <h2>访问密钥</h2>
+              <p class="muted">网页后台密码和外部接口密钥集中在这里管理。</p>
+            </div>
+            <form class="settings-collapse form" data-action="save-security">
               <div class="form-grid compact">
                 <label>新管理员密码<input name="admin_password" type="password" placeholder="留空则不修改"></label>
                 <label>外部接口密钥<input name="bot_api_token" value="${escapeHtml(payload.security.bot_api_token || "")}"></label>
@@ -869,12 +891,16 @@ async function renderSettings() {
               <details><summary>外部接口选项</summary>${check("generate_bot_api_token", "保存时生成新的外部接口密钥", false)}${check("external_api_enabled", "启用外部接口", payload.security.external_api_enabled)}</details>
               <div class="actions"><button class="primary">保存访问密钥</button></div>
             </form>
-          </article>
+          </section>
         </section>
         <section class="settings-panel ${settingsPanelClass("backup")}" data-settings-panel="backup">
-          <article class="card">
-            <div class="card-head"><div><h2>导入导出</h2></div></div>
-            <div class="card-body form">
+          <section class="settings-page">
+            <div class="settings-page-head">
+              <p class="module-page-kicker">数据迁移</p>
+              <h2>导入导出</h2>
+              <p class="muted">导出备份包，或从备份包恢复模块、外观、媒体和安全配置。</p>
+            </div>
+            <div class="settings-collapse form">
               <form class="form-grid compact" data-action="export-backup">
                 <label>导出范围<select name="package_type">${exportOptions(payload.module_catalog)}</select></label>
                 <label>模块 ID<input name="module_id" placeholder="导出自定义模块或拓展包时填写"></label>
@@ -888,7 +914,7 @@ async function renderSettings() {
                 <p class="muted">导入会读取清单，自动识别完整备份、日记、人物印象、媒体、个性化前端、自定义模块或拓展包。</p>
               </form>
             </div>
-          </article>
+          </section>
         </section>
       </div>
     </section>
@@ -900,7 +926,13 @@ async function renderSettings() {
 }
 
 function settingsTab(id, label) {
-  return `<button class="settings-tab ${state.settingsSection === id ? "active" : ""}" data-settings-section="${id}" type="button">${escapeHtml(label)}</button>`;
+  const meta = settingsSectionMeta(id);
+  return `
+    <button class="settings-tab ${state.settingsSection === id ? "active" : ""}" data-settings-section="${id}" type="button">
+      <span>${escapeHtml(label)}</span>
+      <small>${escapeHtml(meta)}</small>
+    </button>
+  `;
 }
 
 function settingsPanelClass(id) {
@@ -912,6 +944,7 @@ function settingsSaveClass() {
 }
 
 async function switchSettingsSection(id) {
+  state.view = "settings";
   state.settingsSection = id;
   state.settingsModuleDetail = "";
   await renderSettings();
@@ -931,36 +964,96 @@ async function closeModuleSettings() {
   updateShell();
 }
 
+async function setModuleFilter(filter) {
+  state.moduleFilter = filter || "all";
+  await renderSettings();
+  updateShell();
+}
+
+function settingsSectionMeta(id) {
+  if (id === "modules") return "模块、外观、拓展";
+  if (id === "access") return "密码与外部接口";
+  if (id === "backup") return "备份、迁移";
+  return "";
+}
+
 function moduleManagerPage(payload) {
   const settings = payload.settings;
+  const modules = moduleCatalogItems(payload, settings);
+  const visibleModules = state.moduleFilter === "all" ? modules : modules.filter((module) => module.category === state.moduleFilter);
   return `
-    <article class="card module-console-card">
-      <div class="card-head">
+    <section class="module-manager-page">
+      <div class="module-page-head">
         <div>
+          <p class="module-page-kicker">模块中心</p>
           <h2>模块管理</h2>
-          <p class="muted">像插件一样管理小窝能力：开关、来源、说明和模块设置都集中在这里。</p>
+          <p class="muted">像插件一样管理小窝能力。官方模块只是卡片标签；小窝 VB、主题和皮肤统一放在外观模块里。</p>
         </div>
-        <span class="meta">官方模块 / 自定义模块 / 外观模块</span>
+        <button class="button primary" data-module-settings="webui" type="button">外观与前端设置</button>
       </div>
-      <div class="card-body form">
-        <div class="module-manager-head">
-          <div>
-            <strong>模块总览</strong>
-            <p class="muted">官方模块随插件维护；完整模块可能替换一整套能力；补充拓展包只增强已有能力，允许多个同时开启。</p>
-          </div>
-          <button class="button" data-module-settings="webui" type="button">外观与前端设置</button>
-        </div>
+      <div class="module-manager-alerts">
         ${moduleWarnings(payload.module_catalog.conflicts || [], "当前没有检测到已启用完整模块的冲突。")}
         ${moduleWarnings(payload.module_catalog.appearance_conflicts || [], "当前没有检测到全局外观冲突。")}
-        <div class="module-console">
-          ${moduleGroup("官方模块", payload.module_catalog.official, settings.enabled_official_modules, "enabled_official_modules", "随插件更新提供，关闭后对应工具或页面会停止使用。", "official")}
-          ${moduleGroup("自定义完整模块", payload.module_catalog.custom, settings.enabled_custom_modules, "enabled_custom_modules", "替代或新增完整功能，可能与官方模块冲突。", "custom")}
-          ${moduleGroup("补充拓展包", payload.module_catalog.extensions || [], settings.enabled_custom_extensions, "enabled_custom_extensions", "增强现有模块；允许多个同时开启。", "extension")}
-          ${moduleGroup("外观模块", payload.module_catalog.appearance || [], settings.enabled_appearance_modules || [], "enabled_appearance_modules", "中文标签会注明全局替换或补充拓展。全局替换建议只启用一个；补充拓展不限。", "appearance")}
-        </div>
       </div>
-    </article>
+      <div class="module-stats">
+        ${moduleStat("全部模块", modules.length)}
+        ${moduleStat("已启用", modules.filter((item) => item.enabled).length)}
+        ${moduleStat("外观模块", modules.filter((item) => item.category === "appearance").length)}
+      </div>
+      <div class="module-filterbar">
+        ${moduleFilterButton("all", "全部", modules.length)}
+        ${moduleFilterButton("core", "核心能力", modules.filter((item) => item.category === "core").length)}
+        ${moduleFilterButton("appearance", "外观模块", modules.filter((item) => item.category === "appearance").length)}
+        ${moduleFilterButton("extension", "补充拓展", modules.filter((item) => item.category === "extension").length)}
+      </div>
+      <div class="module-card-grid module-card-grid-standalone">
+        ${moduleHiddenInputs(modules)}
+        ${visibleModules.length ? visibleModules.map((module) => moduleCard(module, module.enabled ? [module.id] : [], module.inputName, module.groupKind)).join("") : `<p class="muted module-empty">暂无模块。</p>`}
+      </div>
+    </section>
   `;
+}
+
+function moduleCatalogItems(payload, settings) {
+  return [
+    ...decorateModules(payload.module_catalog.official || [], settings.enabled_official_modules, "enabled_official_modules", "official", "core"),
+    ...decorateModules(payload.module_catalog.custom || [], settings.enabled_custom_modules, "enabled_custom_modules", "custom", "core"),
+    ...decorateModules(payload.module_catalog.extensions || [], settings.enabled_custom_extensions, "enabled_custom_extensions", "extension", "extension"),
+    ...decorateModules(payload.module_catalog.appearance || [], settings.enabled_appearance_modules || [], "enabled_appearance_modules", "appearance", "appearance"),
+  ];
+}
+
+function decorateModules(modules, enabled = [], inputName, groupKind, category) {
+  return modules.map((module) => ({ ...module, enabled: enabled.includes(module.id), inputName, groupKind, category }));
+}
+
+function moduleStat(label, value) {
+  return `<div class="module-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function moduleFilterButton(id, label, count) {
+  return `
+    <button class="module-filter ${state.moduleFilter === id ? "active" : ""}" data-module-filter="${escapeHtml(id)}" type="button">
+      <span>${escapeHtml(label)}</span><strong>${escapeHtml(count)}</strong>
+    </button>
+  `;
+}
+
+function moduleHiddenInputs(modules) {
+  const names = Array.from(new Set(modules.map((module) => module.inputName)));
+  const enabledByName = {};
+  for (const module of modules) {
+    if (!enabledByName[module.inputName]) enabledByName[module.inputName] = [];
+    if (module.enabled) enabledByName[module.inputName].push(module.id);
+  }
+  return names
+    .map((name) => {
+      const visibleName = state.moduleFilter === "all" || modules.some((module) => module.inputName === name && module.category === state.moduleFilter);
+      const present = visibleName ? `<input name="__module_group_present" value="${escapeHtml(name)}" type="hidden">` : "";
+      const preserved = visibleName ? "" : (enabledByName[name] || []).map((id) => `<input name="${escapeHtml(name)}" value="${escapeHtml(id)}" type="hidden">`).join("");
+      return present + preserved;
+    })
+    .join("");
 }
 
 function moduleDetailPage(payload, detailKey) {
@@ -1108,36 +1201,40 @@ function moduleWarnings(conflicts, emptyText = "当前没有检测到已启用�
     : `<div class="notice soft">${escapeHtml(emptyText)}</div>`;
 }
 
-function moduleGroup(title, modules, enabled = [], inputName, hint, groupKind = "") {
-  return `
-    <section class="module-group">
-      <div class="module-group-head"><h3>${escapeHtml(title)}</h3><p class="muted">${escapeHtml(hint)}</p></div>
-      <input name="__module_group_present" value="${escapeHtml(inputName)}" type="hidden">
-      ${modules.length ? modules.map((module) => moduleCard(module, enabled, inputName, groupKind)).join("") : `<p class="muted module-empty">暂无。</p>`}
-    </section>
-  `;
-}
-
 function moduleCard(module, enabled = [], inputName, groupKind = "") {
   const detailKey = groupKind === "custom" ? `custom:${module.id}` : groupKind === "extension" ? `extension:${module.id}` : groupKind === "appearance" ? `appearance:${module.id}` : module.id;
   const checked = enabled.includes(module.id);
   return `
     <article class="module-card ${checked ? "enabled" : ""}">
-      <label class="module-card-toggle">
-        <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" ${checked ? "checked" : ""}>
-        <span>${checked ? "已开启" : "已关闭"}</span>
-      </label>
+      <div class="module-card-icon">${escapeHtml(moduleIcon(module, groupKind))}</div>
       <div class="module-card-main">
-        <strong>${escapeHtml(module.name || module.id)}</strong>
+        <div class="module-card-title">
+          <strong>${escapeHtml(module.name || module.id)}</strong>
+          <span class="module-status ${checked ? "on" : "off"}">${checked ? "运行中" : "已停用"}</span>
+        </div>
         <em>${escapeHtml(module.description || "没有说明。")}</em>
         <span class="chips small">${moduleBadges(module, groupKind).join("")}</span>
-        ${(module.data_path || module.frontend_path) ? `<span class="module-paths">${escapeHtml([module.data_path, module.frontend_path].filter(Boolean).join(" · "))}</span>` : ""}
       </div>
       <div class="module-card-actions">
-        <button class="button" data-module-settings="${escapeHtml(detailKey)}" type="button">设置</button>
+        <button class="button" data-module-settings="${escapeHtml(detailKey)}" type="button">配置</button>
+        <label class="module-card-toggle">
+          <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" ${checked ? "checked" : ""}>
+          <span>${checked ? "关闭" : "启用"}</span>
+        </label>
       </div>
     </article>
   `;
+}
+
+function moduleIcon(module, groupKind = "") {
+  const name = String(module.name || module.id || "模").trim();
+  if (groupKind === "appearance") return "外";
+  if (groupKind === "extension") return "拓";
+  if (module.id === "diary") return "日";
+  if (module.id === "impressions") return "印";
+  if (module.id === "media") return "媒";
+  if (module.id === "webui") return "界";
+  return name.slice(0, 1) || "模";
 }
 
 function moduleBadges(module, groupKind = "") {

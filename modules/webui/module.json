@@ -2,7 +2,7 @@
   "id": "webui",
   "name": "小窝 WebUI",
   "type": "module",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "小窝框架的网页后台、模块管理、外观模块、主题、自定义前端模块和外部扩展入口。",
   "feature_tags": ["webui-core"],
   "replaces": [],
