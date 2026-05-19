@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.5"
+APP_VERSION = "0.4.6"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -919,6 +919,17 @@ async def ui_restore_media(payload: MediaTrashRequest, _session: None = Depends(
     if not service_settings.load().enable_media_module:
         raise HTTPException(status_code=403, detail="Media module is disabled")
     organization = media_service.restore_item(payload.item_type, payload.item_id)
+    return {"status": "ok", "organization": organization}
+
+
+@app.post("/api/ui/media/delete")
+async def ui_delete_media(payload: MediaTrashRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    try:
+        organization = media_service.delete_item(payload.item_type, payload.item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "organization": organization}
 
 

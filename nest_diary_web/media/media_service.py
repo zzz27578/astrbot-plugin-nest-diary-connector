@@ -241,6 +241,38 @@ class MediaService:
         self.save_organization(organization)
         return self.load_organization()
 
+    def delete_item(self, item_type: str, item_id: str) -> dict:
+        organization = self.load_organization()
+        if item_type == "asset":
+            digest = self._extract_digest(item_id)
+            if not digest:
+                raise ValueError("Media asset not found")
+            self._delete_asset_everywhere(digest)
+            organization["asset_locations"].pop(digest, None)
+            organization["trash"] = [
+                item for item in organization["trash"] if not (item.get("type") == "asset" and item.get("id") == digest)
+            ]
+        elif item_type == "folder":
+            folder_assets = [
+                digest for digest, folder_id in organization["asset_locations"].items() if folder_id == item_id
+            ]
+            for digest in folder_assets:
+                self._delete_asset_everywhere(digest)
+                organization["asset_locations"].pop(digest, None)
+            organization["folders"] = [folder for folder in organization["folders"] if folder.get("id") != item_id]
+            organization["trash"] = [
+                item
+                for item in organization["trash"]
+                if not (
+                    (item.get("type") == "folder" and item.get("id") == item_id)
+                    or (item.get("type") == "asset" and item.get("id") in folder_assets)
+                )
+            ]
+        else:
+            raise ValueError("Unsupported item type")
+        self.save_organization(organization)
+        return self.load_organization()
+
     def save_organization(self, organization: dict) -> None:
         path = self._organization_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,6 +285,29 @@ class MediaService:
 
     def _organization_path(self) -> Path:
         return self.paths.media_dir / "organization.json"
+
+    def _delete_asset_everywhere(self, digest: str) -> None:
+        found = False
+        root = self.paths.media_dir / "by-date"
+        if root.exists():
+            for path in root.glob("*/*/*/manifest.json"):
+                try:
+                    manifest = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                before = len(manifest.get("assets", []))
+                manifest["assets"] = [
+                    item for item in manifest.get("assets", []) if item.get("sha256") != digest
+                ]
+                if len(manifest["assets"]) != before:
+                    found = True
+                    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        blob = self.find_blob(digest)
+        if blob:
+            blob.unlink(missing_ok=True)
+            found = True
+        if not found:
+            raise ValueError("Media asset not found")
 
     def _normalize_folder(self, folder: dict) -> dict:
         return {
