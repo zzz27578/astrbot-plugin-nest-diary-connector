@@ -88,7 +88,7 @@
   "enabled_appearance_modules": {
     "description": "启用的外观模块",
     "type": "list",
-    "default": []
+    "default": ["nest-tactical"]
   },
   "service_url": {
     "description": "独立服务地址",

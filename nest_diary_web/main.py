@@ -24,10 +24,11 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.9"
+APP_VERSION = "0.5.0"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
+BUILTIN_APPEARANCE_ROOT = WEB_DIST_DIR / "appearance"
 AVATAR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 paths = NestPaths(settings.data_dir)
 diary_service = DiaryService(paths)
@@ -259,7 +260,23 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
 
 
 def _discover_appearance_modules(ui_settings: ServiceUiSettings) -> list[dict]:
-    packages: dict[str, dict] = {}
+    packages: dict[str, dict] = {
+        "nest-tactical": _load_package_manifest(
+            BUILTIN_APPEARANCE_ROOT / "nest-tactical" / "module.json",
+            {
+                "id": "nest-tactical",
+                "name": "小窝战术终端",
+                "type": "appearance",
+                "description": "官方全局外观模块。以清晰信息层级、工业控制台质感和轻量动效重塑小窝页面。",
+                "feature_tags": ["webui-appearance", "official-global-appearance"],
+                "appearance_scope": "global",
+                "appearance_mode": "global",
+                "conflicts_with": [],
+            },
+            kind="official",
+            frontend_path=str(BUILTIN_APPEARANCE_ROOT / "nest-tactical"),
+        )
+    }
     frontend_root = _custom_webui_root(ui_settings)
     for folder_name, default_mode in [("themes", "global"), ("appearance", "global"), ("skins", "global")]:
         root = frontend_root / folder_name
@@ -275,7 +292,7 @@ def _discover_appearance_modules(ui_settings: ServiceUiSettings) -> list[dict]:
                     "name": path.name,
                     "type": "appearance",
                     "description": "替换小窝全局前端外观。",
-                "feature_tags": ["webui-appearance"],
+                    "feature_tags": ["webui-appearance"],
                     "appearance_scope": default_mode,
                     "appearance_mode": "global",
                     "conflicts_with": [],
@@ -285,8 +302,12 @@ def _discover_appearance_modules(ui_settings: ServiceUiSettings) -> list[dict]:
             )
             loaded["appearance_scope"] = str(loaded.get("appearance_scope") or default_mode)
             loaded["appearance_mode"] = str(loaded.get("appearance_mode") or "global")
-            loaded["entry_label"] = "全局替换" if loaded["appearance_mode"] == "global" else "补充拓展"
+            loaded["entry_label"] = "全局模块" if loaded["appearance_mode"] == "global" else "补充拓展"
             packages[path.name] = loaded
+    for item in packages.values():
+        item["appearance_scope"] = str(item.get("appearance_scope") or "global")
+        item["appearance_mode"] = str(item.get("appearance_mode") or "global")
+        item["entry_label"] = "全局模块" if item["appearance_mode"] == "global" else "补充拓展"
     return sorted(packages.values(), key=lambda item: item["id"])
 
 
@@ -316,6 +337,16 @@ def _load_package_manifest(path: Path, fallback: dict, kind: str, data_path: str
 def _appearance_conflicts(ui_settings: ServiceUiSettings, appearance: list[dict]) -> list[dict]:
     enabled = [item for item in appearance if item["id"] in ui_settings.enabled_appearance_modules]
     global_enabled = [item for item in enabled if item.get("appearance_mode") == "global"]
+    if ui_settings.active_frontend_style != "default" and ui_settings.active_frontend_style not in ui_settings.enabled_appearance_modules:
+        active_style = next((item for item in appearance if item["id"] == ui_settings.active_frontend_style), None)
+        global_enabled.append(
+            active_style
+            or {
+                "id": ui_settings.active_frontend_style,
+                "name": f"当前样式 {ui_settings.active_frontend_style}",
+                "appearance_mode": "global",
+            }
+        )
     if len(global_enabled) <= 1:
         return []
     return [
@@ -671,6 +702,7 @@ class SettingsUpdateRequest(BaseModel):
     enabled_custom_modules: list[str] = Field(default_factory=list)
     enabled_custom_extensions: list[str] = Field(default_factory=list)
     enabled_appearance_modules: list[str] = Field(default_factory=list)
+    appearance_modules_initialized: bool = True
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = ""
@@ -1052,6 +1084,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             enabled_custom_modules=payload.enabled_custom_modules,
             enabled_custom_extensions=payload.enabled_custom_extensions,
             enabled_appearance_modules=payload.enabled_appearance_modules,
+            appearance_modules_initialized=True,
             custom_webui_dir=payload.custom_webui_dir,
             backup_custom_before_update=payload.backup_custom_before_update,
             impression_prompt=payload.impression_prompt,

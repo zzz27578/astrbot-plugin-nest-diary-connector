@@ -66,7 +66,8 @@ class ServiceUiSettings:
     enabled_official_modules: list[str] = field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
     enabled_custom_modules: list[str] = field(default_factory=list)
     enabled_custom_extensions: list[str] = field(default_factory=list)
-    enabled_appearance_modules: list[str] = field(default_factory=list)
+    enabled_appearance_modules: list[str] = field(default_factory=lambda: ["nest-tactical"])
+    appearance_modules_initialized: bool = False
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = (

@@ -112,7 +112,7 @@ framework/user_custom/webui/templates/
 
 官方更新只更新插件默认文件，不覆盖 `framework/user_custom/webui/`。
 
-外观模块可以声明 `type: "appearance"` 和 `appearance_mode`。`appearance_mode: "global"` 表示全局替换，建议只启用一个；其他值按补充拓展处理，可以多个同时启用。多个全局替换外观同时开启时，WebUI 会显示红色冲突提示。
+外观模块可以声明 `type: "appearance"` 和 `appearance_mode`。`appearance_mode: "global"` 表示全局模块，官方默认外观是 `nest-tactical`，首次没有外观选择时自动启用。全局模块建议只启用一个；其他值按补充拓展处理，可以多个同时启用。多个全局模块同时开启时，WebUI 会显示红色冲突提示。
 
 如果自定义前端或模块对其他人也有价值，建议整理成 PR 提交到项目仓库。PR 应该聚焦，不要一次提交过多无关改动。
 

@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.9";
+const APP_VERSION = "0.5.0";
 
 const app = document.getElementById("app");
 const state = {
@@ -196,6 +196,14 @@ function updateShell() {
     ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
     ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
   `;
+}
+
+function refreshThemeStylesheet() {
+  const link = document.getElementById("theme-stylesheet") || document.querySelector('link[rel="stylesheet"][href*="/theme.css"]');
+  if (!link) return;
+  const href = new URL(link.getAttribute("href") || "/theme.css", window.location.origin);
+  href.searchParams.set("v", String(Date.now()));
+  link.setAttribute("href", `${href.pathname}${href.search}`);
 }
 
 function renderNavLinks() {
@@ -2232,7 +2240,7 @@ function moduleIcon(module, groupKind = "") {
 function moduleBadges(module, groupKind = "") {
   const conflicts = module.conflicts_with || [];
   const isAppearance = groupKind === "appearance" || module.id === "webui";
-  const appearanceLabel = isAppearance ? (module.entry_label || (module.appearance_mode === "global" ? "全局替换" : "外观模块")) : "";
+  const appearanceLabel = isAppearance ? (module.entry_label || (module.appearance_mode === "global" ? "全局模块" : "外观模块")) : "";
   const badges = [
     `<span class="chip">${escapeHtml(moduleSourceLabel(module, groupKind))}</span>`,
     appearanceLabel ? `<span class="chip ${module.appearance_mode === "global" ? "danger-chip" : ""}">${escapeHtml(appearanceLabel)}</span>` : "",
@@ -2325,6 +2333,7 @@ async function saveSettings(event) {
     enabled_custom_modules: listField("enabled_custom_modules", current.enabled_custom_modules || []),
     enabled_custom_extensions: listField("enabled_custom_extensions", current.enabled_custom_extensions || []),
     enabled_appearance_modules: listField("enabled_appearance_modules", current.enabled_appearance_modules || []),
+    appearance_modules_initialized: true,
     custom_webui_dir: valueField("custom_webui_dir", current.custom_webui_dir || ""),
     backup_custom_before_update: boolField("backup_custom_before_update", current.backup_custom_before_update),
     impression_prompt: valueField("impression_prompt", current.impression_prompt || ""),
@@ -2362,6 +2371,7 @@ async function saveSettings(event) {
     }
   }
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
+  refreshThemeStylesheet();
   state.toast = "设置已保存";
   state.error = "";
   state.bootstrap = null;

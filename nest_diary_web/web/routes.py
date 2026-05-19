@@ -16,6 +16,8 @@ from nest_diary_web.web_auth import WebSessionAuth
 WEB_DIR = Path(__file__).parent
 DEFAULT_TEMPLATES_DIR = WEB_DIR / "templates"
 DEFAULT_STATIC_DIR = WEB_DIR / "static"
+BUILTIN_WEB_DIST_DIR = WEB_DIR.parent / "web_dist"
+BUILTIN_APPEARANCE_ROOT = BUILTIN_WEB_DIST_DIR / "appearance"
 CUSTOM_WEBUI_DIR = Path(os.environ["NEST_CUSTOM_WEBUI_DIR"]).expanduser() if os.environ.get("NEST_CUSTOM_WEBUI_DIR") else None
 
 template_dirs: list[str] = []
@@ -67,6 +69,68 @@ def create_web_router(
         if settings.active_frontend_style not in {item["id"] for item in styles}:
             styles.append({"id": settings.active_frontend_style, "name": settings.active_frontend_style, "kind": "missing"})
         return styles
+
+    def discover_appearance_modules(settings: ServiceUiSettings) -> list[dict]:
+        packages: dict[str, dict] = {}
+
+        def load_manifest(path: Path, fallback: dict, kind: str, frontend_path: Path) -> dict:
+            data = dict(fallback)
+            manifest_path = path / "module.json"
+            if manifest_path.exists():
+                try:
+                    data.update(json.loads(manifest_path.read_text(encoding="utf-8")))
+                except Exception:
+                    data["manifest_error"] = "module.json 读取失败"
+            data["id"] = str(data.get("id") or path.name)
+            data["name"] = str(data.get("name") or data["id"])
+            data["description"] = str(data.get("description") or "")
+            data["kind"] = kind
+            data["frontend_path"] = str(frontend_path)
+            if not isinstance(data.get("feature_tags"), list):
+                data["feature_tags"] = []
+            if not isinstance(data.get("conflicts_with"), list):
+                data["conflicts_with"] = []
+            data["appearance_mode"] = str(data.get("appearance_mode") or "global")
+            data["appearance_scope"] = str(data.get("appearance_scope") or "global")
+            data["entry_label"] = "全局模块" if data["appearance_mode"] == "global" else "补充拓展"
+            return data
+
+        builtin_path = BUILTIN_APPEARANCE_ROOT / "nest-tactical"
+        packages["nest-tactical"] = load_manifest(
+            builtin_path,
+            {
+                "id": "nest-tactical",
+                "name": "小窝战术终端",
+                "type": "appearance",
+                "description": "官方全局外观模块。",
+                "feature_tags": ["webui-appearance", "official-global-appearance"],
+                "appearance_mode": "global",
+                "conflicts_with": [],
+            },
+            "official",
+            builtin_path,
+        )
+        for folder_name in ["themes", "appearance", "skins"]:
+            root = custom_webui_root(settings) / folder_name
+            if not root.exists():
+                continue
+            for path in sorted(root.iterdir()):
+                if path.is_dir():
+                    packages[path.name] = load_manifest(
+                        path,
+                        {
+                            "id": path.name,
+                            "name": path.name,
+                            "type": "appearance",
+                            "description": "替换小窝全局前端外观。",
+                            "feature_tags": ["webui-appearance"],
+                            "appearance_mode": "global",
+                            "conflicts_with": [],
+                        },
+                        "appearance",
+                        path,
+                    )
+        return sorted(packages.values(), key=lambda item: item["id"])
 
     def discover_modules(settings: ServiceUiSettings) -> dict:
         official = [
@@ -120,12 +184,21 @@ def create_web_router(
     @router.get("/theme.css")
     async def active_theme_css():
         settings = load_ui_settings()
-        if settings.active_frontend_style == "default":
-            return Response("", media_type="text/css")
+        css_parts: list[str] = []
+        for item in discover_appearance_modules(settings):
+            if item["id"] not in settings.enabled_appearance_modules:
+                continue
+            css_path = Path(item.get("frontend_path", "")) / "style.css"
+            if css_path.exists():
+                css_parts.append(f"/* {item['id']} */\n{css_path.read_text(encoding='utf-8')}")
         css_path = custom_webui_root(settings) / "themes" / settings.active_frontend_style / "style.css"
-        if not css_path.exists():
-            return Response("", media_type="text/css")
-        return Response(css_path.read_text(encoding="utf-8"), media_type="text/css")
+        if (
+            settings.active_frontend_style != "default"
+            and settings.active_frontend_style not in settings.enabled_appearance_modules
+            and css_path.exists()
+        ):
+            css_parts.append(f"/* active_frontend_style:{settings.active_frontend_style} */\n{css_path.read_text(encoding='utf-8')}")
+        return Response("\n\n".join(css_parts), media_type="text/css")
 
     @router.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
@@ -434,6 +507,7 @@ def create_web_router(
         enabled_official_modules: list[str] = Form(default=[]),
         enabled_custom_modules: list[str] = Form(default=[]),
         enabled_custom_extensions: list[str] = Form(default=[]),
+        enabled_appearance_modules: list[str] = Form(default=[]),
         custom_webui_dir: str = Form(""),
         backup_custom_before_update: str = Form(""),
         impression_prompt: str = Form(""),
@@ -443,6 +517,7 @@ def create_web_router(
             return redirect
         if not settings_store:
             return RedirectResponse("/settings?error=settings-store-unavailable", status_code=303)
+        current_settings = settings_store.load()
         settings_store.save(
             ServiceUiSettings(
                 site_title=site_title.strip() or "小窝",
@@ -460,6 +535,8 @@ def create_web_router(
                 enabled_official_modules=enabled_official_modules,
                 enabled_custom_modules=enabled_custom_modules,
                 enabled_custom_extensions=enabled_custom_extensions,
+                enabled_appearance_modules=enabled_appearance_modules or current_settings.enabled_appearance_modules,
+                appearance_modules_initialized=True,
                 custom_webui_dir=custom_webui_dir.strip(),
                 backup_custom_before_update=backup_custom_before_update == "on",
                 impression_prompt=impression_prompt.strip(),

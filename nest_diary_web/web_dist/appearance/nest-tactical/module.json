@@ -1,0 +1,14 @@
+{
+  "id": "nest-tactical",
+  "name": "小窝战术终端",
+  "type": "appearance",
+  "version": "0.5.0",
+  "description": "官方全局外观模块。以清晰信息层级、工业控制台质感和轻量动效重塑小窝页面。",
+  "feature_tags": ["webui-appearance", "official-global-appearance"],
+  "appearance_scope": "global",
+  "appearance_mode": "global",
+  "entry_label": "全局模块",
+  "conflicts_with": [],
+  "target_modules": ["webui", "diary", "impressions", "media"],
+  "schema_version": 2
+}
