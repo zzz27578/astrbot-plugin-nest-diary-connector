@@ -1,4 +1,4 @@
-const APP_VERSION = "0.4.7";
+const APP_VERSION = "0.4.8";
 
 const app = document.getElementById("app");
 const state = {
@@ -30,6 +30,7 @@ const state = {
   mediaSuppressClickUntil: 0,
   mediaFloatPositions: {},
   mediaFolderModalOpen: false,
+  mediaFolderEditingId: "",
   settings: null,
   notice: "",
   toast: "",
@@ -264,6 +265,7 @@ async function setView(view, options = {}) {
     stopMediaFloat();
     state.selectedMedia = null;
     state.mediaFolderModalOpen = false;
+    state.mediaFolderEditingId = "";
     renderGlobalDialogs();
   }
   state.view = view;
@@ -283,9 +285,16 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-folder-create], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (
+      target.classList?.contains("media-dialog-backdrop") &&
+      event.target !== target &&
+      (target.dataset.mediaClose !== undefined || target.dataset.mediaFolderModalClose !== undefined)
+    ) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (target.dataset.view) {
@@ -351,6 +360,10 @@ document.addEventListener(
       openMediaFolderModal();
       return;
     }
+    if (target.dataset.mediaFolderEdit) {
+      openMediaFolderModal(target.dataset.mediaFolderEdit);
+      return;
+    }
     if (target.dataset.mediaFolderModalClose !== undefined) {
       closeMediaFolderModal();
       return;
@@ -384,6 +397,7 @@ document.addEventListener(
     }
     if (target.dataset.mediaFolderExpand) {
       if (Date.now() < state.mediaSuppressClickUntil) return;
+      captureMediaFloatPositions();
       state.expandedMediaFolderId = state.expandedMediaFolderId === target.dataset.mediaFolderExpand ? "" : target.dataset.mediaFolderExpand;
       renderMedia();
       return;
@@ -391,6 +405,7 @@ document.addEventListener(
     if (target.dataset.mediaFolderOpen) {
       if (Date.now() < state.mediaSuppressClickUntil) return;
       if (state.mediaFloating && state.expandedMediaFolderId !== target.dataset.mediaFolderOpen) {
+        captureMediaFloatPositions();
         state.expandedMediaFolderId = target.dataset.mediaFolderOpen;
         renderMedia();
         return;
@@ -428,9 +443,10 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
-  const form = event.target.closest('[data-action="create-media-folder"]');
+  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"]');
   if (!form) return;
-  createMediaFolder(event);
+  if (form.dataset.action === "create-media-folder") createMediaFolder(event);
+  if (form.dataset.action === "save-media-note") saveMediaNote(event);
 });
 
 async function loadView() {
@@ -1142,6 +1158,7 @@ function mediaFolderCard(folder) {
         <strong>${escapeHtml(folder.name)}</strong>
         <em>${escapeHtml(folder.note || `${count} 个文件`)}</em>
       </span>
+      <button class="text-button folder-edit-button" data-media-folder-edit="${escapeHtml(folder.id)}" type="button">编辑</button>
       ${tags.length ? `<span class="folder-tags">${tags.map((tag) => `<b>${escapeHtml(tag)}</b>`).join("")}</span>` : ""}
       ${expanded ? `<div class="folder-drop-mouth"><span>把图片拖进来</span></div>` : ""}
     </article>
@@ -1228,10 +1245,15 @@ function mediaDialog(asset) {
           <dl>
             <div><dt>保存日期</dt><dd>${escapeHtml(savedAt || "未记录")}</dd></div>
             <div><dt>文件大小</dt><dd>${escapeHtml(formatBytes(asset.size_bytes || 0))}</dd></div>
-            ${asset.width && asset.height ? `<div><dt>图片尺寸</dt><dd>${escapeHtml(asset.width)} × ${escapeHtml(asset.height)}</dd></div>` : ""}
-            <div><dt>备注</dt><dd>${escapeHtml(asset.note || "暂无备注")}</dd></div>
           </dl>
-          <button class="button ghost" data-media-open-original type="button">打开原图</button>
+          <form class="media-note-form" data-action="save-media-note">
+            <input type="hidden" name="sha256" value="${escapeHtml(asset.sha256 || "")}">
+            <label>备注<textarea name="note" rows="3" placeholder="给这张图片补充备注">${escapeHtml(asset.note || "")}</textarea></label>
+            <div class="actions dialog-actions">
+              <button class="button ghost" data-media-open-original type="button">打开原图</button>
+              <button class="primary" type="submit">保存备注</button>
+            </div>
+          </form>
         </div>
       </article>
     </div>
@@ -1255,29 +1277,37 @@ function closeMediaFolder() {
   renderMedia();
 }
 
-function openMediaFolderModal() {
+function openMediaFolderModal(folderId = "") {
+  state.mediaFolderEditingId = folderId || "";
   state.mediaFolderModalOpen = true;
   renderGlobalDialogs();
 }
 
 function closeMediaFolderModal() {
   state.mediaFolderModalOpen = false;
+  state.mediaFolderEditingId = "";
   renderGlobalDialogs();
 }
 
 function mediaFolderCreateDialog() {
+  const folder = state.mediaFolderEditingId
+    ? (state.mediaOrganization.folders || []).find((item) => item.id === state.mediaFolderEditingId)
+    : null;
+  const tags = Array.isArray(folder?.tags) ? folder.tags.join("，") : "";
+  const title = folder ? "编辑文件夹" : "新建文件夹";
   return `
     <div class="media-dialog-backdrop soft" data-media-folder-modal-close>
-      <article class="nest-dialog folder-create-dialog" role="dialog" aria-modal="true" aria-label="新建文件夹" onclick="event.stopPropagation()">
+      <article class="nest-dialog folder-create-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" onclick="event.stopPropagation()">
         <button class="media-dialog-close" data-media-folder-modal-close type="button" aria-label="关闭">×</button>
-        <h2>新建文件夹</h2>
+        <h2>${escapeHtml(title)}</h2>
         <form class="form" data-action="create-media-folder">
-          <label>文件夹名称<input name="name" value="新建文件夹" maxlength="40" required></label>
-          <label>标签<input name="tags" placeholder="用逗号分开，例如：旅行，头像"></label>
-          <label>备注 / 副标题<textarea name="note" rows="3" placeholder="给这个文件夹写一句说明"></textarea></label>
+          <input type="hidden" name="folder_id" value="${escapeHtml(folder?.id || "")}">
+          <label>文件夹名称<input name="name" value="${escapeHtml(folder?.name || "新建文件夹")}" maxlength="40" required></label>
+          <label>标签<input name="tags" value="${escapeHtml(tags)}" placeholder="用逗号分开，例如：旅行，头像"></label>
+          <label>备注 / 副标题<textarea name="note" rows="3" placeholder="给这个文件夹写一句说明">${escapeHtml(folder?.note || "")}</textarea></label>
           <div class="actions dialog-actions">
             <button class="button ghost" data-media-folder-modal-close type="button">取消</button>
-            <button class="primary" type="submit">创建</button>
+            <button class="primary" type="submit">${folder ? "保存" : "创建"}</button>
           </div>
         </form>
       </article>
@@ -1288,15 +1318,38 @@ function mediaFolderCreateDialog() {
 async function createMediaFolder(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
+  const folderId = String(form.get("folder_id") || "");
   const payload = {
     name: form.get("name") || "新建文件夹",
     tags: splitWords(form.get("tags") || ""),
     note: form.get("note") || "",
   };
-  await api("/api/ui/media/folders", { method: "POST", body: JSON.stringify(payload) });
+  if (folderId) {
+    await api("/api/ui/media/folders/update", { method: "POST", body: JSON.stringify({ ...payload, folder_id: folderId }) });
+  } else {
+    await api("/api/ui/media/folders", { method: "POST", body: JSON.stringify(payload) });
+  }
   state.mediaFolderModalOpen = false;
-  state.toast = "文件夹已创建";
+  state.mediaFolderEditingId = "";
+  state.toast = folderId ? "文件夹已保存" : "文件夹已创建";
   await renderMedia();
+  updateShell();
+  clearToastSoon();
+}
+
+async function saveMediaNote(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const sha256 = String(form.get("sha256") || "");
+  const note = String(form.get("note") || "");
+  const result = await api("/api/ui/media/note", { method: "POST", body: JSON.stringify({ sha256, note }) });
+  if (state.selectedMedia?.sha256 === sha256) state.selectedMedia = { ...state.selectedMedia, note: result.asset.note || note };
+  state.media = state.media.map((manifest) => ({
+    ...manifest,
+    assets: (manifest.assets || []).map((asset) => asset.sha256 === sha256 ? { ...asset, note: result.asset.note || note } : asset),
+  }));
+  state.toast = "备注已保存";
+  renderGlobalDialogs();
   updateShell();
   clearToastSoon();
 }
@@ -1661,6 +1714,7 @@ async function endFloatDrag(event) {
     state.mediaSuppressClickUntil = Date.now() + 450;
     if (type === "asset") openMediaDetail(id);
     if (type === "folder" && state.mediaFloating) {
+      captureMediaFloatPositions();
       state.expandedMediaFolderId = state.expandedMediaFolderId === id ? "" : id;
       renderMedia();
     }
@@ -1692,6 +1746,22 @@ function pointInsideElement(point, element) {
   if (!element) return false;
   const rect = element.getBoundingClientRect();
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function captureMediaFloatPositions() {
+  const gallery = document.querySelector("[data-media-gallery]");
+  if (!gallery || !state.mediaFloating) return;
+  const galleryRect = gallery.getBoundingClientRect();
+  gallery.querySelectorAll("[data-media-item]").forEach((node) => {
+    const key = mediaFloatKey(node);
+    const rect = node.getBoundingClientRect();
+    state.mediaFloatPositions[key] = {
+      x: rect.left - galleryRect.left,
+      y: rect.top - galleryRect.top,
+      vx: 0,
+      vy: 0,
+    };
+  });
 }
 
 async function animateFloatToGrid() {

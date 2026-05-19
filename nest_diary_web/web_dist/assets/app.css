@@ -1033,6 +1033,11 @@ textarea {
   width: 268px;
 }
 
+.folder-edit-button {
+  justify-self: start;
+  color: var(--accent);
+}
+
 .folder-thumb {
   width: 100%;
   min-height: auto;
@@ -1193,7 +1198,7 @@ textarea {
 
 .media-dialog {
   position: relative;
-  width: min(1120px, calc(100vw - 48px));
+  width: min(980px, calc(100vw - 64px));
   max-height: calc(100vh - 48px);
   display: grid;
   gap: 18px;
@@ -1206,13 +1211,13 @@ textarea {
 }
 
 .media-dialog.portrait {
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  grid-template-columns: minmax(0, 0.92fr) minmax(260px, 320px);
   align-items: center;
 }
 
 .media-dialog.landscape {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, auto) auto;
 }
 
 .media-dialog-visual {
@@ -1224,7 +1229,7 @@ textarea {
 
 .media-dialog-visual img {
   max-width: 100%;
-  max-height: calc(100vh - 112px);
+  max-height: calc(100vh - 188px);
   width: auto;
   height: auto;
   object-fit: contain;
@@ -1234,12 +1239,13 @@ textarea {
 
 .media-dialog.landscape .media-dialog-visual img {
   max-width: 100%;
-  max-height: calc(100vh - 246px);
+  max-height: calc(100vh - 330px);
 }
 
 .media-dialog.landscape .media-dialog-meta {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
 .media-dialog-meta {
@@ -1257,6 +1263,10 @@ textarea {
   display: grid;
   gap: 10px;
   margin: 0;
+}
+
+.media-dialog.landscape .media-dialog-meta dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .media-dialog-meta dl div {
@@ -1277,6 +1287,16 @@ textarea {
   margin: 0;
   overflow-wrap: anywhere;
   line-height: 1.55;
+}
+
+.media-note-form {
+  display: grid;
+  gap: 10px;
+}
+
+.media-note-form textarea {
+  min-height: 84px;
+  max-height: 130px;
 }
 
 .media-dialog-close {

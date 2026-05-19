@@ -184,6 +184,17 @@ class MediaService:
         self.save_organization(organization)
         return folder
 
+    def update_folder(self, folder_id: str, name: str = "", tags: list[str] | None = None, note: str = "") -> dict:
+        organization = self.load_organization()
+        folder = next((item for item in organization["folders"] if item.get("id") == folder_id), None)
+        if not folder:
+            raise ValueError("Folder not found")
+        folder["name"] = (name or folder.get("name") or "新建文件夹").strip() or "新建文件夹"
+        folder["tags"] = [str(item).strip() for item in (tags or []) if str(item).strip()]
+        folder["note"] = (note or "").strip()
+        self.save_organization(organization)
+        return self._normalize_folder(folder)
+
     def move_asset_to_folder(self, digest: str, folder_id: str) -> dict:
         organization = self.load_organization()
         if folder_id and not any(item["id"] == folder_id and not item.get("trashed") for item in organization["folders"]):
@@ -274,6 +285,30 @@ class MediaService:
             raise ValueError("Unsupported item type")
         self.save_organization(organization)
         return self.load_organization()
+
+    def update_asset_note(self, digest: str, note: str = "") -> dict:
+        digest = self._extract_digest(digest)
+        if not digest:
+            raise ValueError("Media asset not found")
+        updated: dict | None = None
+        root = self.paths.media_dir / "by-date"
+        if root.exists():
+            for path in root.glob("*/*/*/manifest.json"):
+                try:
+                    manifest = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                changed = False
+                for asset in manifest.get("assets", []):
+                    if asset.get("sha256") == digest:
+                        asset["note"] = (note or "").strip()
+                        updated = asset
+                        changed = True
+                if changed:
+                    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not updated:
+            raise ValueError("Media asset not found")
+        return updated
 
     def save_organization(self, organization: dict) -> None:
         path = self._organization_path()

@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.4.7"
+APP_VERSION = "0.4.8"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -546,6 +546,13 @@ class MediaFolderCreateRequest(BaseModel):
     note: str = ""
 
 
+class MediaFolderUpdateRequest(BaseModel):
+    folder_id: str
+    name: str = ""
+    tags: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class MediaMoveRequest(BaseModel):
     sha256: str
     folder_id: str = ""
@@ -554,6 +561,11 @@ class MediaMoveRequest(BaseModel):
 class MediaTrashRequest(BaseModel):
     item_type: str
     item_id: str
+
+
+class MediaNoteUpdateRequest(BaseModel):
+    sha256: str
+    note: str = ""
 
 
 @app.post("/api/v1/media/attach")
@@ -894,6 +906,17 @@ async def ui_create_media_folder(payload: MediaFolderCreateRequest, _session: No
     return {"status": "ok", "folder": folder, "organization": media_service.load_organization()}
 
 
+@app.post("/api/ui/media/folders/update")
+async def ui_update_media_folder(payload: MediaFolderUpdateRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    try:
+        folder = media_service.update_folder(payload.folder_id, payload.name, tags=payload.tags, note=payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "folder": folder, "organization": media_service.load_organization()}
+
+
 @app.post("/api/ui/media/move")
 async def ui_move_media(payload: MediaMoveRequest, _session: None = Depends(require_web_session)):
     if not service_settings.load().enable_media_module:
@@ -903,6 +926,17 @@ async def ui_move_media(payload: MediaMoveRequest, _session: None = Depends(requ
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "organization": organization}
+
+
+@app.post("/api/ui/media/note")
+async def ui_update_media_note(payload: MediaNoteUpdateRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_media_module:
+        raise HTTPException(status_code=403, detail="Media module is disabled")
+    try:
+        asset = media_service.update_asset_note(payload.sha256, payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "asset": asset}
 
 
 @app.post("/api/ui/media/trash")
