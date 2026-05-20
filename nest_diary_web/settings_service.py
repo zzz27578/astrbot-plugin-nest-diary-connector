@@ -50,6 +50,7 @@ class ServiceSettingsStore:
             settings.diary_push_format = "text"
         if settings.diary_push_target not in {"none", "source", "admin_private", "both"}:
             settings.diary_push_target = "none"
+        settings.diary_t2i_template_name = str(settings.diary_t2i_template_name or "plain_note").strip() or "plain_note"
         settings.permissions_allow_admin_natural_language = bool(settings.permissions_allow_admin_natural_language)
         allowed_permissions = {
             "diary_read",

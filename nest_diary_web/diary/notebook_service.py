@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
@@ -91,9 +92,17 @@ class NotebookService:
         self._save(items)
         return current
 
-    def save_notebooks(self, notebooks: list[dict]) -> list[DiaryNotebook]:
+    def save_notebooks(self, notebooks: list[dict], delete_ids: list[str] | None = None) -> list[DiaryNotebook]:
         items = self._load()
         now = self._now()
+        for raw_id in delete_ids or []:
+            notebook_id = safe_package_id(str(raw_id or ""))
+            if not notebook_id or notebook_id == "default":
+                continue
+            items.pop(notebook_id, None)
+            notebook_dir = self.paths.diary_notebooks_dir / notebook_id
+            if notebook_dir.exists():
+                shutil.rmtree(notebook_dir)
         for raw in notebooks:
             raw_id = str(raw.get("id") or raw.get("notebook_id") or "").strip()
             if not raw_id:
@@ -109,16 +118,16 @@ class NotebookService:
                 admins=[],
             )
             current.name = str(raw.get("name") or current.name or notebook_id).strip() or notebook_id
-            current.origin_umo = str(raw.get("origin_umo") or current.origin_umo or "").strip()
+            current.origin_umo = str(raw.get("origin_umo", current.origin_umo or "") or "").strip()
             if current.origin_umo and (not raw.get("platform_id") or not raw.get("message_type") or not raw.get("session_id")):
                 parts = current.origin_umo.split(":", 2)
                 if len(parts) == 3:
                     current.platform_id = parts[0]
                     current.message_type = parts[1]
                     current.session_id = parts[2]
-            current.platform_id = str(raw.get("platform_id") or current.platform_id or "").strip()
-            current.message_type = str(raw.get("message_type") or current.message_type or "").strip()
-            current.session_id = str(raw.get("session_id") or current.session_id or "").strip()
+            current.platform_id = str(raw.get("platform_id", current.platform_id or "") or "").strip()
+            current.message_type = str(raw.get("message_type", current.message_type or "") or "").strip()
+            current.session_id = str(raw.get("session_id", current.session_id or "") or "").strip()
             current.enabled = bool(raw.get("enabled", current.enabled))
             current.auto_archive_enabled = bool(raw.get("auto_archive_enabled", current.auto_archive_enabled))
             current.archive_time = str(raw.get("archive_time") or current.archive_time or "03:00").strip()

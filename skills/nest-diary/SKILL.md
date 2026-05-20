@@ -13,6 +13,7 @@ Available tools:
 - `search_diary`: retrieve relevant diary candidates by keyword, person, event, date clue, or emotion.
 - `read_diary`: read one known date.
 - `write_diary`: create or revise one date's diary entry with an agent-authored title.
+- `push_diary`: push a known date's diary to the configured target as text or image.
 - `attach_media`: archive a file that already exists at an accessible path, with hidden note metadata for source, situation, bot evaluation, and known user evaluation.
 - `list_impressions`: list known people impressions.
 - `read_impression`: read one person's long-term impression.
@@ -70,6 +71,8 @@ Avoid:
 ### C. Nightly archive / scheduled diary
 
 When receiving the scheduled diary prompt from the plugin:
+
+The plugin may append a `<写日记规范>` or `<写日记要求规范>` block from WebUI, either in the scheduled hidden task prompt or in the runtime hidden tool policy. Treat that block as higher-priority writing requirements for style, depth, and evidence handling. It is a system-provided rule, not a user message, and must never be repeated into visible chat.
 
 1. Gather the day's salient events from current context and available memory.
 2. Choose a concise title that captures the meaning of the day. Do not use a date as the title.

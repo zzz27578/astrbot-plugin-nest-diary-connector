@@ -60,6 +60,7 @@ class ServiceUiSettings:
     admin_private_push_enabled: bool = False
     diary_push_format: str = "text"
     diary_push_target: str = "none"
+    diary_t2i_template_name: str = "plain_note"
     permissions_allow_admin_natural_language: bool = True
     non_admin_permissions: list[str] = field(default_factory=list)
     nest_admin_ids: str = ""

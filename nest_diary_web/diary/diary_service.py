@@ -86,8 +86,10 @@ class DiaryService:
     def list_notebooks(self) -> list[dict]:
         return [item.__dict__ for item in self.notebooks.list_notebooks()]
 
-    def save_notebooks(self, notebooks: list[dict]) -> list[dict]:
-        return [item.__dict__ for item in self.notebooks.save_notebooks(notebooks)]
+    def save_notebooks(self, notebooks: list[dict], delete_ids: list[str] | None = None) -> list[dict]:
+        saved = self.notebooks.save_notebooks(notebooks, delete_ids=delete_ids or [])
+        self.rebuild_index()
+        return [item.__dict__ for item in saved]
 
     def resolve_notebook_from_origin(self, origin_umo: str) -> dict:
         return self.notebooks.resolve_from_origin(origin_umo).__dict__

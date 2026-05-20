@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.4"
+APP_VERSION = "0.5.5"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -735,6 +735,7 @@ class SettingsUpdateRequest(BaseModel):
     admin_private_push_enabled: bool = False
     diary_push_format: str = "text"
     diary_push_target: str = "none"
+    diary_t2i_template_name: str = "plain_note"
     permissions_allow_admin_natural_language: bool = True
     non_admin_permissions: list[str] = Field(default_factory=list)
     nest_admin_ids: str = ""
@@ -776,6 +777,7 @@ class SecurityUpdateRequest(BaseModel):
 
 class NotebookUpdateRequest(BaseModel):
     notebooks: list[dict] = Field(default_factory=list)
+    delete_ids: list[str] = Field(default_factory=list)
 
 
 @app.get("/api/v1/impressions")
@@ -942,7 +944,7 @@ async def ui_list_notebooks(_session: None = Depends(require_web_session)):
 
 @app.post("/api/ui/notebooks")
 async def ui_save_notebooks(payload: NotebookUpdateRequest, _session: None = Depends(require_web_session)):
-    return {"status": "ok", "items": diary_service.save_notebooks(payload.notebooks)}
+    return {"status": "ok", "items": diary_service.save_notebooks(payload.notebooks, delete_ids=payload.delete_ids)}
 
 
 @app.get("/api/ui/impressions")
@@ -1153,6 +1155,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             admin_private_push_enabled=payload.admin_private_push_enabled,
             diary_push_format=payload.diary_push_format,
             diary_push_target=payload.diary_push_target,
+            diary_t2i_template_name=payload.diary_t2i_template_name,
             permissions_allow_admin_natural_language=payload.permissions_allow_admin_natural_language,
             non_admin_permissions=payload.non_admin_permissions,
             nest_admin_ids=payload.nest_admin_ids,

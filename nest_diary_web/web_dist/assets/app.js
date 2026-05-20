@@ -1,4 +1,40 @@
-const APP_VERSION = "0.5.4";
+const APP_VERSION = "0.5.5";
+
+const DIARY_T2I_TEMPLATES = [
+  {
+    id: "plain_note",
+    name: "清简便签",
+    tone: "浅色、易读、适合日常推送",
+    template: `<div style="width:760px;padding:44px;font-family:'Microsoft YaHei',sans-serif;background:#fffdf8;color:#242830;border:2px solid #242830;">
+  <p style="margin:0 0 12px;color:#176f66;font-size:18px;font-weight:800;">{{ date }} · {{ notebook_name }}</p>
+  <h1 style="margin:0 0 22px;font-size:34px;line-height:1.2;">{{ title }}</h1>
+  <div style="white-space:pre-wrap;font-size:20px;line-height:1.75;">{{ body }}</div>
+</div>`,
+  },
+  {
+    id: "terminal_report",
+    name: "终端报告",
+    tone: "冷灰信息卡，适合群聊日报",
+    template: `<div style="width:820px;padding:38px;font-family:'Microsoft YaHei',sans-serif;background:#f1f4f2;color:#1f2527;border:1px solid #2c3b3b;">
+  <div style="display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #2c3b3b;padding-bottom:14px;margin-bottom:24px;">
+    <strong style="font-size:18px;">小窝日记</strong><span style="color:#58706b;font-weight:800;">{{ date }} / {{ notebook_name }}</span>
+  </div>
+  <h1 style="margin:0 0 20px;font-size:32px;line-height:1.18;">{{ title }}</h1>
+  <div style="white-space:pre-wrap;font-size:19px;line-height:1.72;">{{ body }}</div>
+</div>`,
+  },
+  {
+    id: "magazine_page",
+    name: "杂志页",
+    tone: "留白更大，适合私聊推送",
+    template: `<div style="width:760px;padding:52px 48px;font-family:'Microsoft YaHei',sans-serif;background:#fbfaf5;color:#202124;">
+  <div style="width:64px;height:5px;background:#d25f45;margin-bottom:28px;"></div>
+  <p style="margin:0 0 16px;color:#6a756f;font-size:17px;font-weight:800;">{{ date }} · {{ notebook_name }}</p>
+  <h1 style="margin:0 0 26px;font-size:38px;line-height:1.16;">{{ title }}</h1>
+  <div style="white-space:pre-wrap;font-size:20px;line-height:1.86;">{{ body }}</div>
+</div>`,
+  },
+];
 
 const app = document.getElementById("app");
 const state = {
@@ -42,6 +78,9 @@ const state = {
   settingsSection: "modules",
   settingsModuleDetail: "",
   moduleFilter: "all",
+  t2iTemplateDialogOpen: false,
+  t2iCustomOpen: false,
+  notebookDeleteIds: [],
 };
 
 const navItems = [
@@ -212,6 +251,27 @@ function refreshThemeStylesheet() {
   link.setAttribute("href", `${href.pathname}${href.search}`);
 }
 
+function activeT2iTemplate(settings = {}) {
+  const custom = String(settings.diary_t2i_template || "").trim();
+  const name = settings.diary_t2i_template_name || "";
+  const builtin = DIARY_T2I_TEMPLATES.find((item) => item.id === name);
+  if (name === "custom" && custom) return { id: "custom", name: "自定义模板", tone: "使用你添加的模板", template: custom };
+  if (builtin) return builtin;
+  return DIARY_T2I_TEMPLATES[0];
+}
+
+function t2iTemplateById(id) {
+  return DIARY_T2I_TEMPLATES.find((item) => item.id === id) || DIARY_T2I_TEMPLATES[0];
+}
+
+function t2iPreviewHtml(template) {
+  return String(template || "")
+    .replaceAll("{{ date }}", "2026-05-20")
+    .replaceAll("{{ notebook_name }}", "主群日记本")
+    .replaceAll("{{ title }}", "今天的小窝被认真整理了一遍")
+    .replaceAll("{{ body }}", "今天把日记本、推送和权限重新分清了。重要的是，群聊和私聊不会混在一起，写日记也会先看证据，再决定要不要记录。");
+}
+
 function renderNavLinks() {
   return navItems
     .filter(([key]) => key !== "media" || isMediaEnabled())
@@ -279,9 +339,12 @@ async function loadBootstrap() {
 async function setView(view, options = {}) {
   if (view !== "media") {
     stopMediaFloat();
+    if (state.view === "media") state.mediaFloatPositions = {};
     state.selectedMedia = null;
     state.mediaFolderModalOpen = false;
     state.mediaFolderEditingId = "";
+    state.t2iTemplateDialogOpen = false;
+    state.t2iCustomOpen = false;
     renderGlobalDialogs();
   }
   state.view = view;
@@ -305,7 +368,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
@@ -462,6 +525,31 @@ document.addEventListener(
     }
     if (target.dataset.moduleSettings) {
       openModuleSettings(target.dataset.moduleSettings);
+      return;
+    }
+    if (target.dataset.notebookAdd !== undefined) {
+      addNotebookDraft();
+      return;
+    }
+    if (target.dataset.notebookDelete) {
+      deleteNotebookRow(target.dataset.notebookDelete);
+      return;
+    }
+    if (target.dataset.t2iOpen !== undefined) {
+      openT2iTemplateDialog();
+      return;
+    }
+    if (target.dataset.t2iClose !== undefined) {
+      closeT2iTemplateDialog();
+      return;
+    }
+    if (target.dataset.t2iSelect) {
+      selectT2iTemplate(target.dataset.t2iSelect);
+      return;
+    }
+    if (target.dataset.t2iCustomToggle !== undefined) {
+      state.t2iCustomOpen = !state.t2iCustomOpen;
+      renderGlobalDialogs();
       return;
     }
     if (target.dataset.settingsBack !== undefined) {
@@ -1139,6 +1227,7 @@ async function toggleMediaFloat() {
     await animateFloatToGrid();
     state.mediaFloating = false;
   } else {
+    state.mediaFloatPositions = {};
     state.mediaFloating = true;
   }
   renderMedia();
@@ -1330,7 +1419,79 @@ function renderGlobalDialogs() {
   root.innerHTML = `
     ${state.selectedMedia ? mediaDialog(state.selectedMedia) : ""}
     ${state.mediaFolderModalOpen ? mediaFolderCreateDialog() : ""}
+    ${state.t2iTemplateDialogOpen ? t2iTemplateDialog() : ""}
   `;
+}
+
+function t2iTemplateDialog() {
+  const form = document.querySelector('[data-action="save-settings"]');
+  const currentName = form?.querySelector('[name="diary_t2i_template_name"]')?.value || state.settings?.settings?.diary_t2i_template_name || "plain_note";
+  const customValue = form?.querySelector('[name="diary_t2i_template"]')?.value || state.settings?.settings?.diary_t2i_template || "";
+  const current = currentName === "custom" && customValue ? { id: "custom", template: customValue } : t2iTemplateById(currentName);
+  return `
+    <div class="media-dialog-backdrop soft" data-t2i-close>
+      <article class="nest-dialog t2i-dialog" role="dialog" aria-modal="true" aria-label="图片推送模板" onclick="event.stopPropagation()">
+        <button class="media-dialog-close" data-t2i-close type="button" aria-label="关闭">×</button>
+        <div class="settings-mini-head t2i-head"><strong>图片推送模板</strong><span>选择后会保存到日记模块设置</span></div>
+        <div class="t2i-template-grid">
+          ${DIARY_T2I_TEMPLATES.map((item) => `
+            <button class="t2i-template-card ${currentName === item.id ? "active" : ""}" data-t2i-select="${escapeHtml(item.id)}" type="button">
+              <span class="t2i-preview">${t2iPreviewHtml(item.template)}</span>
+              <strong>${escapeHtml(item.name)}</strong>
+              <em>${escapeHtml(item.tone)}</em>
+            </button>
+          `).join("")}
+        </div>
+        <button class="button ghost" data-t2i-custom-toggle type="button">${state.t2iCustomOpen || currentName === "custom" ? "收起自定义" : "添加自定义模板"}</button>
+        <div class="t2i-custom ${state.t2iCustomOpen || currentName === "custom" ? "open" : ""}">
+          <label>自定义模板<textarea data-t2i-custom-value rows="6" placeholder="粘贴 HTML 模板，支持 {{ date }}、{{ notebook_name }}、{{ title }}、{{ body }}">${escapeHtml(customValue)}</textarea></label>
+          <button class="primary" data-t2i-select="custom" type="button">使用自定义模板</button>
+        </div>
+        <div class="t2i-current-preview">
+          <strong>当前预览</strong>
+          <div>${t2iPreviewHtml(current.template)}</div>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function openT2iTemplateDialog() {
+  state.t2iTemplateDialogOpen = true;
+  renderGlobalDialogs();
+}
+
+function closeT2iTemplateDialog() {
+  state.t2iTemplateDialogOpen = false;
+  state.t2iCustomOpen = false;
+  renderGlobalDialogs();
+}
+
+function selectT2iTemplate(id) {
+  const form = document.querySelector('[data-action="save-settings"]');
+  if (!form) return;
+  const nameInput = form.querySelector('[name="diary_t2i_template_name"]');
+  const templateInput = form.querySelector('[name="diary_t2i_template"]');
+  if (!nameInput || !templateInput) return;
+  if (id === "custom") {
+    const customValue = document.querySelector("[data-t2i-custom-value]")?.value.trim() || "";
+    if (!customValue) {
+      state.toast = "先填写自定义模板";
+      updateShell();
+      clearToastSoon();
+      return;
+    }
+    nameInput.value = "custom";
+    templateInput.value = customValue;
+  } else {
+    const item = t2iTemplateById(id);
+    nameInput.value = item.id;
+    templateInput.value = item.template;
+  }
+  state.toast = "图片模板已选择，记得保存设置";
+  closeT2iTemplateDialog();
+  updateShell();
+  clearToastSoon();
 }
 
 function mediaDialog(asset) {
@@ -1727,20 +1888,27 @@ function maybeAutoLeaveFolder(event, payload = null) {
 let mediaFloatFrame = 0;
 let mediaFloatItems = [];
 let mediaFloatDrag = null;
+let mediaFloatRetry = 0;
 
 function startMediaFloat() {
   stopMediaFloat();
   const gallery = document.querySelector("[data-media-gallery]");
   if (!gallery) return;
   const bounds = gallery.getBoundingClientRect();
+  if (bounds.width < 80 || bounds.height < 80) {
+    mediaFloatRetry = requestAnimationFrame(startMediaFloat);
+    return;
+  }
   mediaFloatItems = Array.from(gallery.querySelectorAll("[data-media-item]"))
     .filter((node) => !node.classList.contains("expanded"))
     .map((node, index) => {
     const rect = node.getBoundingClientRect();
     const key = mediaFloatKey(node);
     const saved = state.mediaFloatPositions[key] || null;
-    const x = saved ? Number(saved.x || 0) : 18 + (index * 92) % Math.max(140, bounds.width - 220);
-    const y = saved ? Number(saved.y || 0) : 18 + (index * 72) % Math.max(140, bounds.height - 190);
+    const gridX = Math.max(0, rect.left - bounds.left);
+    const gridY = Math.max(0, rect.top - bounds.top);
+    const x = saved ? Number(saved.x || 0) : gridX;
+    const y = saved ? Number(saved.y || 0) : gridY;
     const item = {
       node,
       key,
@@ -1773,7 +1941,9 @@ function startMediaFloat() {
 
 function stopMediaFloat() {
   if (mediaFloatFrame) cancelAnimationFrame(mediaFloatFrame);
+  if (mediaFloatRetry) cancelAnimationFrame(mediaFloatRetry);
   mediaFloatFrame = 0;
+  mediaFloatRetry = 0;
   mediaFloatDrag = null;
   mediaFloatItems.forEach((item) => {
     item.node.removeEventListener("pointerdown", startFloatDrag);
@@ -1787,6 +1957,10 @@ function tickMediaFloat() {
   const gallery = document.querySelector("[data-media-gallery]");
   if (!gallery) return;
   const bounds = gallery.getBoundingClientRect();
+  if (bounds.width < 80 || bounds.height < 80) {
+    mediaFloatFrame = requestAnimationFrame(tickMediaFloat);
+    return;
+  }
   for (const item of mediaFloatItems) {
     if (mediaFloatDrag?.item === item || item.locked) continue;
     item.x += item.vx;
@@ -2037,6 +2211,11 @@ function updateMediaDropHighlights(point) {
 
 function captureMediaFloatPositions() {
   if (!state.mediaFloating) return;
+  const gallery = document.querySelector("[data-media-gallery]");
+  if (gallery) {
+    const galleryRect = gallery.getBoundingClientRect();
+    if (galleryRect.width < 80 || galleryRect.height < 80) return;
+  }
   if (mediaFloatItems.length) {
     mediaFloatItems.forEach((item) => {
       state.mediaFloatPositions[item.key] = {
@@ -2048,7 +2227,6 @@ function captureMediaFloatPositions() {
     });
     return;
   }
-  const gallery = document.querySelector("[data-media-gallery]");
   if (!gallery) return;
   const galleryRect = gallery.getBoundingClientRect();
   gallery.querySelectorAll("[data-media-item]").forEach((node) => {
@@ -2214,6 +2392,9 @@ async function openModuleSettings(id) {
 
 async function closeModuleSettings() {
   state.settingsModuleDetail = "";
+  state.notebookDeleteIds = [];
+  state.t2iTemplateDialogOpen = false;
+  state.t2iCustomOpen = false;
   await renderSettings();
   updateShell();
 }
@@ -2334,33 +2515,47 @@ function moduleDetailPage(payload, detailKey) {
   `;
 }
 
+function notebookOriginParts(item = {}) {
+  const origin = String(item.origin_umo || "");
+  const parts = origin.split(":");
+  return {
+    platform_id: item.platform_id || parts[0] || "aiocqhttp",
+    message_type: item.message_type || parts[1] || "group",
+    session_id: item.session_id || parts.slice(2).join(":") || "",
+  };
+}
+
+function notebookRow(item, options = {}) {
+  const id = item.id || item.notebook_id || options.id || `notebook_${Date.now()}`;
+  const origin = notebookOriginParts(item);
+  const isDefault = id === "default";
+  return `
+    <div class="notebook-row" data-notebook-row="${escapeHtml(id)}">
+      <input name="notebook_id" value="${escapeHtml(id)}" type="hidden">
+      <input name="notebook_platform_${escapeHtml(id)}" value="${escapeHtml(origin.platform_id)}" type="hidden">
+      <label>名称<input name="notebook_name_${escapeHtml(id)}" value="${escapeHtml(item.name || (options.draft ? "新日记本" : id))}" placeholder="例如：主群日记本"></label>
+      <label>会话类型<select name="notebook_message_type_${escapeHtml(id)}"><option value="group" ${origin.message_type !== "private" ? "selected" : ""}>群聊</option><option value="private" ${origin.message_type === "private" ? "selected" : ""}>私聊</option></select></label>
+      <label>QQ号或群号<input name="notebook_session_${escapeHtml(id)}" value="${escapeHtml(origin.session_id)}" placeholder="私聊填 QQ 号，群聊填群号"></label>
+      <label>写日记时间<input name="notebook_archive_time_${escapeHtml(id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
+      <label>推送目标<select name="notebook_push_target_${escapeHtml(id)}"><option value="none" ${item.push_target === "none" ? "selected" : ""}>不推送</option><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
+      <label class="check"><input name="notebook_enabled_${escapeHtml(id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
+      <label class="check"><input name="notebook_auto_archive_${escapeHtml(id)}" type="checkbox" ${item.auto_archive_enabled !== false ? "checked" : ""}>自动写日记</label>
+      <button class="button danger notebook-delete" data-notebook-delete="${escapeHtml(id)}" ${isDefault ? "disabled" : ""} type="button">${isDefault ? "默认" : "删除"}</button>
+    </div>
+  `;
+}
+
 function notebookManagement(notebooks = []) {
   const items = notebooks.length ? notebooks : notebookOptions();
-  const rows = items.map((raw) => {
-    const item = { ...raw, id: raw.id || raw.notebook_id || "default" };
-    return `
-      <div class="notebook-row" data-notebook-row="${escapeHtml(item.id)}">
-        <input name="notebook_id" value="${escapeHtml(item.id)}" type="hidden">
-        <label>名称<input name="notebook_name_${escapeHtml(item.id)}" value="${escapeHtml(item.name || item.id)}"></label>
-        <label>绑定会话<input name="notebook_origin_${escapeHtml(item.id)}" value="${escapeHtml(item.origin_umo || "")}" placeholder="平台:group/private:编号"></label>
-        <label>写日记时间<input name="notebook_archive_time_${escapeHtml(item.id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
-        <label>推送目标<select name="notebook_push_target_${escapeHtml(item.id)}"><option value="none" ${item.push_target === "none" ? "selected" : ""}>不推送</option><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
-        <label class="check"><input name="notebook_enabled_${escapeHtml(item.id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
-        <label class="check"><input name="notebook_auto_archive_${escapeHtml(item.id)}" type="checkbox" ${item.auto_archive_enabled !== false ? "checked" : ""}>自动写日记</label>
-      </div>
-    `;
-  }).join("");
+  const rows = items.map((raw) => notebookRow({ ...raw, id: raw.id || raw.notebook_id || "default" })).join("");
   return `
     <div class="notebook-settings">
-      <div class="settings-mini-head"><strong>日记本管理</strong><span>给群号或私聊号起名字，bot 识别用编号，页面显示用名称。</span></div>
-      ${rows || `<div class="notice soft">还没有日记本。</div>`}
-      <div class="notebook-row new-notebook-row">
-        <label>新增名称<input name="new_notebook_name" placeholder="例如：主群日记本"></label>
-        <label>绑定会话<input name="new_notebook_origin" placeholder="aiocqhttp:group:123456"></label>
-        <label>写日记时间<input name="new_notebook_archive_time" type="time" value="03:00"></label>
-        <label>推送目标<select name="new_notebook_push_target"><option value="none">不推送</option><option value="admin_private">管理员私聊</option><option value="source">原会话</option><option value="both">两边都推送</option></select></label>
-        <label class="check"><input name="new_notebook_enabled" type="checkbox" checked>启用</label>
-        <label class="check"><input name="new_notebook_auto_archive" type="checkbox" checked>自动写日记</label>
+      <div class="settings-mini-head notebook-head">
+        <div><strong>日记本管理</strong><span>私聊填 QQ 号，群聊填群号；页面显示使用你写的名称。</span></div>
+        <button class="button primary" data-notebook-add type="button">新增日记本</button>
+      </div>
+      <div class="notebook-list" data-notebook-list>
+        ${rows || `<div class="notice soft">还没有日记本。</div>`}
       </div>
     </div>
   `;
@@ -2387,9 +2582,38 @@ function permissionSettings(settings) {
   `;
 }
 
+function addNotebookDraft() {
+  const list = document.querySelector("[data-notebook-list]");
+  if (!list) return;
+  list.querySelector(".notice.soft")?.remove();
+  const id = `notebook_${Date.now()}`;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = notebookRow({ id, name: "新日记本", enabled: true, auto_archive_enabled: true, push_target: "none" }, { draft: true }).trim();
+  list.appendChild(wrapper.firstElementChild);
+}
+
+function deleteNotebookRow(id) {
+  if (!id || id === "default") return;
+  const row = document.querySelector(`[data-notebook-row="${CSS.escape(id)}"]`);
+  if (!row) return;
+  if (!id.startsWith("notebook_") || state.notebooks.some((item) => (item.id || item.notebook_id) === id)) {
+    state.notebookDeleteIds = Array.from(new Set([...(state.notebookDeleteIds || []), id]));
+  }
+  row.remove();
+}
+
+function notebookOriginFromForm(form, id) {
+  const session = String(form.get(`notebook_session_${id}`) || "").trim();
+  if (!session) return "";
+  const platform = String(form.get(`notebook_platform_${id}`) || "aiocqhttp").trim() || "aiocqhttp";
+  const messageType = String(form.get(`notebook_message_type_${id}`) || "group").trim() || "group";
+  return `${platform}:${messageType}:${session}`;
+}
+
 function moduleSettingsBody(payload, detailKey) {
   const settings = payload.settings;
   if (detailKey === "diary") {
+    const t2iTemplate = activeT2iTemplate(settings);
     return `
       <div class="setting-line"><div><strong>日记模块</strong><p class="muted">开启后可以记录和查看日记。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
       <div class="setting-line"><div><strong>自动回想</strong><p class="muted">需要时让 bot 参考以前的日记。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
@@ -2401,8 +2625,13 @@ function moduleSettingsBody(payload, detailKey) {
         <label>展示方式<select name="diary_display_mode"><option value="grouped" ${settings.diary_display_mode === "grouped" ? "selected" : ""}>按日记本分组</option><option value="merged" ${settings.diary_display_mode === "merged" ? "selected" : ""}>合并显示（只影响页面展示，不会泄露群聊推送）</option></select></label>
         <label>推送格式<select name="diary_push_format"><option value="text" ${settings.diary_push_format !== "image" ? "selected" : ""}>文字</option><option value="image" ${settings.diary_push_format === "image" ? "selected" : ""}>图片</option></select></label>
         <label>小窝管理员 QQ<input name="nest_admin_ids" value="${escapeHtml((settings.nest_admin_ids || "").split(/\s+/)[0] || "")}" placeholder="只填一个管理员 QQ"></label>
-        <label class="wide-field">写日记提示词<textarea name="diary_write_prompt">${escapeHtml(settings.diary_write_prompt || "")}</textarea></label>
-        <label class="wide-field">图片推送模板<textarea name="diary_t2i_template">${escapeHtml(settings.diary_t2i_template || "")}</textarea></label>
+        <label class="wide-field">写日记要求规范<textarea name="diary_write_prompt">${escapeHtml(settings.diary_write_prompt || "")}</textarea></label>
+      </div>
+      <input name="diary_t2i_template_name" type="hidden" value="${escapeHtml(settings.diary_t2i_template_name || t2iTemplate.id)}">
+      <textarea name="diary_t2i_template" hidden>${escapeHtml(settings.diary_t2i_template || t2iTemplate.template)}</textarea>
+      <div class="t2i-template-summary">
+        <div><strong>图片推送模板</strong><span>${escapeHtml(t2iTemplate.name)} · ${escapeHtml(t2iTemplate.tone)}</span></div>
+        <button class="button" data-t2i-open type="button">选择模板</button>
       </div>
       ${permissionSettings(settings)}
       ${notebookManagement(payload.notebooks || state.notebooks || [])}
@@ -2654,6 +2883,7 @@ async function saveSettings(event) {
     admin_private_push_enabled: false,
     diary_push_format: valueField("diary_push_format", current.diary_push_format || "text"),
     diary_push_target: "none",
+    diary_t2i_template_name: valueField("diary_t2i_template_name", current.diary_t2i_template_name || "plain_note"),
     permissions_allow_admin_natural_language: boolField("permissions_allow_admin_natural_language", current.permissions_allow_admin_natural_language ?? true),
     non_admin_permissions: form.getAll("non_admin_permissions"),
     nest_admin_ids: valueField("nest_admin_ids", current.nest_admin_ids || ""),
@@ -2734,17 +2964,19 @@ async function saveSettings(event) {
 
 async function saveNotebookSettings(formEl, form) {
   const ids = Array.from(new Set(form.getAll("notebook_id").map((item) => String(item || "").trim()).filter(Boolean)));
-  const newName = String(form.get("new_notebook_name") || "").trim();
-  const newOrigin = String(form.get("new_notebook_origin") || "").trim();
-  if (!ids.length && !newName && !newOrigin) return;
+  if (!ids.length && !(state.notebookDeleteIds || []).length) return;
   const current = state.notebooks || [];
   const notebooks = ids.map((id) => {
     const existing = current.find((item) => (item.id || item.notebook_id) === id) || {};
+    const origin_umo = notebookOriginFromForm(form, id);
     return {
       ...existing,
       id,
       name: form.get(`notebook_name_${id}`) || existing.name || id,
-      origin_umo: form.get(`notebook_origin_${id}`) || existing.origin_umo || "",
+      origin_umo,
+      platform_id: origin_umo ? origin_umo.split(":")[0] : "",
+      message_type: origin_umo ? origin_umo.split(":")[1] : "",
+      session_id: origin_umo ? origin_umo.split(":").slice(2).join(":") : "",
       enabled: form.has(`notebook_enabled_${id}`),
       auto_archive_enabled: form.has(`notebook_auto_archive_${id}`),
       archive_time: form.get(`notebook_archive_time_${id}`) || existing.archive_time || "03:00",
@@ -2753,22 +2985,9 @@ async function saveNotebookSettings(formEl, form) {
       push_format: form.get("diary_push_format") || existing.push_format || "text",
     };
   });
-  if (newName || newOrigin) {
-    const generatedId = newOrigin ? `notebook_${newOrigin.replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^[_\-.]+|[_\-.]+$/g, "")}` : `notebook_${Date.now()}`;
-    notebooks.push({
-      id: generatedId || `notebook_${Date.now()}`,
-      name: newName || newOrigin || "新日记本",
-      origin_umo: newOrigin,
-      enabled: form.has("new_notebook_enabled"),
-      auto_archive_enabled: form.has("new_notebook_auto_archive"),
-      archive_time: form.get("new_notebook_archive_time") || "03:00",
-      push_enabled: (form.get("new_notebook_push_target") || "none") !== "none",
-      push_target: form.get("new_notebook_push_target") || "none",
-      push_format: form.get("diary_push_format") || "text",
-    });
-  }
-  const payload = await api("/api/ui/notebooks", { method: "POST", body: JSON.stringify({ notebooks }) });
+  const payload = await api("/api/ui/notebooks", { method: "POST", body: JSON.stringify({ notebooks, delete_ids: state.notebookDeleteIds || [] }) });
   state.notebooks = payload.items || notebooks;
+  state.notebookDeleteIds = [];
 }
 
 async function saveModuleToggle(input) {
