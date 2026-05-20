@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import aiohttp
 import asyncio
+import json
 import os
 import shutil
 import socket
@@ -42,7 +43,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.5"
+PLUGIN_VERSION = "0.5.6"
 
 
 class NestDiaryHttpClient:
@@ -1334,7 +1335,7 @@ class NestDiaryConnectorPlugin(Star):
             "tags": entry.get("tags", []),
             "people": entry.get("people", []),
         }
-        template = getattr(ui_settings, "diary_t2i_template", "") or ServiceUiSettings().diary_t2i_template
+        template = self._selected_diary_t2i_template(ui_settings)
         html_render = getattr(self, "html_render", None)
         if html_render:
             return await html_render(template, data, return_url=False, options={"full_page": True, "type": "png"})
@@ -1342,6 +1343,46 @@ class NestDiaryConnectorPlugin(Star):
         if text_to_image:
             return await text_to_image(self._diary_push_text(entry), return_url=False)
         raise RuntimeError("当前 AstrBot 版本没有可用的文字转图片接口。")
+
+    def _selected_diary_t2i_template(self, ui_settings: ServiceUiSettings) -> str:
+        name = str(getattr(ui_settings, "diary_t2i_template_name", "") or "").strip()
+        raw = str(getattr(ui_settings, "diary_t2i_template", "") or "").strip()
+        builtin_templates = {
+            "plain_note": ServiceUiSettings().diary_t2i_template,
+            "terminal_report": (
+                "<div style=\"width:820px;padding:38px;font-family:'Microsoft YaHei',sans-serif;"
+                "background:#f1f4f2;color:#1f2527;border:1px solid #2c3b3b;\">"
+                "<div style=\"display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #2c3b3b;"
+                "padding-bottom:14px;margin-bottom:24px;\">"
+                "<strong style=\"font-size:18px;\">小窝日记</strong>"
+                "<span style=\"color:#58706b;font-weight:800;\">{{ date }} / {{ notebook_name }}</span></div>"
+                "<h1 style=\"margin:0 0 20px;font-size:32px;line-height:1.18;\">{{ title }}</h1>"
+                "<div style=\"white-space:pre-wrap;font-size:19px;line-height:1.72;\">{{ body }}</div></div>"
+            ),
+            "magazine_page": (
+                "<div style=\"width:760px;padding:52px 48px;font-family:'Microsoft YaHei',sans-serif;"
+                "background:#fbfaf5;color:#202124;\">"
+                "<div style=\"width:64px;height:5px;background:#d25f45;margin-bottom:28px;\"></div>"
+                "<p style=\"margin:0 0 16px;color:#6a756f;font-size:17px;font-weight:800;\">{{ date }} · {{ notebook_name }}</p>"
+                "<h1 style=\"margin:0 0 26px;font-size:38px;line-height:1.16;\">{{ title }}</h1>"
+                "<div style=\"white-space:pre-wrap;font-size:20px;line-height:1.86;\">{{ body }}</div></div>"
+            ),
+        }
+        if name in builtin_templates:
+            return builtin_templates[name]
+        if raw.startswith("{"):
+            try:
+                data = json.loads(raw)
+                for item in data.get("templates", []):
+                    if str(item.get("id") or "").strip() == name:
+                        template = str(item.get("template") or "").strip()
+                        if template:
+                            return template
+            except Exception:
+                pass
+        if raw and not raw.startswith("{"):
+            return raw
+        return ServiceUiSettings().diary_t2i_template
 
     async def _push_diary_entry(self, event, date: str, notebook_id: str = "", target: str = "", push_format: str = "") -> str:
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()

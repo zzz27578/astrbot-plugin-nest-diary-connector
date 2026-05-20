@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.5"
+APP_VERSION = "0.5.6"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -862,6 +862,7 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
         "notebooks": diary_service.list_notebooks(),
         "settings": _settings_payload(),
         "security": _security_payload(),
+        "notebooks": diary_service.list_notebooks(),
         "search": diary_service.search_status(),
         "frontend_styles": _frontend_styles(ui_settings),
         "module_catalog": _module_catalog(ui_settings),

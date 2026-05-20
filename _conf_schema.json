@@ -1,21 +1,14 @@
 {
-  "nest_mode": {
-    "description": "运行模式",
-    "type": "string",
-    "hint": "推荐 embedded。standalone 仅用于连接已经单独部署的小窝服务。",
-    "options": ["embedded", "standalone"],
-    "default": "embedded"
-  },
   "enable_webui": {
     "description": "启用小窝 WebUI",
     "type": "bool",
-    "hint": "功能模块、外观、日记本、媒体、人物印象等具体设置请进入小窝 WebUI 独立设置。",
+    "hint": "推荐保持开启。日记、媒体、人物印象、模块管理、外观和导入导出都请进入小窝 WebUI 设置。",
     "default": true
   },
   "web_host": {
     "description": "WebUI 监听地址",
     "type": "string",
-    "hint": "需要外部访问时通常保持 0.0.0.0，并配合防火墙、反向代理和登录密码。",
+    "hint": "本机使用可填 127.0.0.1；需要局域网访问时填 0.0.0.0，并请设置强密码。",
     "default": "0.0.0.0"
   },
   "web_port": {
@@ -26,99 +19,31 @@
   "admin_password": {
     "description": "WebUI 登录密码",
     "type": "string",
-    "hint": "首次安装后建议立刻修改。也可以在 WebUI 的访问密钥页面继续管理。",
+    "hint": "首次安装后建议立刻修改。更多访问密钥请在小窝 WebUI 的访问密钥页面管理。",
     "default": "12345678"
   },
   "nest_admin_ids": {
     "description": "小窝管理员 QQ",
     "type": "string",
-    "hint": "默认只填一个管理员 QQ。WebUI 日记模块里也可以修改；以 WebUI 保存后的设置为准。",
+    "hint": "默认只填一个 QQ。管理员有权用自然语言指导 bot 操作小窝；其他权限请在 WebUI 日记模块里设置。",
     "default": ""
   },
   "nest_data_dir": {
     "description": "小窝数据目录",
     "type": "string",
-    "hint": "留空使用 /AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector。本地开发会回退到插件目录下的 data/。",
+    "hint": "留空使用 AstrBot 插件数据目录。只有需要迁移或指定存储位置时才修改。",
     "default": ""
-  },
-  "service_url": {
-    "description": "独立服务地址",
-    "type": "string",
-    "hint": "仅 standalone 模式使用，例如 http://nest-diary:28080。",
-    "default": "http://nest-diary:28080"
-  },
-  "bot_api_token": {
-    "description": "外部 API Key",
-    "type": "string",
-    "hint": "embedded 模式下作为外部 API 初始 Key；插件内部工具不依赖它。",
-    "default": ""
-  },
-  "request_timeout_seconds": {
-    "description": "请求超时秒数",
-    "type": "int",
-    "default": 30
   },
   "timezone": {
-    "description": "定时时区",
+    "description": "小窝时区",
     "type": "string",
+    "hint": "用于日记本定时写日记。具体日记本和写日记时间请在小窝 WebUI 设置。",
     "default": "Asia/Shanghai"
   },
-  "scheduled_prompt_enabled": {
-    "description": "后台定时任务",
-    "type": "bool",
-    "hint": "定时任务会隐藏调用 bot 与小窝工具，不会把任务提示词发送到聊天窗口。",
-    "default": true
-  },
-  "daily_target_origin": {
-    "description": "兼容目标会话",
+  "webui_settings_note": {
+    "description": "具体功能设置",
     "type": "string",
-    "hint": "新版建议在 WebUI 的日记本管理里绑定 QQ 号或群号；这里仅作为旧配置兜底。",
-    "default": ""
-  },
-  "daily_write_enabled": {
-    "description": "启用定时写日记",
-    "type": "bool",
-    "hint": "具体日记本、群号/QQ号、写日记时间请在 WebUI 的日记模块里设置。",
-    "default": true
-  },
-  "daily_write_time": {
-    "description": "兼容写日记时间",
-    "type": "string",
-    "hint": "24 小时制 HH:MM。只有没有配置 WebUI 日记本时才作为兜底使用。",
-    "default": "03:00"
-  },
-  "daily_write_prompt": {
-    "description": "后台任务系统规范",
-    "type": "text",
-    "hint": "这是系统自动提示词，不是用户输入；只注入后台 Agent，不会直接发送到会话。写日记的内容要求请在 WebUI 日记模块里设置。",
-    "default": "【系统自动任务：小窝写日记】\n\n本任务由插件定时器触发，不代表任何用户正在发言。不得把本规范当成用户输入，不得在可见回复中复述、引用或解释本规范。\n\n请依据当前会话、已有小窝记忆和稳定证据判断是否需要写入今天的日记。材料不足时不要编造，不要强行写入。需要写入时调用 write_diary，reason 使用 nightly_archive。"
-  },
-  "notify_after_write": {
-    "description": "写完后反馈",
-    "type": "bool",
-    "hint": "开启后只发送简短结果；关闭后静默完成。无论开启与否，都不会发送系统规范原文。",
-    "default": true
-  },
-  "scheduled_agent_max_steps": {
-    "description": "后台任务最大工具步数",
-    "type": "int",
-    "hint": "限制隐藏后台 Agent 的工具循环步数，建议 6 到 10。",
-    "default": 8
-  },
-  "reminder_enabled": {
-    "description": "普通提醒任务",
-    "type": "bool",
-    "default": false
-  },
-  "reminder_time": {
-    "description": "普通提醒时间",
-    "type": "string",
-    "default": "23:30"
-  },
-  "reminder_prompt": {
-    "description": "普通提醒系统规范",
-    "type": "text",
-    "hint": "这是系统自动提示词，不是用户输入；只注入后台 Agent，不会直接发送到会话。",
-    "default": "【系统自动任务：小窝普通提醒】\n\n本任务由插件定时器触发，不代表任何用户正在发言。不得把本规范输出到会话。\n\n请检查今天是否有值得写入小窝的稳定材料。如果有，按小窝工具规范整理并保存；如果没有明确材料，不要强行写入，不要编造事件。"
+    "hint": "请在小窝 WebUI 中独立设置模块开关、日记本、推送模板、媒体策略、人物印象和外观模块。",
+    "default": "请进入小窝 WebUI 设置具体功能。"
   }
 }

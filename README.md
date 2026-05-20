@@ -1,325 +1,173 @@
-# AstrBot 小窝插件
+# 小窝
 
-版本：`0.5.5`
+版本：`0.5.6`
 
-小窝是给 bot 使用的私有空间框架。日记只是第一个官方模块，不再把整个插件定义成“小窝日记”。
+小窝是给 AstrBot 和主人共同使用的私有空间框架。它不是单纯的日记插件，而是一个可以不断扩展的“小窝”：bot 可以在这里写日记、保存图片、整理人物印象、检索过往记忆，也可以通过模块化生态继续长出新的能力。
 
-默认 embedded 模式下，插件自己提供：
+## 它能做什么
 
-- 小窝 WebUI
-- bot 原生工具
-- 框架级设置和管理员密码
-- 小窝标题与左上角头像个性化
-- 模块化数据目录
-- 日记、媒体、人物印象等官方模块
-- 自定义前端和自定义模块目录
-- 内置 skills
-- 后台定时任务，隐藏调用 bot 的模型与小窝工具
-- 媒体图片预览、备注、容量统计和原图发送工具
+- 写日记：按私聊或群聊建立独立日记本，避免不同群的记忆串在一起。
+- 查记忆：按日期、关键词、人物、事件和情绪线索搜索，不会一次把整本日记塞给模型。
+- 存媒体：保存图片、语音和附件，记录备注、保存日期、大小、文件夹和回收站。
+- 发原图：bot 可以按用户要求从小窝媒体库发送原图。
+- 人物印象：在开关允许时，让 bot 根据稳定证据整理人物印象，而不是看到名字就乱建档。
+- 模块管理：在 WebUI 里启用、关闭和配置官方模块、自定义模块、拓展模块和外观模块。
+- 外观替换：小窝 WebUI 支持官方外观模块，也支持用户自定义主题和页面。
+- 导入导出：可以按日记、媒体、人物印象、个性化前端等范围备份和恢复。
 
-## 默认运行方式
+## 快速开始
 
-插件配置保持：
-
-```text
-nest_mode=embedded
-enable_webui=true
-web_port=28080
-admin_password=12345678
-```
-
-启动后访问：
+1. 安装插件并重启 AstrBot。
+2. 打开插件配置，只改这几项：
+   - `WebUI 监听地址`
+   - `WebUI 端口`
+   - `WebUI 登录密码`
+   - `小窝管理员 QQ`
+3. 访问小窝 WebUI：
 
 ```text
 http://服务器IP:28080
 ```
 
-默认数据根目录：
+4. 在 WebUI 的“设置”里配置模块、日记本、媒体策略、人物印象和外观。
+5. 回到 QQ 里问你的 bot：
 
 ```text
-/AstrBot/data/plugin_data/astrbot_plugin_nest_diary_connector
+这是我们共同的小窝吗？
 ```
 
-本地开发时，如果没有 `/AstrBot`，会回退到插件目录下的 `data/`。
+bot 通常比你更清楚这里能做什么，因为小窝会向 bot 注册工具和隐藏规范。
 
-## 正式数据结构
+## 配置原则
 
-```text
-data/
-  framework/
-    settings/
-      security.json
-      service-ui.json
-    cache/
-    logs/
-    user_custom/
-      webui/
-        themes/
-        modules/
-        static/
-        templates/
-  modules/
-    diary/
-      entries/
-      index/
-      snapshots/
-      drafts/
-    impressions/
-      people/
-      topics/
-      events/
-    media/
-      blobs/
-      variants/
-      by-date/
-  imports/
-```
+AstrBot 插件配置只保留启动和访问项。具体功能不要在插件配置里反复设置，统一进入小窝 WebUI。
 
-规则：
+插件配置保留：
 
-- `framework/` 是小窝框架本体的数据区，放管理员密码、WebUI 设置、个性化前端、框架缓存等。
-- `modules/<module-id>/` 是功能模块自己的数据区。日记、媒体、人物印象都按模块隔离。
-- `framework/user_custom/webui/` 是用户或 bot 自定义小窝外观、主题和前端模块的位置，官方更新不应覆盖这里。
-- 旧目录 `system/settings/`、`user_custom/`、`diary/`、`memory/`、`media/` 会在启动时复制到新布局中，保持兼容。
+- 是否启用 WebUI
+- WebUI 监听地址
+- WebUI 端口
+- WebUI 登录密码
+- 小窝管理员 QQ
+- 小窝数据目录
+- 小窝时区
 
-## WebUI
+WebUI 负责：
 
-默认 App Shell 位于：
-
-```text
-nest_diary_web/web_dist/
-```
-
-兼容模板仍保留在：
-
-```text
-nest_diary_web/web/templates/
-nest_diary_web/web/static/
-```
-
-个性化前端请放到数据目录：
-
-```text
-framework/user_custom/webui/
-```
-
-主题建议：
-
-```text
-framework/user_custom/webui/themes/<theme-id>/style.css
-```
-
-外观模块建议：
-
-```text
-framework/user_custom/webui/appearance/<appearance-id>/
-  module.json
-  style.css
-  static/
-```
-
-自定义模块建议：
-
-```text
-framework/user_custom/webui/modules/<module-id>/
-  module.json
-  templates/
-  static/
-  notes.md
-```
-
-拓展包建议：
-
-```text
-framework/user_custom/webui/extensions/<extension-id>/
-modules/extensions/<extension-id>/
-```
-
-如果个性化内容做得通用，建议整理成 PR 提交到本项目，而不是长期只保存在本地。
-
-## 模块规范
-
-小窝把扩展分成两类：
-
-- 完整模块：提供一整套功能，例如 `diary-plus`、`memory-map`。
-- 拓展包：挂在某个模块旁边增强能力，例如 `diary-emotion-chart`。
-- 外观模块：替换全局前端或补充视觉能力，例如 `quiet-console`、`extra-panels`。
-
-每个完整功能模块都应该有独立目录：
-
-```text
-modules/<module-id>/
-  module.json
-  data/
-  index/
-  snapshots/
-```
-
-每个拓展包使用独立目录：
-
-```text
-modules/extensions/<extension-id>/
-framework/user_custom/webui/extensions/<extension-id>/
-```
-
-`module.json` 应声明：
-
-```json
-{
-  "id": "diary-plus",
-  "type": "module",
-  "feature_tags": ["diary-core"],
-  "replaces": ["diary"],
-  "conflicts_with": ["diary"]
-}
-```
-
-拓展包示例：
-
-```json
-{
-  "id": "diary-emotion-chart",
-  "type": "extension",
-  "target_modules": ["diary"],
-  "feature_tags": ["diary-visualization"],
-  "conflicts_with": []
-}
-```
-
-模块约束：
-
-- 模块只读写自己的数据目录。
-- 跨模块引用使用稳定 ID、日期、URL 或工具返回值，不直接偷改别的模块文件。
-- 需要被 bot 调用的能力必须注册为工具。
-- 需要被网页使用的能力必须提供真实 API 或真实前端脚本，不做假按钮。
-- 重要数据写入前尽量保留快照或可追溯记录。
-- 不建议直接修改官方模块代码。若要替代官方日记模块，请创建 `diary-plus` 这类完整模块并声明 `replaces` / `conflicts_with`。
-- 优先做拓展包；只有需要重构整套功能时才做完整模块。
-
-人物印象是独立官方模块。日记写完后不会再因为 `people` 字段里出现一个名字就自动建档；是否交给 bot 识别、是否允许新建候选档、写入程度和更新策略都在 WebUI 的“模块管理 → 人物印象”详情页里控制。
-
-## 模块控制台
-
-设置页的模块控制台会展示：
-
-- 官方模块
-- 自定义完整模块
-- 拓展包
+- 模块开关
+- 日记本绑定
+- 写日记时间
+- 日记推送格式
+- 图片推送模板
+- 媒体保存策略
+- 人物印象策略
+- 非管理员权限
 - 外观模块
-- 功能标签 `feature_tags`
-- 替代关系 `replaces`
-- 显式冲突 `conflicts_with`
+- 导入导出
 
-完整模块如果具有相同功能标签，或声明互相替代/冲突，小窝会提示风险，不强制禁用。用户可以同时启用，但需要知道可能出现入口重复、工具重复或数据口径不一致。
+## 模块化生态
 
-外观模块分为“全局模块”和“补充拓展”。官方外观 `nest-tactical` 会在模块管理里展示，但不会默认启用；用户需要主动打开。全局模块建议只启用一个；如果同时启用多个，小窝会显示红色冲突提示。补充拓展不限制多个同时启用。
+小窝把能力分成几类：
 
-## 分层导入导出
+- 官方功能模块：日记、媒体、人物印象。
+- 官方外观模块：例如小窝 WebUI 和小窝战术终端。
+- 自定义完整模块：可以替代或扩展官方模块。
+- 拓展模块：挂在已有模块旁边，补充统计、展示、同步、玩法等能力。
+- 外观拓展：替换全局前端或补充局部视觉能力。
 
-导出支持选择范围：
+每个模块都应该有自己的目录、说明和冲突声明。完整模块可以声明替代关系，拓展模块可以声明依附目标。这样小窝能在 WebUI 里提示风险，而不是让用户自己猜。
 
-- 完整备份
-- 日记模块
-- 人物印象
-- 媒体归档
-- 个性化前端
-- 安全配置
-- 指定自定义模块
-- 指定拓展包
+## 已注册工具
 
-导出包包含 `manifest.json`，用于声明 `package_type`、`module_id`、版本和创建时间。导入时会读取 manifest 并按位置合并。
+bot 可以调用这些小窝工具：
 
-导入策略：
+- `nest_status`：检查小窝状态。
+- `write_diary`：写入或更新日记。
+- `read_diary`：读取指定日期日记。
+- `search_diary`：搜索日记片段。
+- `push_diary`：把日记按设置推送为文字或图片。
+- `attach_media`：保存图片、语音或附件，并写入隐藏备注。
+- `send_media`：从媒体库发送原图。
+- `list_impressions`：列出人物印象。
+- `read_impression`：读取人物印象。
+- `write_impression`：写入或更新人物印象。
+- `delete_impression`：删除人物印象。
 
-- 安全合并：已有文件跳过。
-- 覆盖合并：已有文件先备份到 `imports/import-backups/`，再覆盖。
+插件同时提供 `skills/nest-diary/SKILL.md`。当 bot 需要记忆、写日记、保存媒体或整理人物印象时，会优先走工具层，不应该绕过小窝直接改文件。
 
-默认不导出 `framework/settings/security.json`。只有用户勾选“包含管理员密码/API Key”或选择“安全配置”时才导出敏感配置。
+## 隐藏规范
 
-## 日记模块
+小窝会把部分规范作为系统自动提示注入给 bot，例如“写日记要求规范”“媒体备注要求”“人物印象更新策略”。这些内容不是用户输入，也不应该被 bot 输出到聊天窗口。
 
-日记数据路径：
+重要规则：
 
-```text
-modules/diary/entries/YYYY/MM/YYYY-MM-DD.md
-modules/diary/index/
-modules/diary/snapshots/
-```
+- 写日记必须基于稳定证据，不编造。
+- 人物印象只有在模块开启且策略允许时才更新。
+- 不允许新建人物时，bot 不能因为某个称呼出现就自动建档。
+- 媒体备注属于隐藏元数据，不应该当成可见回复。
+- 非管理员默认没有写入、删除和媒体操作权限。
 
-检索机制：
+## 日记本和群聊隔离
 
-- 默认使用本地 SQLite 索引，不需要外部 API。
-- 优先使用 SQLite FTS5 + BM25 排序。
-- 环境不支持 FTS5 时自动降级为本地 LIKE 检索。
-- `search_diary` 只返回日期、标题、命中片段、标签、人物和检索后端，避免整本日记滚入上下文。
-- `read_diary` 只在需要读取某一天全文时使用。
+推荐为每个群聊或管理员私聊建立独立日记本：
 
-## LLM 工具
+- 群聊填写群号。
+- 私聊填写对方 QQ 号。
+- 页面里显示你写的日记本名称，不显示复杂平台编号。
+- 合并展示只影响 WebUI 的查看方式，不会把不同群的推送混在一起。
 
-- `nest_status`
-- `write_diary`
-- `search_diary`
-- `read_diary`
-- `attach_media`
-- `send_media`
-- `list_impressions`
-- `read_impression`
-- `write_impression`
-- `delete_impression`
+这样搜索、回忆、推送和写入都能按日记本隔离，减少串群风险。
 
-`write_diary` 必须提供 bot 自拟标题：
+## 媒体模块
 
-```text
-title: 用一句话概括当天记忆，不要直接使用日期。
-```
+媒体模块支持：
 
-## 常用命令
+- 图片预览
+- 原图查看
+- 可编辑备注
+- 文件夹整理
+- 回收站
+- 彻底删除
+- 实时容量统计
+- 漂浮模式
+- 原图发送
 
-```text
-/小窝状态
-```
+媒体保存策略可以在 WebUI 设置为管理员手动保存、允许 bot 自主挑选、或限制 12 小时内保存数量。
 
-查看小窝模式、日记模块状态、WebUI 地址和数据目录。
+## 数据目录
 
-```text
-/小窝绑定提醒
-```
-
-在目标会话发送，复制返回的 `unified_msg_origin`，填入插件配置 `daily_target_origin`。
-新版推荐直接在 WebUI 的“模块管理 → 日记模块 → 日记本管理”里绑定 QQ 号或群号，并设置写日记时间；`daily_target_origin` 只作为旧配置兜底。
-后台写日记会以对应日记本会话为上下文执行，但不会把系统规范原文发到聊天窗口。
-
-## API Key
-
-embedded 模式下，插件内部工具不需要 API Key。
-
-WebUI 设置里的外部 API Key 只给这些场景使用：
-
-- MCP
-- 外部脚本
-- 第三方网页
-- 其他 bot
-- 兼容 standalone 模式
-
-## Skills
-
-内置 skills：
+默认数据目录由 AstrBot 插件数据目录管理。典型结构如下：
 
 ```text
-skills/nest-diary/SKILL.md
-skills/nest-webui-customization/SKILL.md
+framework/
+  settings/
+  user_custom/
+modules/
+  diary/
+  media/
+  impressions/
+imports/
 ```
 
-`nest-diary` 约束 bot 使用工具操作日记模块：先搜索再读取，写日记要有标题、主观评价、情绪和检索线索；人物印象支持名字、身份、爱好、兴趣、喜爱程度、总结评价、特殊点评和备注，只在有稳定证据时更新。
+`framework/` 保存小窝框架和 WebUI 设置。
+`modules/` 保存各模块自己的数据。
+`imports/` 保存导入导出相关记录。
 
-`nest-webui-customization` 约束 bot 做小窝个性化：区分框架前端和模块前端，只改 `framework/user_custom/webui/` 或对应模块目录；按钮、路由、表单必须对应真实功能；通用改进建议提交 PR。
+## 支持平台
 
-## Plugin Page
+当前主要面向 QQ 场景，插件元数据声明支持 `aiocqhttp`。
 
-AstrBot Dashboard 内的插件页面位于：
+## 给开发者
 
-```text
-pages/nest/
-```
+如果要扩展小窝，请优先做模块或拓展包，而不是直接改官方模块。一个合理的模块应该说明：
 
-它只作为状态入口和门牌号。真正的小窝 WebUI 由内置服务提供，并使用独立管理员密码登录。
+- 模块 ID
+- 模块类型
+- 目标模块
+- 替代关系
+- 冲突关系
+- 数据目录
+- WebUI 页面
+- bot 工具
+
+小窝的目标不是把所有功能塞进一个插件配置页，而是把功能拆成清晰、可管理、能被 bot 调用的模块生态。

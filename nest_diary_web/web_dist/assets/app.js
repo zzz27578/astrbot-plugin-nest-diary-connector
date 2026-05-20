@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.5";
+const APP_VERSION = "0.5.6";
 
 const DIARY_T2I_TEMPLATES = [
   {
@@ -61,6 +61,8 @@ const state = {
   mediaOrganization: { folders: [], asset_locations: {}, trash: [] },
   selectedMedia: null,
   mediaFloating: false,
+  mediaFloatPreferred: false,
+  mediaFloatResumePending: false,
   mediaMode: "main",
   activeMediaFolderId: "",
   expandedMediaFolderIds: [],
@@ -254,14 +256,44 @@ function refreshThemeStylesheet() {
 function activeT2iTemplate(settings = {}) {
   const custom = String(settings.diary_t2i_template || "").trim();
   const name = settings.diary_t2i_template_name || "";
+  const customItem = customT2iTemplates(settings).find((item) => item.id === name);
+  if (customItem) return customItem;
   const builtin = DIARY_T2I_TEMPLATES.find((item) => item.id === name);
-  if (name === "custom" && custom) return { id: "custom", name: "自定义模板", tone: "使用你添加的模板", template: custom };
+  if (name === "custom" && custom && !custom.startsWith("{")) return { id: "custom", name: "自定义模板", tone: "使用你添加的模板", template: custom };
   if (builtin) return builtin;
   return DIARY_T2I_TEMPLATES[0];
 }
 
 function t2iTemplateById(id) {
   return DIARY_T2I_TEMPLATES.find((item) => item.id === id) || DIARY_T2I_TEMPLATES[0];
+}
+
+function customT2iTemplates(settings = {}) {
+  const raw = String(settings.diary_t2i_template || "").trim();
+  if (!raw) return [];
+  if (!raw.startsWith("{")) {
+    return settings.diary_t2i_template_name === "custom"
+      ? [{ id: "custom", name: "自定义模板", tone: "你添加的模板", template: raw }]
+      : [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    const templates = Array.isArray(parsed.templates) ? parsed.templates : [];
+    return templates
+      .map((item) => ({
+        id: String(item.id || `custom_${Date.now()}`).trim(),
+        name: String(item.name || "自定义模板").trim(),
+        tone: String(item.tone || "自定义").trim(),
+        template: String(item.template || "").trim(),
+      }))
+      .filter((item) => item.id && item.template);
+  } catch (_) {
+    return [];
+  }
+}
+
+function t2iTemplateStore(templates = []) {
+  return JSON.stringify({ templates: templates.map((item) => ({ id: item.id, name: item.name, tone: item.tone, template: item.template })) });
 }
 
 function t2iPreviewHtml(template) {
@@ -338,6 +370,11 @@ async function loadBootstrap() {
 
 async function setView(view, options = {}) {
   if (view !== "media") {
+    if (state.view === "media" && state.mediaFloating) {
+      state.mediaFloatPreferred = true;
+      state.mediaFloating = false;
+      state.mediaFloatResumePending = true;
+    }
     stopMediaFloat();
     if (state.view === "media") state.mediaFloatPositions = {};
     state.selectedMedia = null;
@@ -368,7 +405,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
@@ -550,6 +587,10 @@ document.addEventListener(
     if (target.dataset.t2iCustomToggle !== undefined) {
       state.t2iCustomOpen = !state.t2iCustomOpen;
       renderGlobalDialogs();
+      return;
+    }
+    if (target.dataset.t2iCustomSave !== undefined) {
+      saveCustomT2iTemplate();
       return;
     }
     if (target.dataset.settingsBack !== undefined) {
@@ -1220,13 +1261,28 @@ async function renderMedia() {
   bindMediaInteractions();
   if (state.mediaFloating) startMediaFloat();
   else stopMediaFloat();
+  if (state.mediaFloatPreferred && state.mediaFloatResumePending && !state.mediaFloating) {
+    state.mediaFloatResumePending = false;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (state.view !== "media" || !state.mediaFloatPreferred || state.mediaFloating) return;
+        state.mediaFloatPositions = {};
+        state.mediaFloating = true;
+        renderMedia();
+      });
+    });
+  }
 }
 
 async function toggleMediaFloat() {
   if (state.mediaFloating) {
+    state.mediaFloatPreferred = false;
+    state.mediaFloatResumePending = false;
     await animateFloatToGrid();
     state.mediaFloating = false;
   } else {
+    state.mediaFloatPreferred = true;
+    state.mediaFloatResumePending = false;
     state.mediaFloatPositions = {};
     state.mediaFloating = true;
   }
@@ -1427,14 +1483,18 @@ function t2iTemplateDialog() {
   const form = document.querySelector('[data-action="save-settings"]');
   const currentName = form?.querySelector('[name="diary_t2i_template_name"]')?.value || state.settings?.settings?.diary_t2i_template_name || "plain_note";
   const customValue = form?.querySelector('[name="diary_t2i_template"]')?.value || state.settings?.settings?.diary_t2i_template || "";
-  const current = currentName === "custom" && customValue ? { id: "custom", template: customValue } : t2iTemplateById(currentName);
+  const customSettings = { diary_t2i_template_name: currentName, diary_t2i_template: customValue };
+  const customTemplates = customT2iTemplates(customSettings);
+  const customCurrent = customTemplates.find((item) => item.id === currentName);
+  const current = customCurrent || (currentName === "custom" && customValue && !customValue.startsWith("{") ? { id: "custom", template: customValue } : t2iTemplateById(currentName));
+  const cards = [...DIARY_T2I_TEMPLATES, ...customTemplates];
   return `
     <div class="media-dialog-backdrop soft" data-t2i-close>
       <article class="nest-dialog t2i-dialog" role="dialog" aria-modal="true" aria-label="图片推送模板" onclick="event.stopPropagation()">
         <button class="media-dialog-close" data-t2i-close type="button" aria-label="关闭">×</button>
         <div class="settings-mini-head t2i-head"><strong>图片推送模板</strong><span>选择后会保存到日记模块设置</span></div>
         <div class="t2i-template-grid">
-          ${DIARY_T2I_TEMPLATES.map((item) => `
+          ${cards.map((item) => `
             <button class="t2i-template-card ${currentName === item.id ? "active" : ""}" data-t2i-select="${escapeHtml(item.id)}" type="button">
               <span class="t2i-preview">${t2iPreviewHtml(item.template)}</span>
               <strong>${escapeHtml(item.name)}</strong>
@@ -1442,10 +1502,14 @@ function t2iTemplateDialog() {
             </button>
           `).join("")}
         </div>
-        <button class="button ghost" data-t2i-custom-toggle type="button">${state.t2iCustomOpen || currentName === "custom" ? "收起自定义" : "添加自定义模板"}</button>
-        <div class="t2i-custom ${state.t2iCustomOpen || currentName === "custom" ? "open" : ""}">
-          <label>自定义模板<textarea data-t2i-custom-value rows="6" placeholder="粘贴 HTML 模板，支持 {{ date }}、{{ notebook_name }}、{{ title }}、{{ body }}">${escapeHtml(customValue)}</textarea></label>
-          <button class="primary" data-t2i-select="custom" type="button">使用自定义模板</button>
+        <button class="button ghost" data-t2i-custom-toggle type="button">${state.t2iCustomOpen ? "收起新增模板" : "新增自定义模板"}</button>
+        <div class="t2i-custom ${state.t2iCustomOpen ? "open" : ""}">
+          <div class="form-grid compact">
+            <label>模板名称<input data-t2i-custom-name placeholder="例如：群聊日报"></label>
+            <label>模板风格<input data-t2i-custom-tone placeholder="例如：轻量、适合长文"></label>
+          </div>
+          <label>模板内容<textarea data-t2i-custom-value rows="7" placeholder="粘贴 HTML 模板，支持 {{ date }}、{{ notebook_name }}、{{ title }}、{{ body }}"></textarea></label>
+          <button class="primary" data-t2i-custom-save type="button">保存并使用这个模板</button>
         </div>
         <div class="t2i-current-preview">
           <strong>当前预览</strong>
@@ -1473,22 +1537,46 @@ function selectT2iTemplate(id) {
   const nameInput = form.querySelector('[name="diary_t2i_template_name"]');
   const templateInput = form.querySelector('[name="diary_t2i_template"]');
   if (!nameInput || !templateInput) return;
-  if (id === "custom") {
-    const customValue = document.querySelector("[data-t2i-custom-value]")?.value.trim() || "";
-    if (!customValue) {
-      state.toast = "先填写自定义模板";
-      updateShell();
-      clearToastSoon();
-      return;
-    }
-    nameInput.value = "custom";
-    templateInput.value = customValue;
+  const customTemplates = customT2iTemplates({ diary_t2i_template_name: nameInput.value, diary_t2i_template: templateInput.value });
+  const customItem = customTemplates.find((item) => item.id === id);
+  if (customItem) {
+    nameInput.value = customItem.id;
+    templateInput.value = t2iTemplateStore(customTemplates);
   } else {
     const item = t2iTemplateById(id);
     nameInput.value = item.id;
-    templateInput.value = item.template;
+    templateInput.value = templateInput.value.startsWith("{") ? templateInput.value : "";
   }
   state.toast = "图片模板已选择，记得保存设置";
+  closeT2iTemplateDialog();
+  updateShell();
+  clearToastSoon();
+}
+
+function saveCustomT2iTemplate() {
+  const form = document.querySelector('[data-action="save-settings"]');
+  const nameInput = form?.querySelector('[name="diary_t2i_template_name"]');
+  const templateInput = form?.querySelector('[name="diary_t2i_template"]');
+  if (!nameInput || !templateInput) return;
+  const template = document.querySelector("[data-t2i-custom-value]")?.value.trim() || "";
+  if (!template) {
+    state.toast = "先填写模板内容";
+    updateShell();
+    clearToastSoon();
+    return;
+  }
+  const templates = customT2iTemplates({ diary_t2i_template_name: nameInput.value, diary_t2i_template: templateInput.value });
+  const id = `custom_${Date.now()}`;
+  const item = {
+    id,
+    name: document.querySelector("[data-t2i-custom-name]")?.value.trim() || "自定义模板",
+    tone: document.querySelector("[data-t2i-custom-tone]")?.value.trim() || "自定义",
+    template,
+  };
+  templates.push(item);
+  nameInput.value = id;
+  templateInput.value = t2iTemplateStore(templates);
+  state.toast = "自定义模板已保存，记得保存设置";
   closeT2iTemplateDialog();
   updateShell();
   clearToastSoon();
@@ -2596,9 +2684,7 @@ function deleteNotebookRow(id) {
   if (!id || id === "default") return;
   const row = document.querySelector(`[data-notebook-row="${CSS.escape(id)}"]`);
   if (!row) return;
-  if (!id.startsWith("notebook_") || state.notebooks.some((item) => (item.id || item.notebook_id) === id)) {
-    state.notebookDeleteIds = Array.from(new Set([...(state.notebookDeleteIds || []), id]));
-  }
+  state.notebookDeleteIds = Array.from(new Set([...(state.notebookDeleteIds || []), id]));
   row.remove();
 }
 
@@ -2622,7 +2708,6 @@ function moduleSettingsBody(payload, detailKey) {
         <label>回想方式<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>只在需要时</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>更主动</option></select></label>
         <label>每次参考数量<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
         <label>摘要长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
-        <label>展示方式<select name="diary_display_mode"><option value="grouped" ${settings.diary_display_mode === "grouped" ? "selected" : ""}>按日记本分组</option><option value="merged" ${settings.diary_display_mode === "merged" ? "selected" : ""}>合并显示（只影响页面展示，不会泄露群聊推送）</option></select></label>
         <label>推送格式<select name="diary_push_format"><option value="text" ${settings.diary_push_format !== "image" ? "selected" : ""}>文字</option><option value="image" ${settings.diary_push_format === "image" ? "selected" : ""}>图片</option></select></label>
         <label>小窝管理员 QQ<input name="nest_admin_ids" value="${escapeHtml((settings.nest_admin_ids || "").split(/\s+/)[0] || "")}" placeholder="只填一个管理员 QQ"></label>
         <label class="wide-field">写日记要求规范<textarea name="diary_write_prompt">${escapeHtml(settings.diary_write_prompt || "")}</textarea></label>
@@ -2657,7 +2742,6 @@ function moduleSettingsBody(payload, detailKey) {
         <label>确认程度<input name="impression_min_confidence" type="number" min="1" max="5" value="${settings.impression_min_confidence || 3}"></label>
       </div>
       ${check("impression_allow_new_people", "允许自动新建人物", settings.impression_allow_new_people)}
-      ${check("show_impression_prompt", "写日记时显示人物提示", settings.show_impression_prompt)}
       <label>印象写入规范<textarea name="impression_prompt">${escapeHtml(settings.impression_prompt || "")}</textarea></label>
     `;
   }
@@ -2682,20 +2766,12 @@ function moduleSettingsBody(payload, detailKey) {
       <div class="setting-line"><div><strong>媒体模块</strong><p class="muted">开启后可以保存图片、语音和附件。</p></div>${switchControl("enable_media_module", settings.enable_media_module)}</div>
       <div class="setting-line"><div><strong>日记里插入图片</strong><p class="muted">允许日记引用已保存的图片或附件。</p></div>${switchControl("allow_media_refs", settings.allow_media_refs)}</div>
       <div class="setting-line"><div><strong>bot 自动导入媒体</strong><p class="muted">允许 bot 把图片或附件放进小窝。</p></div>${switchControl("media_allow_bot_import", settings.media_allow_bot_import)}</div>
-      <div class="setting-line"><div><strong>自动整理相册</strong><p class="muted">按日期自动整理媒体。</p></div>${switchControl("media_auto_album", settings.media_auto_album)}</div>
       <div class="form-grid compact">
         <label>每天最多保存<input name="media_max_items_per_day" type="number" min="1" max="500" value="${settings.media_max_items_per_day || 80}"></label>
         <label>12小时图片上限<input name="media_auto_save_limit_12h" type="number" min="1" max="200" value="${settings.media_auto_save_limit_12h || 10}"></label>
         <label>写入限制策略<select name="media_auto_save_policy">
-          <option value="admin_only" ${settings.media_auto_save_policy === "admin_only" ? "selected" : ""}>仅管理员确认</option>
-          <option value="admin_allowed" ${settings.media_auto_save_policy === "admin_allowed" ? "selected" : ""}>管理员可保存</option>
-          <option value="bot_curated" ${settings.media_auto_save_policy === "bot_curated" ? "selected" : ""}>由 bot 挑选</option>
-          <option value="review" ${settings.media_auto_save_policy === "review" ? "selected" : ""}>先进入审核</option>
-        </select></label>
-        <label>相册策略<select name="media_auto_album_strategy">
-          <option value="confirm" ${settings.media_auto_album_strategy === "confirm" ? "selected" : ""}>先确认</option>
-          <option value="auto" ${settings.media_auto_album_strategy === "auto" ? "selected" : ""}>自动整理</option>
-          <option value="off" ${settings.media_auto_album_strategy === "off" ? "selected" : ""}>不整理</option>
+          <option value="admin_only" ${settings.media_auto_save_policy !== "bot_curated" ? "selected" : ""}>只允许管理员保存</option>
+          <option value="bot_curated" ${settings.media_auto_save_policy === "bot_curated" ? "selected" : ""}>允许 bot 自主挑选</option>
         </select></label>
         <label>图片保存方式<select name="media_storage_strategy">
           <option value="copy" ${settings.media_storage_strategy !== "move" ? "selected" : ""}>复制：保留原文件</option>

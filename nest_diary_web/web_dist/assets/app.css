@@ -948,7 +948,7 @@ textarea {
 }
 
 .t2i-dialog {
-  width: min(980px, calc(100vw - 48px));
+  width: min(1180px, calc(100vw - 36px));
   max-height: calc(100vh - 48px);
   overflow: auto;
 }
@@ -959,8 +959,8 @@ textarea {
 
 .t2i-template-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
 }
 
 .t2i-template-card {
@@ -983,7 +983,8 @@ textarea {
 .t2i-preview,
 .t2i-current-preview > div {
   display: block;
-  max-height: 220px;
+  min-height: 210px;
+  max-height: 300px;
   overflow: hidden;
   border: 1px solid var(--line);
   background: #fff;
@@ -992,7 +993,7 @@ textarea {
 
 .t2i-preview > *,
 .t2i-current-preview > div > * {
-  transform: scale(0.32);
+  transform: scale(0.42);
   transform-origin: top left;
 }
 
