@@ -75,8 +75,6 @@ class ServiceSettingsStore:
             settings.enabled_appearance_modules = []
         settings.appearance_modules_initialized = bool(settings.appearance_modules_initialized)
         if not settings.appearance_modules_initialized:
-            if not settings.enabled_appearance_modules:
-                settings.enabled_appearance_modules.append("nest-tactical")
             settings.appearance_modules_initialized = True
         settings.enabled_official_modules = [
             item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}

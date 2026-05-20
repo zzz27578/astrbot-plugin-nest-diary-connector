@@ -324,6 +324,11 @@ button:hover,
   box-shadow: 0 8px 18px rgba(47, 51, 64, 0.12);
 }
 
+button:active,
+.button:active {
+  transform: translateY(0) scale(0.985);
+}
+
 .button.primary,
 button.primary {
   color: #fff;
@@ -759,6 +764,17 @@ select {
   border: 1px solid #cfd5dd;
   color: var(--ink);
   background: #fff;
+}
+
+select {
+  max-width: 360px;
+  padding-right: 42px;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 18px) 50% / 7px 7px no-repeat,
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 13px) 50% / 7px 7px no-repeat,
+    #fff;
+  cursor: pointer;
 }
 
 textarea {
@@ -1531,12 +1547,13 @@ textarea {
 
 .module-page-head h2,
 .settings-page-head h2 {
-  font-size: 32px;
+  font-size: clamp(34px, 3.2vw, 42px);
+  line-height: 1;
 }
 
 .module-detail-head {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
   border: 0;
   box-shadow: none;
   background: transparent;
@@ -1544,7 +1561,6 @@ textarea {
 }
 
 .module-detail-back {
-  grid-column: 1 / -1;
   width: fit-content;
   min-height: 42px;
   align-self: start;
@@ -1553,11 +1569,9 @@ textarea {
   color: var(--ink);
 }
 
-.module-detail-tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
+.module-detail-head h2 {
+  font-size: clamp(32px, 3vw, 40px);
+  line-height: 1.05;
 }
 
 .settings-collapse {
@@ -1588,7 +1602,8 @@ textarea {
 }
 
 .form-grid.compact {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 340px));
+  align-items: start;
 }
 
 .brand-settings {
@@ -1628,13 +1643,14 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 12px 0;
+  padding: 14px 0;
   border-bottom: 1px solid var(--line);
 }
 
 .setting-line strong {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
+  font-size: 16px;
 }
 
 .setting-line p {
@@ -1644,8 +1660,8 @@ textarea {
 .switch {
   display: inline-flex;
   align-items: center;
-  width: 76px;
-  min-width: 76px;
+  width: 84px;
+  min-width: 84px;
   cursor: pointer;
 }
 
@@ -1657,10 +1673,12 @@ textarea {
 
 .switch span {
   position: relative;
-  width: 76px;
-  height: 34px;
+  width: 84px;
+  height: 36px;
   border: 1px solid var(--line-strong);
   background: #fff;
+  border-radius: 999px;
+  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .switch span::before {
@@ -1668,7 +1686,7 @@ textarea {
   position: absolute;
   right: 10px;
   top: 0;
-  height: 32px;
+  height: 34px;
   display: grid;
   place-items: center;
   color: var(--muted);
@@ -1681,14 +1699,17 @@ textarea {
   position: absolute;
   top: 5px;
   left: 5px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   background: var(--ink);
+  border-radius: 50%;
   transition: transform 160ms ease;
 }
 
 .switch input:checked + span {
   background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(23, 111, 102, 0.18);
 }
 
 .switch input:checked + span::before {
@@ -1699,7 +1720,8 @@ textarea {
 }
 
 .switch input:checked + span::after {
-  transform: translateX(42px);
+  transform: translateX(48px);
+  background: var(--accent);
 }
 
 details {
@@ -1874,8 +1896,8 @@ details[open] > *:not(summary) {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 94px;
-  padding: 0 12px;
+  min-width: 108px;
+  padding: 0 14px 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: var(--paper);
@@ -1883,7 +1905,16 @@ details[open] > *:not(summary) {
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
-  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.module-card-toggle::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.72;
 }
 
 .module-card-toggle input {
@@ -1898,8 +1929,10 @@ details[open] > *:not(summary) {
 }
 
 .module-card.enabled .module-card-toggle {
+  border-color: rgba(31, 122, 77, 0.42);
   background: #eefaf3;
   color: var(--ok);
+  box-shadow: inset 0 0 0 1px rgba(31, 122, 77, 0.12);
 }
 
 .module-card-toggle.off {
@@ -1909,6 +1942,10 @@ details[open] > *:not(summary) {
 
 .module-card-toggle:hover {
   transform: translateY(-1px);
+}
+
+.module-card-toggle:active {
+  transform: translateY(0) scale(0.985);
 }
 
 .module-card-actions {
@@ -1968,7 +2005,11 @@ details[open] > *:not(summary) {
 }
 
 .module-detail-actions button {
-  min-width: 112px;
+  min-width: 124px;
+}
+
+.module-detail-actions .primary {
+  min-width: 148px;
 }
 
 .module-warnings {
@@ -2032,6 +2073,85 @@ details[open] > *:not(summary) {
   padding: 14px;
   border: 1px dashed var(--line-strong);
   background: var(--paper);
+}
+
+.backup-export-form {
+  display: grid;
+  gap: 14px;
+}
+
+.backup-export-form h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.backup-inline-fields {
+  max-width: 720px;
+}
+
+.choice-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.choice-grid-export {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.choice-card {
+  position: relative;
+  display: grid;
+  min-height: 82px;
+  padding: 13px 14px 13px 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.choice-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  box-shadow: 0 10px 20px rgba(47, 51, 64, 0.1);
+}
+
+.choice-card input {
+  position: absolute;
+  left: 14px;
+  top: 16px;
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--accent);
+}
+
+.choice-card strong,
+.choice-card em {
+  display: block;
+}
+
+.choice-card strong {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.choice-card em {
+  margin-top: 6px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.choice-card:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(23, 111, 102, 0.18);
+}
+
+.compact-select-label {
+  max-width: 360px;
 }
 
 .loading {

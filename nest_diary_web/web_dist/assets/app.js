@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.1";
+const APP_VERSION = "0.5.2";
 
 const app = document.getElementById("app");
 const state = {
@@ -461,9 +461,15 @@ document.addEventListener(
 );
 
 document.addEventListener("change", (event) => {
-  const target = event.target.closest("[data-module-toggle]");
-  if (!target) return;
-  saveModuleToggle(target);
+  const moduleTarget = event.target.closest("[data-module-toggle]");
+  if (moduleTarget) {
+    saveModuleToggle(moduleTarget);
+    return;
+  }
+  const exportTarget = event.target.closest('input[name="package_type"]');
+  if (exportTarget) {
+    syncExportChoices(exportTarget);
+  }
 });
 
 document.addEventListener("submit", (event) => {
@@ -2082,15 +2088,22 @@ async function renderSettings() {
               <h2>导入导出</h2>
             </div>
             <div class="settings-collapse form">
-              <form class="form-grid compact" data-action="export-backup">
-                <label>导出范围<select name="package_type">${exportOptions(payload.module_catalog)}</select></label>
-                <label>模块 ID<input name="module_id" placeholder="导出自定义模块或拓展包时填写"></label>
+              <form class="backup-export-form" data-action="export-backup">
+                <div>
+                  <h3>导出范围</h3>
+                  <div class="choice-grid choice-grid-export">
+                    ${exportOptions(payload.module_catalog)}
+                  </div>
+                </div>
+                <div class="form-grid compact backup-inline-fields">
+                  <label>模块 ID<input name="module_id" placeholder="导出自定义模块或拓展包时填写"></label>
+                </div>
                 ${check("include_security", "包含管理员密码和接口密钥", false)}
                 <div class="actions"><button class="primary">导出所选范围</button></div>
               </form>
               <form class="upload-zone" data-action="import-backup">
                 <input name="backup_file" type="file" accept=".zip" required>
-                <label>导入策略<select name="strategy"><option value="safe">安全合并：已有文件跳过</option><option value="overwrite">覆盖合并：先备份再覆盖</option></select></label>
+                <label class="compact-select-label">导入策略<select name="strategy"><option value="safe">安全合并：已有文件跳过</option><option value="overwrite">覆盖合并：先备份再覆盖</option></select></label>
                 <div class="actions"><button class="primary">导入备份包</button></div>
                 <p class="muted">导入会读取清单，自动识别完整备份、日记、人物印象、媒体、个性化前端、自定义模块或拓展包。</p>
               </form>
@@ -2239,13 +2252,10 @@ function moduleDetailPage(payload, detailKey) {
   return `
     <article class="module-detail-card">
       <div class="module-detail-head">
-        <button class="button module-detail-back" data-settings-back type="button">返回</button>
+        <button class="button module-detail-back" data-settings-back type="button">返回模块管理</button>
         <div>
           <h2>${escapeHtml(title)}</h2>
           ${description ? `<p class="muted">${escapeHtml(description)}</p>` : ""}
-        </div>
-        <div class="module-detail-tags">
-          ${module ? moduleBadges(module, detailKey.startsWith("appearance:") ? "appearance" : module.kind).join("") : ""}
         </div>
       </div>
       <div class="module-detail-body form">
@@ -2382,7 +2392,7 @@ function moduleCard(module, enabled = [], inputName, groupKind = "") {
         <span class="chips small">${moduleBadges(module, groupKind).join("")}</span>
       </div>
       <div class="module-card-actions">
-        <button class="button" data-module-settings="${escapeHtml(detailKey)}" type="button">配置</button>
+        <button class="button" data-module-settings="${escapeHtml(detailKey)}" type="button">设置</button>
         <label class="module-card-toggle ${checked ? "on" : "off"}">
           <input name="${inputName}" value="${escapeHtml(module.id)}" type="checkbox" data-module-toggle data-module-id="${escapeHtml(module.id)}" data-module-input="${escapeHtml(inputName)}" ${checked ? "checked" : ""}>
           <span>${checked ? "已开启" : "已关闭"}</span>
@@ -2448,7 +2458,29 @@ function exportOptions(catalog) {
     ["custom_module", "指定自定义模块"],
     ["extension", "指定拓展包"],
   ];
-  return options.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  return options
+    .map(([value, label], index) => {
+      const descriptions = {
+        full: "框架、模块、导入记录",
+        diary: "日记正文、快照和草稿",
+        impressions: "人物印象资料",
+        media: "图片、附件和相册",
+        webui_custom: "标题、头像和自定义页面",
+        security: "管理员密码和接口密钥",
+        custom_module: "填写模块 ID 后导出",
+        extension: "填写拓展包 ID 后导出",
+      };
+      return `
+        <label class="choice-card">
+          <input name="package_type" value="${value}" type="checkbox" ${index === 0 ? "checked" : ""}>
+          <span>
+            <strong>${escapeHtml(label)}</strong>
+            <em>${escapeHtml(descriptions[value] || "")}</em>
+          </span>
+        </label>
+      `;
+    })
+    .join("");
 }
 
 async function saveSettings(event) {
@@ -2590,12 +2622,33 @@ async function uploadAvatar(file) {
 function exportBackup(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
+  const selected = form.getAll("package_type");
   const params = new URLSearchParams({
-    package_type: form.get("package_type") || "full",
+    package_type: (selected.length ? selected : ["full"]).join(","),
     module_id: form.get("module_id") || "",
     include_security: form.has("include_security") ? "true" : "false",
   });
   window.location.href = `/api/ui/export?${params.toString()}`;
+}
+
+function syncExportChoices(target) {
+  const form = target.closest("form");
+  if (!form) return;
+  const choices = Array.from(form.querySelectorAll('input[name="package_type"]'));
+  const full = choices.find((item) => item.value === "full");
+  if (!full) return;
+  if (target.value === "full" && target.checked) {
+    choices.forEach((item) => {
+      if (item !== full) item.checked = false;
+    });
+    return;
+  }
+  if (target.value !== "full" && target.checked) {
+    full.checked = false;
+  }
+  if (!choices.some((item) => item.checked)) {
+    full.checked = true;
+  }
 }
 
 async function importBackup(event) {

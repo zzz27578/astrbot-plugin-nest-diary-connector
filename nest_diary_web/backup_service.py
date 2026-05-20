@@ -34,12 +34,14 @@ class BackupService:
         include_security: bool = False,
         nest_version: str = "",
     ) -> bytes:
-        package_type = (package_type or "full").strip()
+        package_types = self._normalize_package_types(package_type)
+        package_type = package_types[0] if len(package_types) == 1 else "selected"
         module_id = (module_id or "").strip()
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             manifest = {
                 "package_type": package_type,
+                "package_types": package_types,
                 "module_id": module_id,
                 "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
                 "nest_version": nest_version,
@@ -47,10 +49,28 @@ class BackupService:
                 "schema_version": 1,
             }
             archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-            for path in self._export_paths(package_type, module_id, include_security):
+            files: set[Path] = set()
+            for item in package_types:
+                files.update(self._export_paths(item, module_id, include_security))
+            for path in sorted(files):
                 archive.write(path, path.relative_to(self.paths.root).as_posix())
         buffer.seek(0)
         return buffer.read()
+
+    def _normalize_package_types(self, package_type: str) -> list[str]:
+        allowed = {
+            "full",
+            "diary",
+            "impressions",
+            "media",
+            "webui_custom",
+            "security",
+            "custom_module",
+            "extension",
+        }
+        items = [item.strip() for item in (package_type or "full").split(",") if item.strip()]
+        picked = [item for item in items if item in allowed]
+        return picked or ["full"]
 
     def import_zip(self, payload: bytes, strategy: str = "safe") -> dict:
         strategy = strategy if strategy in {"safe", "overwrite"} else "safe"

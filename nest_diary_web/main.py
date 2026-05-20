@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.5.2"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -1119,8 +1119,9 @@ async def ui_export_backup(
         include_security=include_security,
         nest_version=APP_VERSION,
     )
+    package_label = "selected" if "," in package_type else (package_type or "full")
     suffix = f"-{module_id}" if module_id else ""
-    filename = f"nest-{package_type}{suffix}.zip"
+    filename = f"nest-{package_label}{suffix}.zip"
     return Response(
         content,
         media_type="application/zip",
