@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.5.1";
 
 const app = document.getElementById("app");
 const state = {
@@ -26,7 +26,7 @@ const state = {
   mediaFloating: false,
   mediaMode: "main",
   activeMediaFolderId: "",
-  expandedMediaFolderId: "",
+  expandedMediaFolderIds: [],
   mediaSuppressClickUntil: 0,
   mediaFloatPositions: {},
   mediaFolderModalOpen: false,
@@ -408,29 +408,29 @@ document.addEventListener(
     if (target.dataset.mediaMode) {
       state.mediaMode = target.dataset.mediaMode;
       state.activeMediaFolderId = "";
-      state.expandedMediaFolderId = "";
+      clearExpandedMediaFolders();
       renderMedia();
       return;
     }
     if (target.dataset.mediaFolderCollapse) {
       if (Date.now() < state.mediaSuppressClickUntil) return;
       captureMediaFloatPositions();
-      state.expandedMediaFolderId = "";
+      collapseExpandedMediaFolder(target.dataset.mediaFolderCollapse);
       renderMedia();
       return;
     }
     if (target.dataset.mediaFolderExpand) {
       if (Date.now() < state.mediaSuppressClickUntil) return;
       captureMediaFloatPositions();
-      state.expandedMediaFolderId = state.expandedMediaFolderId === target.dataset.mediaFolderExpand ? "" : target.dataset.mediaFolderExpand;
+      toggleExpandedMediaFolder(target.dataset.mediaFolderExpand);
       renderMedia();
       return;
     }
     if (target.dataset.mediaFolderOpen) {
       if (Date.now() < state.mediaSuppressClickUntil) return;
-      if (state.mediaFloating && state.expandedMediaFolderId !== target.dataset.mediaFolderOpen) {
+      if (state.mediaFloating && !isMediaFolderExpanded(target.dataset.mediaFolderOpen)) {
         captureMediaFloatPositions();
-        state.expandedMediaFolderId = target.dataset.mediaFolderOpen;
+        expandMediaFolder(target.dataset.mediaFolderOpen);
         renderMedia();
         return;
       }
@@ -1035,6 +1035,8 @@ async function renderMedia() {
   state.mediaStorage = payload.storage || { bytes: 0, count: 0, label: "0 B" };
   state.mediaOrganization = payload.organization || { folders: [], asset_locations: {}, trash: [] };
   const folders = visibleMediaFolders();
+  const visibleFolderIds = new Set(folders.map((folder) => folder.id));
+  state.expandedMediaFolderIds = (state.expandedMediaFolderIds || []).filter((id) => visibleFolderIds.has(id));
   const currentFolder = activeMediaFolder();
   if (state.mediaMode === "folder" && !currentFolder) {
     state.mediaMode = "main";
@@ -1142,8 +1144,11 @@ function mediaToolbar(assets, folders, trashed) {
         ${iconImg("appearance", "漂浮模式")}<span>${state.mediaFloating ? "关闭漂浮" : "漂浮模式"}</span>
       </button>
       <div class="media-organize-tools">
-        ${state.mediaMode === "main" ? `<button class="button ghost" data-media-folder-create type="button">${iconImg("modules", "新建文件夹")}<span>新建文件夹</span></button>` : `<button class="button ghost" data-media-mode="main" type="button">返回媒体</button>`}
-        <button class="media-trash-drop ${state.mediaMode === "trash" ? "active" : ""}" data-media-trash-zone data-media-mode="trash" type="button" title="拖到这里回收"><span class="trash-symbol" aria-hidden="true"></span><span>${trashed.length}</span></button>
+        ${state.mediaMode === "main" ? `<button class="button ghost media-folder-create-button" data-media-folder-create type="button"><span class="folder-create-glyph" aria-hidden="true"><span></span></span><span>新建文件夹</span></button>` : `<button class="button ghost media-folder-create-button" data-media-mode="main" type="button">返回媒体</button>`}
+        <button class="media-trash-drop ${state.mediaMode === "trash" ? "active" : ""}" data-media-trash-zone data-media-mode="trash" type="button" title="拖到这里回收">
+          <span class="trash-symbol" aria-hidden="true"></span>
+          <span>回收站 ${trashed.length}</span>
+        </button>
       </div>
     </div>
   `;
@@ -1161,7 +1166,7 @@ function mediaCard(asset) {
   return `
     <article class="media-card" draggable="true" data-media-item="asset" data-media-id="${escapeHtml(asset.sha256)}" data-media-open="${escapeHtml(id)}">
       <span class="media-thumb ${asset.is_image ? "" : "file-thumb"}">
-        ${asset.is_image ? `<img src="${escapeHtml(asset.url)}" alt="${escapeHtml(name)}" loading="lazy">` : iconImg("media", name)}
+        ${asset.is_image ? `<img src="${escapeHtml(asset.url)}" alt="${escapeHtml(name)}" loading="lazy" draggable="false">` : iconImg("media", name)}
       </span>
       <span class="media-card-info">
         <strong>${escapeHtml(name)}</strong>
@@ -1173,7 +1178,7 @@ function mediaCard(asset) {
 
 function mediaFolderCard(folder) {
   const count = visibleMediaAssets().filter((asset) => asset.folder_id === folder.id).length;
-  const expanded = state.expandedMediaFolderId === folder.id;
+  const expanded = isMediaFolderExpanded(folder.id);
   const tags = Array.isArray(folder.tags) ? folder.tags.filter(Boolean) : [];
   return `
     <article class="media-card folder-card ${expanded ? "expanded" : ""}" draggable="true" data-media-item="folder" data-media-id="${escapeHtml(folder.id)}" data-media-folder-drop="${escapeHtml(folder.id)}" data-media-folder-expand="${escapeHtml(folder.id)}">
@@ -1295,16 +1300,47 @@ function folderName(folderId) {
   return (state.mediaOrganization.folders || []).find((folder) => folder.id === folderId)?.name || "文件夹";
 }
 
+function expandedMediaFolderSet() {
+  return new Set((state.expandedMediaFolderIds || []).filter(Boolean));
+}
+
+function isMediaFolderExpanded(folderId) {
+  return expandedMediaFolderSet().has(folderId);
+}
+
+function expandMediaFolder(folderId) {
+  if (!folderId) return;
+  const folders = expandedMediaFolderSet();
+  folders.add(folderId);
+  state.expandedMediaFolderIds = Array.from(folders);
+}
+
+function collapseExpandedMediaFolder(folderId) {
+  const folders = expandedMediaFolderSet();
+  folders.delete(folderId);
+  state.expandedMediaFolderIds = Array.from(folders);
+}
+
+function toggleExpandedMediaFolder(folderId) {
+  if (isMediaFolderExpanded(folderId)) collapseExpandedMediaFolder(folderId);
+  else expandMediaFolder(folderId);
+}
+
+function clearExpandedMediaFolders() {
+  state.expandedMediaFolderIds = [];
+}
+
 function openMediaFolder(folderId) {
   state.mediaMode = "folder";
   state.activeMediaFolderId = folderId;
-  state.expandedMediaFolderId = "";
+  clearExpandedMediaFolders();
   renderMedia();
 }
 
 function closeMediaFolder() {
   state.mediaMode = "main";
   state.activeMediaFolderId = "";
+  clearExpandedMediaFolders();
   renderMedia();
 }
 
@@ -1486,6 +1522,9 @@ function bindMediaInteractions() {
   let dragPayload = null;
   workspace.querySelectorAll("[data-media-item]").forEach((node) => {
     node.draggable = !state.mediaFloating;
+    node.querySelectorAll("img").forEach((img) => {
+      img.draggable = false;
+    });
     node.addEventListener("dragstart", (event) => {
       if (state.mediaFloating) {
         event.preventDefault();
@@ -1500,20 +1539,49 @@ function bindMediaInteractions() {
     node.addEventListener("dragend", () => {
       state.mediaSuppressClickUntil = Date.now() + 450;
       node.classList.remove("dragging");
+      clearMediaDropHighlights();
     });
   });
   workspace.querySelectorAll("[data-media-folder-drop]").forEach((folder) => {
     folder.addEventListener("dragover", (event) => {
+      const payload = mediaDragPayload(event, dragPayload);
+      if (payload?.type !== "asset" || !folder.classList.contains("expanded")) return;
       event.preventDefault();
       folder.classList.add("drop-ready");
     });
     folder.addEventListener("dragleave", () => folder.classList.remove("drop-ready"));
     folder.addEventListener("drop", async (event) => {
-      event.preventDefault();
-      folder.classList.remove("drop-ready");
       const payload = mediaDragPayload(event, dragPayload);
-      if (payload?.type === "asset") await moveMediaToFolder(payload.id, folder.dataset.mediaFolderDrop);
+      if (payload?.type !== "asset" || !folder.classList.contains("expanded")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      folder.classList.remove("drop-ready");
+      await moveMediaToFolder(payload.id, folder.dataset.mediaFolderDrop);
     });
+  });
+  workspace.addEventListener("dragover", (event) => {
+    const payload = mediaDragPayload(event, dragPayload);
+    if (!payload) return;
+    updateMediaDropHighlights({
+      x: event.clientX,
+      y: event.clientY,
+      type: payload.type || "",
+    });
+    if (pointInsideTrashZone({ x: event.clientX, y: event.clientY })) event.preventDefault();
+  });
+  workspace.addEventListener("dragleave", (event) => {
+    if (!event.relatedTarget || !workspace.contains(event.relatedTarget)) clearMediaDropHighlights();
+  });
+  workspace.addEventListener("drop", async (event) => {
+    if (event.defaultPrevented) return;
+    const payload = mediaDragPayload(event, dragPayload);
+    if (!payload) return;
+    const point = { x: event.clientX, y: event.clientY };
+    if (!pointInsideTrashZone(point)) return;
+    event.preventDefault();
+    clearMediaDropHighlights();
+    const sourceNode = workspace.querySelector(`[data-media-item="${CSS.escape(payload.type || "")}"][data-media-id="${CSS.escape(payload.id || "")}"]`);
+    await trashMediaItem(payload.type, payload.id, sourceNode);
   });
   workspace.querySelector("[data-media-trash-zone]")?.addEventListener("dragover", (event) => {
     event.preventDefault();
@@ -1524,6 +1592,7 @@ function bindMediaInteractions() {
   });
   workspace.querySelector("[data-media-trash-zone]")?.addEventListener("drop", async (event) => {
     event.preventDefault();
+    event.stopPropagation();
     event.currentTarget.classList.remove("drop-ready");
     const payload = mediaDragPayload(event, dragPayload);
     const sourceNode = workspace.querySelector(`[data-media-item="${CSS.escape(payload?.type || "")}"][data-media-id="${CSS.escape(payload?.id || "")}"]`);
@@ -1593,7 +1662,9 @@ function startMediaFloat() {
   const gallery = document.querySelector("[data-media-gallery]");
   if (!gallery) return;
   const bounds = gallery.getBoundingClientRect();
-  mediaFloatItems = Array.from(gallery.querySelectorAll("[data-media-item]")).map((node, index) => {
+  mediaFloatItems = Array.from(gallery.querySelectorAll("[data-media-item]"))
+    .filter((node) => !node.classList.contains("expanded"))
+    .map((node, index) => {
     const rect = node.getBoundingClientRect();
     const key = mediaFloatKey(node);
     const saved = state.mediaFloatPositions[key] || null;
@@ -1608,7 +1679,7 @@ function startMediaFloat() {
       vy: saved ? Number(saved.vy || 0.1) : (index % 3 ? 0.09 : -0.08),
       w: rect.width || 210,
       h: rect.height || 180,
-      locked: node.classList.contains("expanded"),
+      locked: false,
     };
     item.x = Math.max(0, Math.min(item.x, Math.max(0, bounds.width - item.w)));
     item.y = Math.max(0, Math.min(item.y, Math.max(0, bounds.height - item.h)));
@@ -1616,6 +1687,15 @@ function startMediaFloat() {
     node.style.transform = `translate(${item.x}px, ${item.y}px)`;
     node.addEventListener("pointerdown", startFloatDrag);
     return item;
+  });
+  gallery.querySelectorAll("[data-media-item].expanded").forEach((node) => {
+    const key = mediaFloatKey(node);
+    const saved = state.mediaFloatPositions[key] || null;
+    const rect = node.getBoundingClientRect();
+    const x = saved ? Number(saved.x || 0) : Math.max(0, rect.left - bounds.left);
+    const y = saved ? Number(saved.y || 0) : Math.max(0, rect.top - bounds.top);
+    node.dataset.floatReady = "locked";
+    node.style.transform = `translate(${Math.max(0, Math.min(x, Math.max(0, bounds.width - rect.width)))}px, ${Math.max(0, y)}px)`;
   });
   mediaFloatFrame = requestAnimationFrame(tickMediaFloat);
 }
@@ -1654,7 +1734,10 @@ function tickMediaFloat() {
     }
   }
   for (let i = 0; i < mediaFloatItems.length; i += 1) {
-    for (let j = i + 1; j < mediaFloatItems.length; j += 1) collideFloatItems(mediaFloatItems[i], mediaFloatItems[j]);
+    for (let j = i + 1; j < mediaFloatItems.length; j += 1) {
+      if (mediaFloatItems[i].locked || mediaFloatItems[j].locked) continue;
+      collideFloatItems(mediaFloatItems[i], mediaFloatItems[j]);
+    }
   }
   mediaFloatItems.forEach((item) => {
     item.node.dataset.floatX = String(item.x);
@@ -1694,7 +1777,7 @@ function collideFloatItems(a, b) {
 
 function startFloatDrag(event) {
   if (!state.mediaFloating) return;
-  if (event.target.closest("button, a, input, textarea, select, [data-media-restore], [data-media-delete], [data-media-folder-open]")) return;
+  if (event.target.closest("a, input, textarea, select, [data-media-restore], [data-media-delete]")) return;
   const item = mediaFloatItems.find((candidate) => candidate.node === event.currentTarget);
   if (!item) return;
   event.preventDefault();
@@ -1737,6 +1820,18 @@ function moveFloatDrag(event) {
       id: drag.item.node.dataset.mediaId || "",
     });
   }
+  drag.overTrash = pointInsideAnyTrashZonePoint(
+    { x: event.clientX, y: event.clientY },
+    floatItemCenter(drag.item)
+  ) || floatItemIntersectsTrashZone(drag.item);
+  updateMediaDropHighlights({
+    x: event.clientX,
+    y: event.clientY,
+    altX: floatItemCenter(drag.item)?.x,
+    altY: floatItemCenter(drag.item)?.y,
+    trashReady: drag.overTrash,
+    type: drag.item.node.dataset.mediaItem || "",
+  });
   drag.lastX = event.clientX;
   drag.lastY = event.clientY;
   drag.lastTime = now;
@@ -1766,17 +1861,20 @@ async function endFloatDrag(event) {
     if (type === "asset") openMediaDetail(id);
     if (type === "folder" && state.mediaFloating) {
       captureMediaFloatPositions();
-      state.expandedMediaFolderId = state.expandedMediaFolderId === id ? "" : id;
+      toggleExpandedMediaFolder(id);
       renderMedia();
     }
     return;
   }
-  if (pointInsideElement(point, document.querySelector("[data-media-trash-zone]"))) {
+  clearMediaDropHighlights();
+  const itemCenter = floatItemCenter(drag.item);
+  const lastPoint = { x: drag.lastX, y: drag.lastY };
+  if (drag.overTrash || pointInsideAnyTrashZonePoint(point, lastPoint, itemCenter) || floatItemIntersectsTrashZone(drag.item)) {
     await trashMediaItem(type, id, node);
     return;
   }
   if (type === "asset") {
-    const folderDrop = Array.from(document.querySelectorAll("[data-media-folder-drop]")).find((folder) =>
+    const folderDrop = Array.from(document.querySelectorAll("[data-media-folder-drop].expanded")).find((folder) =>
       pointInsideElement(point, folder)
     );
     if (folderDrop?.dataset.mediaFolderDrop) {
@@ -1797,6 +1895,73 @@ function pointInsideElement(point, element) {
   if (!element) return false;
   const rect = element.getBoundingClientRect();
   return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function pointInsideTrashZone(point) {
+  const rect = trashZoneRect();
+  if (!rect) return false;
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function trashZoneRect() {
+  const zone = document.querySelector("[data-media-trash-zone]");
+  if (!zone) return null;
+  const bounds = zone.getBoundingClientRect();
+  const pad = 26;
+  return {
+    left: bounds.left - pad,
+    right: bounds.right + pad,
+    top: bounds.top - pad,
+    bottom: bounds.bottom + pad,
+  };
+}
+
+function pointInsideAnyTrashZonePoint(...points) {
+  return points.filter(Boolean).some((point) => pointInsideTrashZone(point));
+}
+
+function floatItemIntersectsTrashZone(item) {
+  const trash = trashZoneRect();
+  const itemRect = floatItemRect(item);
+  if (!trash || !itemRect) return false;
+  return itemRect.left <= trash.right && itemRect.right >= trash.left && itemRect.top <= trash.bottom && itemRect.bottom >= trash.top;
+}
+
+function floatItemRect(item) {
+  const gallery = document.querySelector("[data-media-gallery]");
+  if (!item || !gallery) return null;
+  const rect = gallery.getBoundingClientRect();
+  return {
+    left: rect.left + item.x,
+    right: rect.left + item.x + item.w,
+    top: rect.top + item.y,
+    bottom: rect.top + item.y + item.h,
+  };
+}
+
+function floatItemCenter(item) {
+  const gallery = document.querySelector("[data-media-gallery]");
+  if (!item || !gallery) return null;
+  const rect = gallery.getBoundingClientRect();
+  return {
+    x: rect.left + item.x + item.w / 2,
+    y: rect.top + item.y + item.h / 2,
+  };
+}
+
+function clearMediaDropHighlights() {
+  document.querySelector("[data-media-trash-zone]")?.classList.remove("drop-ready");
+  document.querySelectorAll("[data-media-folder-drop].drop-ready").forEach((node) => node.classList.remove("drop-ready"));
+}
+
+function updateMediaDropHighlights(point) {
+  const trash = document.querySelector("[data-media-trash-zone]");
+  const altPoint = Number.isFinite(point.altX) && Number.isFinite(point.altY) ? { x: point.altX, y: point.altY } : null;
+  trash?.classList.toggle("drop-ready", Boolean(point.trashReady) || pointInsideAnyTrashZonePoint(point, altPoint));
+  document.querySelectorAll("[data-media-folder-drop]").forEach((folder) => {
+    const ready = point.type === "asset" && folder.classList.contains("expanded") && pointInsideElement(point, folder);
+    folder.classList.toggle("drop-ready", ready);
+  });
 }
 
 function captureMediaFloatPositions() {

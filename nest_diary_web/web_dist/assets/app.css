@@ -851,10 +851,11 @@ textarea {
 }
 
 .media-organize-tools {
-  display: flex;
-  align-items: center;
+  display: grid;
+  align-items: stretch;
+  justify-items: stretch;
   gap: 8px;
-  flex-wrap: wrap;
+  min-width: 150px;
 }
 
 .media-organize-tools .button,
@@ -871,6 +872,67 @@ textarea {
   background: rgba(255, 255, 255, 0.94);
 }
 
+.media-folder-create-button,
+.media-trash-drop {
+  width: 150px;
+  justify-content: flex-start;
+}
+
+.folder-create-glyph {
+  position: relative;
+  width: 22px;
+  height: 18px;
+  flex: 0 0 22px;
+  display: inline-block;
+  color: var(--ink);
+}
+
+.folder-create-glyph::before,
+.folder-create-glyph::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  border: 2px solid currentColor;
+  background: rgba(246, 198, 103, 0.28);
+}
+
+.folder-create-glyph::before {
+  top: 0;
+  width: 11px;
+  height: 5px;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.folder-create-glyph::after {
+  bottom: 0;
+  height: 13px;
+  border-radius: 3px;
+}
+
+.folder-create-glyph span::before,
+.folder-create-glyph span::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 58%;
+  width: 10px;
+  height: 2px;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.folder-create-glyph span::after {
+  width: 2px;
+  height: 10px;
+}
+
+.media-folder-create-button .ui-icon {
+  filter: invert(16%) sepia(11%) saturate(720%) hue-rotate(176deg) brightness(94%) contrast(90%);
+}
+
 .media-float-toggle {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.94);
@@ -884,16 +946,37 @@ textarea {
 
 .media-trash-drop {
   position: relative;
-  min-width: 64px;
+  min-width: 150px;
   color: #fff;
   border-color: #8a1f11;
   background: var(--danger);
+  isolation: isolate;
+  overflow: visible;
+}
+
+.media-trash-drop::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  z-index: -1;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: rgba(179, 38, 30, 0);
+  opacity: 0;
+  transition: inset 170ms ease, background 170ms ease, border-color 170ms ease, opacity 170ms ease;
 }
 
 .media-trash-drop.active,
 .media-trash-drop.drop-ready {
-  box-shadow: 0 0 0 5px rgba(179, 38, 30, 0.2), var(--shadow);
+  box-shadow: 0 0 0 5px rgba(179, 38, 30, 0.18), var(--shadow);
   transform: translateY(-2px) scale(1.03);
+}
+
+.media-trash-drop.drop-ready::before {
+  inset: -14px;
+  border-color: rgba(179, 38, 30, 0.55);
+  background: rgba(179, 38, 30, 0.16);
+  opacity: 1;
 }
 
 .trash-symbol {
@@ -917,12 +1000,19 @@ textarea {
   height: 4px;
   border-bottom: 0;
   transform: rotate(-4deg);
+  transform-origin: 2px 6px;
+  transition: transform 170ms ease, top 170ms ease;
 }
 
 .trash-symbol::after {
   top: 8px;
   bottom: 1px;
   border-radius: 2px;
+}
+
+.media-trash-drop.drop-ready .trash-symbol::before {
+  top: -3px;
+  transform: translateY(-2px) rotate(-28deg);
 }
 
 .media-workspace {
@@ -992,7 +1082,7 @@ textarea {
 .media-card.dragging {
   opacity: 0.62;
   box-shadow: 0 20px 44px rgba(47, 51, 64, 0.2);
-  z-index: 8;
+  z-index: 20;
 }
 
 .media-card.drop-ready {
@@ -1005,6 +1095,14 @@ textarea {
   width: 210px;
   will-change: transform;
   transition: box-shadow 180ms ease, border-color 180ms ease, background 180ms ease, width 220ms ease, min-height 220ms ease;
+}
+
+.media-gallery.floating .folder-card.expanded {
+  z-index: 12;
+  cursor: default;
+  pointer-events: auto;
+  box-shadow: 0 18px 36px rgba(23, 111, 102, 0.18);
+  will-change: auto;
 }
 
 .media-gallery.settling .media-card {
@@ -1032,6 +1130,7 @@ textarea {
 .media-gallery.floating .folder-card.expanded {
   width: 268px;
   animation: none;
+  transform-origin: center;
 }
 
 .folder-thumb {
@@ -1101,6 +1200,12 @@ textarea {
 .folder-card.drop-ready .folder-drop-mouth,
 .folder-card.drop-ready .media-thumb {
   box-shadow: inset 0 0 0 3px rgba(23, 111, 102, 0.16);
+}
+
+.folder-card.drop-ready {
+  border-color: var(--accent);
+  background: #ecfaf5;
+  box-shadow: 0 0 0 5px rgba(23, 111, 102, 0.14), var(--shadow);
 }
 
 @keyframes folder-open {
@@ -2017,7 +2122,13 @@ details[open] > *:not(summary) {
 
   .media-organize-tools {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .media-folder-create-button,
+  .media-trash-drop {
+    width: 100%;
   }
 
   .media-workspace.folder-mode,

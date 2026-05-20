@@ -540,6 +540,40 @@ textarea {
   box-shadow: 0 16px 34px rgba(12, 22, 32, 0.14);
 }
 
+.media-folder-create-button,
+.media-trash-drop {
+  width: 150px;
+  border-radius: 0;
+}
+
+.folder-create-glyph {
+  color: var(--ink);
+}
+
+.folder-create-glyph::before,
+.folder-create-glyph::after {
+  background: rgba(232, 179, 68, 0.34);
+  border-radius: 0;
+}
+
+.media-folder-create-button .ui-icon {
+  filter: invert(12%) sepia(17%) saturate(760%) hue-rotate(172deg) brightness(92%) contrast(91%);
+}
+
+.media-trash-drop {
+  border-color: #8a1f11;
+  background: linear-gradient(135deg, #bd2c1f, #8f2118);
+}
+
+.media-trash-drop.drop-ready::before {
+  border-radius: 0;
+}
+
+.media-trash-drop.drop-ready .trash-symbol::before {
+  top: -3px;
+  transform: translateY(-2px) rotate(-28deg);
+}
+
 .media-thumb,
 .folder-thumb,
 .media-folder-shell {
