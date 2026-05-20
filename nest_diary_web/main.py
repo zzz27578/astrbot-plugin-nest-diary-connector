@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.2"
+APP_VERSION = "0.5.3"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -106,7 +106,14 @@ app.include_router(
 
 def _entry_payload(entry: DiaryEntry) -> dict:
     return {
+        "id": f"{entry.notebook_id}:{entry.date}",
         "date": entry.date,
+        "notebook_id": entry.notebook_id,
+        "notebook_name": entry.notebook_name,
+        "origin_umo": entry.origin_umo,
+        "platform_id": entry.platform_id,
+        "message_type": entry.message_type,
+        "session_id": entry.session_id,
         "title": entry.normalized_title(),
         "mood": entry.mood,
         "tags": entry.tags,
@@ -422,6 +429,12 @@ class DiaryWriteRequest(BaseModel):
     date: str
     body: str
     title: str | None = None
+    notebook_id: str = "default"
+    notebook_name: str = ""
+    origin_umo: str = ""
+    platform_id: str = ""
+    message_type: str = ""
+    session_id: str = ""
     mood: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     people: list[str] = Field(default_factory=list)
@@ -492,6 +505,12 @@ async def write_diary(
     media_refs = payload.media_refs if ui_settings.enable_media_module and ui_settings.allow_media_refs else []
     entry = DiaryEntry(
         date=payload.date,
+        notebook_id=payload.notebook_id,
+        notebook_name=payload.notebook_name,
+        origin_umo=payload.origin_umo,
+        platform_id=payload.platform_id,
+        message_type=payload.message_type,
+        session_id=payload.session_id,
         title=payload.title,
         body=payload.body,
         mood=payload.mood,
@@ -506,6 +525,8 @@ async def write_diary(
     return {
         "status": "ok",
         "date": saved.date,
+        "notebook_id": saved.notebook_id,
+        "notebook_name": saved.notebook_name,
         "title": saved.normalized_title(),
         "impressions_touched": [item.name for item in touched],
     }
@@ -516,36 +537,53 @@ async def search_diary(
     q: str,
     top_k: int = 8,
     snippet_chars: int = 180,
+    notebook_id: str = "",
     _auth: None = Depends(require_bot_token),
     _module: None = Depends(require_diary_module_enabled),
 ):
     return {
         "query": q,
-        "results": diary_service.search(q, top_k=top_k, snippet_chars=snippet_chars),
+        "results": diary_service.search(q, top_k=top_k, snippet_chars=snippet_chars, notebook_id=notebook_id or None),
         "search": diary_service.search_status(),
     }
 
 
 @app.get("/api/v1/diary/archive")
 async def diary_archive(
+    notebook_id: str = "",
     _auth: None = Depends(require_bot_token),
     _module: None = Depends(require_diary_module_enabled),
 ):
-    return {"items": diary_service.archive_tree()}
+    return {"items": diary_service.archive_tree(notebook_id=notebook_id or None)}
+
+
+@app.get("/api/v1/diary/notebooks")
+async def diary_notebooks(
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_diary_module_enabled),
+):
+    return {"items": diary_service.list_notebooks()}
 
 
 @app.get("/api/v1/diary/{date}")
 async def read_diary(
     date: str,
+    notebook_id: str = "default",
     _auth: None = Depends(require_bot_token),
     _module: None = Depends(require_diary_module_enabled),
 ):
     try:
-        entry = diary_service.read_by_date(date)
+        entry = diary_service.read_by_date(date, notebook_id=notebook_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Diary entry not found") from None
     return {
         "date": entry.date,
+        "notebook_id": entry.notebook_id,
+        "notebook_name": entry.notebook_name,
+        "origin_umo": entry.origin_umo,
+        "platform_id": entry.platform_id,
+        "message_type": entry.message_type,
+        "session_id": entry.session_id,
         "title": entry.normalized_title(),
         "mood": entry.mood,
         "tags": entry.tags,
@@ -563,6 +601,8 @@ class MediaAttachRequest(BaseModel):
     date: str
     original_name: str | None = None
     note: str = ""
+    actor_is_admin: bool = False
+    autonomous: bool = True
 
 
 class MediaResolveRequest(BaseModel):
@@ -606,8 +646,14 @@ async def attach_media(
     _module: None = Depends(require_media_module_enabled),
 ):
     ui_settings = service_settings.load()
-    if not ui_settings.media_allow_bot_import:
+    if ui_settings.media_auto_save_policy == "admin_only" and not payload.actor_is_admin:
+        raise HTTPException(status_code=403, detail="Only the small-nest administrator can save media")
+    if ui_settings.media_auto_save_policy == "admin_allowed" and not payload.actor_is_admin:
+        raise HTTPException(status_code=403, detail="Only the small-nest administrator can save media")
+    if payload.autonomous and not ui_settings.media_allow_bot_import:
         raise HTTPException(status_code=403, detail="Bot media import is disabled")
+    if ui_settings.media_auto_save_limit_12h and media_service.count_saved_since(12) >= ui_settings.media_auto_save_limit_12h:
+        raise HTTPException(status_code=400, detail="Media 12-hour limit reached")
     if len(media_service.list_by_date(payload.date).get("assets", [])) >= ui_settings.media_max_items_per_day:
         raise HTTPException(status_code=400, detail="Media limit reached for this date")
     source = Path(payload.source_path)
@@ -684,9 +730,19 @@ class SettingsUpdateRequest(BaseModel):
     memory_recall_policy: str = "conservative"
     enable_diary_module: bool = True
     diary_archive_granularity: str = "day"
+    diary_display_mode: str = "grouped"
+    admin_private_diary_enabled: bool = False
+    admin_private_push_enabled: bool = False
+    diary_push_format: str = "text"
+    diary_push_target: str = "admin_private"
+    permissions_allow_admin_natural_language: bool = True
+    nest_admin_ids: str = ""
     enable_media_module: bool = True
     allow_media_refs: bool = True
     media_max_items_per_day: int = 80
+    media_auto_save_policy: str = "admin_only"
+    media_auto_save_limit_12h: int = 10
+    media_auto_album_strategy: str = "confirm"
     media_allow_bot_import: bool = True
     media_auto_album: bool = True
     media_storage_strategy: str = "copy"
@@ -713,6 +769,10 @@ class SecurityUpdateRequest(BaseModel):
     bot_api_token: str = ""
     generate_bot_api_token: bool = False
     external_api_enabled: bool = False
+
+
+class NotebookUpdateRequest(BaseModel):
+    notebooks: list[dict] = Field(default_factory=list)
 
 
 @app.get("/api/v1/impressions")
@@ -794,6 +854,7 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
         },
         "recent_entries": [_entry_payload(entry) for entry in entries[:6]],
         "archive": diary_service.archive_tree(),
+        "notebooks": diary_service.list_notebooks(),
         "settings": _settings_payload(),
         "security": _security_payload(),
         "search": diary_service.search_status(),
@@ -806,17 +867,18 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
 
 
 @app.get("/api/ui/diary")
-async def ui_list_diary(_session: None = Depends(require_web_session)):
+async def ui_list_diary(notebook_id: str = "", _session: None = Depends(require_web_session)):
     return {
-        "items": [_entry_payload(entry) for entry in diary_service.list_entries()],
-        "archive": diary_service.archive_tree(),
+        "items": [_entry_payload(entry) for entry in diary_service.list_entries(notebook_id=notebook_id or None)],
+        "archive": diary_service.archive_tree(notebook_id=notebook_id or None),
+        "notebooks": diary_service.list_notebooks(),
     }
 
 
 @app.get("/api/ui/diary/{date}")
-async def ui_read_diary(date: str, _session: None = Depends(require_web_session)):
+async def ui_read_diary(date: str, notebook_id: str = "default", _session: None = Depends(require_web_session)):
     try:
-        return _entry_payload(diary_service.read_by_date(date))
+        return _entry_payload(diary_service.read_by_date(date, notebook_id=notebook_id))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Diary entry not found") from None
 
@@ -829,6 +891,12 @@ async def ui_write_diary(payload: DiaryWriteRequest, _session: None = Depends(re
     media_refs = payload.media_refs if ui_settings.enable_media_module and ui_settings.allow_media_refs else []
     entry = DiaryEntry(
         date=payload.date,
+        notebook_id=payload.notebook_id,
+        notebook_name=payload.notebook_name,
+        origin_umo=payload.origin_umo,
+        platform_id=payload.platform_id,
+        message_type=payload.message_type,
+        session_id=payload.session_id,
         title=payload.title,
         body=payload.body,
         mood=payload.mood,
@@ -844,23 +912,34 @@ async def ui_write_diary(payload: DiaryWriteRequest, _session: None = Depends(re
 
 
 @app.delete("/api/ui/diary/{date}")
-async def ui_delete_diary(date: str, _session: None = Depends(require_web_session)):
-    deleted = diary_service.delete_diary(date, reason="web_app_delete")
+async def ui_delete_diary(date: str, notebook_id: str = "default", _session: None = Depends(require_web_session)):
+    deleted = diary_service.delete_diary(date, reason="web_app_delete", notebook_id=notebook_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Diary entry not found")
     return {"status": "ok"}
 
 
 @app.get("/api/ui/search")
-async def ui_search(q: str = "", top_k: int = 5, _session: None = Depends(require_web_session)):
+async def ui_search(q: str = "", top_k: int = 5, notebook_id: str = "", _session: None = Depends(require_web_session)):
     ui_settings = service_settings.load()
     if not q or not ui_settings.enable_diary_module:
-        return {"query": q, "results": [], "search": diary_service.search_status()}
+        return {"query": q, "results": [], "search": diary_service.search_status(), "notebooks": diary_service.list_notebooks()}
     return {
         "query": q,
-        "results": diary_service.search(q, top_k=top_k or ui_settings.search_default_top_k, snippet_chars=ui_settings.search_snippet_chars),
+        "results": diary_service.search(q, top_k=top_k or ui_settings.search_default_top_k, snippet_chars=ui_settings.search_snippet_chars, notebook_id=notebook_id or None),
         "search": diary_service.search_status(),
+        "notebooks": diary_service.list_notebooks(),
     }
+
+
+@app.get("/api/ui/notebooks")
+async def ui_list_notebooks(_session: None = Depends(require_web_session)):
+    return {"items": diary_service.list_notebooks()}
+
+
+@app.post("/api/ui/notebooks")
+async def ui_save_notebooks(payload: NotebookUpdateRequest, _session: None = Depends(require_web_session)):
+    return {"status": "ok", "items": diary_service.save_notebooks(payload.notebooks)}
 
 
 @app.get("/api/ui/impressions")
@@ -1066,9 +1145,19 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             memory_recall_policy=payload.memory_recall_policy,
             enable_diary_module=payload.enable_diary_module,
             diary_archive_granularity=payload.diary_archive_granularity,
+            diary_display_mode=payload.diary_display_mode,
+            admin_private_diary_enabled=payload.admin_private_diary_enabled,
+            admin_private_push_enabled=payload.admin_private_push_enabled,
+            diary_push_format=payload.diary_push_format,
+            diary_push_target=payload.diary_push_target,
+            permissions_allow_admin_natural_language=payload.permissions_allow_admin_natural_language,
+            nest_admin_ids=payload.nest_admin_ids,
             enable_media_module=payload.enable_media_module,
             allow_media_refs=payload.allow_media_refs,
             media_max_items_per_day=payload.media_max_items_per_day,
+            media_auto_save_policy=payload.media_auto_save_policy,
+            media_auto_save_limit_12h=payload.media_auto_save_limit_12h,
+            media_auto_album_strategy=payload.media_auto_album_strategy,
             media_allow_bot_import=payload.media_allow_bot_import,
             media_auto_album=payload.media_auto_album,
             media_storage_strategy=payload.media_storage_strategy,

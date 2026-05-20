@@ -13,10 +13,16 @@ class MarkdownDiaryStore:
         self.paths.ensure_all()
 
     def write(self, entry: DiaryEntry) -> Path:
-        path = self.paths.diary_file(entry.date)
+        path = self.paths.diary_file_for_notebook(entry.notebook_id, entry.date)
         path.parent.mkdir(parents=True, exist_ok=True)
         frontmatter = {
             "date": entry.date,
+            "notebook_id": entry.notebook_id,
+            "notebook_name": entry.notebook_name,
+            "origin_umo": entry.origin_umo,
+            "platform_id": entry.platform_id,
+            "message_type": entry.message_type,
+            "session_id": entry.session_id,
             "title": entry.normalized_title(),
             "mood": entry.mood,
             "tags": entry.tags,
@@ -33,8 +39,10 @@ class MarkdownDiaryStore:
         path.write_text("\n".join(lines), encoding="utf-8")
         return path
 
-    def read(self, date: str) -> DiaryEntry:
-        path = self.paths.diary_file(date)
+    def read(self, date: str, notebook_id: str = "default") -> DiaryEntry:
+        path = self.paths.diary_file_for_notebook(notebook_id, date)
+        if not path.exists() and notebook_id == "default":
+            path = self.paths.diary_dir / date[:4] / date[5:7] / f"{date}.md"
         text = path.read_text(encoding="utf-8")
         _prefix, meta_text, body_text = text.split("---", 2)
         meta = {}
@@ -48,6 +56,12 @@ class MarkdownDiaryStore:
         body = "\n".join(body_lines).strip()
         return DiaryEntry(
             date=meta["date"],
+            notebook_id=meta.get("notebook_id", notebook_id),
+            notebook_name=meta.get("notebook_name", "默认日记本"),
+            origin_umo=meta.get("origin_umo", ""),
+            platform_id=meta.get("platform_id", ""),
+            message_type=meta.get("message_type", ""),
+            session_id=meta.get("session_id", ""),
             title=meta.get("title"),
             mood=meta.get("mood", []),
             tags=meta.get("tags", []),
@@ -59,56 +73,64 @@ class MarkdownDiaryStore:
             body=body,
         )
 
-    def list_entries(self) -> list[DiaryEntry]:
+    def list_entries(self, notebook_id: str | None = None) -> list[DiaryEntry]:
         entries: list[DiaryEntry] = []
-        for path in sorted(self.paths.diary_dir.glob("*/*/*.md"), reverse=True):
-            try:
-                entries.append(self.read(path.stem))
-            except Exception:
+        roots = []
+        if notebook_id:
+            roots.append(self.paths.diary_entries_dir_for_notebook(notebook_id))
+            if notebook_id == "default":
+                roots.append(self.paths.diary_dir)
+        else:
+            roots.extend(path / "entries" for path in self.paths.diary_notebooks_dir.iterdir() if path.is_dir())
+            roots.append(self.paths.diary_dir)
+        seen: set[tuple[str, str]] = set()
+        for root in roots:
+            if not root.exists():
                 continue
-        return entries
+            current_notebook = root.parent.name if root.parent.parent == self.paths.diary_notebooks_dir else "default"
+            for path in sorted(root.glob("*/*/*.md"), reverse=True):
+                key = (current_notebook, path.stem)
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    entries.append(self.read(path.stem, current_notebook))
+                except Exception:
+                    continue
+        return sorted(entries, key=lambda entry: (entry.date, entry.notebook_name, entry.notebook_id), reverse=True)
 
-    def delete(self, date: str) -> bool:
-        path = self.paths.diary_file(date)
+    def delete(self, date: str, notebook_id: str = "default") -> bool:
+        path = self.paths.diary_file_for_notebook(notebook_id, date)
+        if not path.exists() and notebook_id == "default":
+            path = self.paths.diary_dir / date[:4] / date[5:7] / f"{date}.md"
         if not path.exists():
             return False
         path.unlink()
         return True
 
-    def archive_tree(self) -> list[dict]:
+    def archive_tree(self, notebook_id: str | None = None) -> list[dict]:
         years: list[dict] = []
-        if not self.paths.diary_dir.exists():
-            return years
-        for year_dir in sorted(self.paths.diary_dir.iterdir(), reverse=True):
-            if not year_dir.is_dir():
-                continue
+        entries = self.list_entries(notebook_id)
+        by_year: dict[str, dict[str, list[DiaryEntry]]] = {}
+        for entry in entries:
+            by_year.setdefault(entry.date[:4], {}).setdefault(entry.date[:7], []).append(entry)
+        for year in sorted(by_year.keys(), reverse=True):
             months = []
-            for month_dir in sorted(year_dir.iterdir(), reverse=True):
-                if not month_dir.is_dir():
-                    continue
-                days = []
-                for path in sorted(month_dir.glob("*.md"), reverse=True):
-                    try:
-                        entry = self.read(path.stem)
-                    except Exception:
-                        continue
-                    days.append(
-                        {
-                            "date": entry.date,
-                            "title": entry.normalized_title(),
-                            "importance": entry.importance,
-                            "tags": entry.tags,
-                            "people": entry.people,
-                        }
-                    )
-                if days:
-                    months.append({"month": month_dir.name, "days": days, "count": len(days)})
-            if months:
-                years.append(
+            for month in sorted(by_year[year].keys(), reverse=True):
+                days = [
                     {
-                        "year": year_dir.name,
-                        "months": months,
-                        "count": sum(month["count"] for month in months),
+                        "date": entry.date,
+                        "title": entry.normalized_title(),
+                        "importance": entry.importance,
+                        "tags": entry.tags,
+                        "people": entry.people,
+                        "notebook_id": entry.notebook_id,
+                        "notebook_name": entry.notebook_name,
                     }
-                )
+                    for entry in sorted(by_year[year][month], key=lambda item: item.date, reverse=True)
+                ]
+                if days:
+                    months.append({"month": month, "days": days, "count": len(days)})
+            if months:
+                years.append({"year": year, "months": months, "count": sum(month["count"] for month in months)})
         return years

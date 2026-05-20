@@ -7,7 +7,7 @@ import shutil
 import socket
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -37,12 +37,12 @@ from nest_diary_web.diary.diary_service import DiaryService
 from nest_diary_web.media.media_service import MediaService
 from nest_diary_web.memory.impression_service import ImpressionService
 from nest_diary_web.models import DiaryEntry, PersonImpression, ServiceUiSettings
-from nest_diary_web.paths import NestPaths
+from nest_diary_web.paths import NestPaths, safe_package_id
 from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettingsStore
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.1"
+PLUGIN_VERSION = "0.5.3"
 
 
 class NestDiaryHttpClient:
@@ -72,21 +72,31 @@ class NestDiaryHttpClient:
                 response.raise_for_status()
                 return await response.json()
 
-    async def read_diary(self, date: str) -> dict:
-        async with aiohttp.ClientSession(timeout=self.timeout) as session:
-            async with session.get(f"{self.service_url}/api/v1/diary/{date}", headers=self._headers()) as response:
-                response.raise_for_status()
-                return await response.json()
-
-    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
+    async def read_diary(self, date: str, notebook_id: str = "default") -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
             async with session.get(
-                f"{self.service_url}/api/v1/diary/search",
-                params={"q": query, "top_k": top_k, "snippet_chars": snippet_chars},
+                f"{self.service_url}/api/v1/diary/{date}",
+                params={"notebook_id": notebook_id or "default"},
                 headers=self._headers(),
             ) as response:
                 response.raise_for_status()
                 return await response.json()
+
+    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180, notebook_id: str = "") -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                f"{self.service_url}/api/v1/diary/search",
+                params={"q": query, "top_k": top_k, "snippet_chars": snippet_chars, "notebook_id": notebook_id or ""},
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def resolve_notebook(self, origin_umo: str) -> dict:
+        parts = _origin_parts(origin_umo)
+        prefix = "group" if parts["message_type"] == "group" else "private" if parts["message_type"] == "private" else "session"
+        notebook_id = safe_package_id(f"{prefix}_{parts['platform_id']}_{parts['session_id']}") if origin_umo else "default"
+        return {"id": notebook_id or "default", "name": "", "origin_umo": origin_umo, **parts}
 
     async def attach_media(self, payload: dict) -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
@@ -179,6 +189,12 @@ class EmbeddedNestClient:
             date=payload["date"],
             title=payload.get("title"),
             body=payload["body"],
+            notebook_id=payload.get("notebook_id") or "default",
+            notebook_name=payload.get("notebook_name") or "",
+            origin_umo=payload.get("origin_umo") or "",
+            platform_id=payload.get("platform_id") or "",
+            message_type=payload.get("message_type") or "",
+            session_id=payload.get("session_id") or "",
             mood=payload.get("mood") or [],
             tags=payload.get("tags") or [],
             people=payload.get("people") or [],
@@ -205,16 +221,28 @@ class EmbeddedNestClient:
             "status": "ok",
             "date": saved.date,
             "title": saved.normalized_title(),
+            "notebook_id": saved.notebook_id,
+            "notebook_name": saved.notebook_name,
+            "origin_umo": saved.origin_umo,
+            "platform_id": saved.platform_id,
+            "message_type": saved.message_type,
+            "session_id": saved.session_id,
             "impressions_touched": [item.name for item in touched],
         }
 
-    async def read_diary(self, date: str) -> dict:
+    async def read_diary(self, date: str, notebook_id: str = "default") -> dict:
         if not self.service_settings.load().enable_diary_module:
             raise RuntimeError("Diary module is disabled")
-        entry = self.diary_service.read_by_date(date)
+        entry = self.diary_service.read_by_date(date, notebook_id=notebook_id or "default")
         return {
             "date": entry.date,
             "title": entry.normalized_title(),
+            "notebook_id": entry.notebook_id,
+            "notebook_name": entry.notebook_name,
+            "origin_umo": entry.origin_umo,
+            "platform_id": entry.platform_id,
+            "message_type": entry.message_type,
+            "session_id": entry.session_id,
             "mood": entry.mood,
             "tags": entry.tags,
             "people": entry.people,
@@ -225,21 +253,27 @@ class EmbeddedNestClient:
             "body": entry.body,
         }
 
-    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
+    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180, notebook_id: str = "") -> dict:
         if not self.service_settings.load().enable_diary_module:
             raise RuntimeError("Diary module is disabled")
         return {
             "query": query,
-            "results": self.diary_service.search(query, top_k=top_k, snippet_chars=snippet_chars),
+            "notebook_id": notebook_id or "",
+            "results": self.diary_service.search(query, top_k=top_k, snippet_chars=snippet_chars, notebook_id=notebook_id or None),
             "search": self.diary_service.search_status(),
         }
+
+    async def resolve_notebook(self, origin_umo: str) -> dict:
+        return self.diary_service.resolve_notebook_from_origin(origin_umo)
 
     async def attach_media(self, payload: dict) -> dict:
         ui_settings = self.service_settings.load()
         if not ui_settings.enable_media_module:
             raise RuntimeError("Media module is disabled")
-        if not ui_settings.media_allow_bot_import:
+        if payload.get("autonomous", True) and not payload.get("actor_is_admin", False) and not ui_settings.media_allow_bot_import:
             raise RuntimeError("Bot media import is disabled")
+        if ui_settings.media_auto_save_limit_12h and self.media_service.count_saved_since(12) >= ui_settings.media_auto_save_limit_12h:
+            raise RuntimeError("Media 12-hour limit reached")
         if len(self.media_service.list_by_date(payload["date"]).get("assets", [])) >= ui_settings.media_max_items_per_day:
             raise RuntimeError("Media limit reached for this date")
         source = Path(payload["source_path"])
@@ -316,6 +350,12 @@ class NestDiaryTools:
     def __init__(self, client):
         self.client = client
 
+    async def resolve_notebook(self, origin_umo: str) -> dict:
+        if hasattr(self.client, "resolve_notebook"):
+            return await self.client.resolve_notebook(origin_umo)
+        parts = _origin_parts(origin_umo)
+        return {"id": "default", "name": "", "origin_umo": origin_umo, **parts}
+
     async def write_diary(
         self,
         date: str,
@@ -326,12 +366,24 @@ class NestDiaryTools:
         people: list[str] | None = None,
         media_refs: list[str] | None = None,
         reason: str = "",
+        notebook_id: str = "default",
+        notebook_name: str = "",
+        origin_umo: str = "",
+        platform_id: str = "",
+        message_type: str = "",
+        session_id: str = "",
     ) -> dict:
         return await self.client.write_diary(
             {
                 "date": date,
                 "title": title or None,
                 "body": body,
+                "notebook_id": notebook_id or "default",
+                "notebook_name": notebook_name or "",
+                "origin_umo": origin_umo or "",
+                "platform_id": platform_id or "",
+                "message_type": message_type or "",
+                "session_id": session_id or "",
                 "mood": mood or [],
                 "tags": tags or [],
                 "people": people or [],
@@ -342,11 +394,11 @@ class NestDiaryTools:
             }
         )
 
-    async def read_diary(self, date: str) -> dict:
-        return await self.client.read_diary(date)
+    async def read_diary(self, date: str, notebook_id: str = "default") -> dict:
+        return await self.client.read_diary(date, notebook_id=notebook_id or "default")
 
-    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> dict:
-        return await self.client.search_diary(query, top_k=top_k, snippet_chars=snippet_chars)
+    async def search_diary(self, query: str, top_k: int = 8, snippet_chars: int = 180, notebook_id: str = "") -> dict:
+        return await self.client.search_diary(query, top_k=top_k, snippet_chars=snippet_chars, notebook_id=notebook_id or "")
 
     async def attach_media(
         self,
@@ -354,9 +406,18 @@ class NestDiaryTools:
         date: str,
         original_name: str | None = None,
         note: str = "",
+        actor_is_admin: bool = False,
+        autonomous: bool = True,
     ) -> dict:
         return await self.client.attach_media(
-            {"source_path": source_path, "date": date, "original_name": original_name, "note": note}
+            {
+                "source_path": source_path,
+                "date": date,
+                "original_name": original_name,
+                "note": note,
+                "actor_is_admin": actor_is_admin,
+                "autonomous": autonomous,
+            }
         )
 
     async def resolve_media(self, media_ref: str = "", date: str = "", original_name: str = "") -> dict:
@@ -440,6 +501,10 @@ if FunctionTool is not None:
             reason: str = Field(default="nightly_archive", description="写入原因。定时归档使用 nightly_archive。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_group_write_permission(ctx, "写日记")
+            if denial:
+                return _tool_text(denial)
+            notebook = await owner._notebook_context_for_event(ctx)
             result = await owner.tools.write_diary(
                 date=date,
                 title=title,
@@ -449,6 +514,7 @@ if FunctionTool is not None:
                 people=_split_words(people),
                 media_refs=_split_lines(media_refs),
                 reason=reason or "nightly_archive",
+                **notebook,
             )
             saved_date = result.get("date", date)
             saved_title = result.get("title", title)
@@ -470,7 +536,8 @@ if FunctionTool is not None:
             owner = _tool_owner(self)
             limit = max(1, min(int(top_k), int(owner.config.get("memory_recall_top_k", 5))))
             snippet_chars = int(owner.config.get("memory_recall_snippet_chars", 180))
-            result = await owner.tools.search_diary(query, top_k=limit, snippet_chars=snippet_chars)
+            notebook = await owner._notebook_context_for_event(ctx)
+            result = await owner.tools.search_diary(query, top_k=limit, snippet_chars=snippet_chars, notebook_id=notebook["notebook_id"])
             items = result.get("items") or result.get("results") or []
             if not items:
                 return _tool_text(f"没有搜到和“{query}”相关的日记。")
@@ -495,7 +562,8 @@ if FunctionTool is not None:
             date: str = Field(description="要读取的日期，格式 YYYY-MM-DD。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
-            result = await owner.tools.read_diary(date)
+            notebook = await owner._notebook_context_for_event(ctx)
+            result = await owner.tools.read_diary(date, notebook_id=notebook["notebook_id"])
             title = result.get("title") or date
             body = result.get("body") or result.get("content") or result.get("text") or ""
             return _tool_text(f"{date}《{title}》：\n{body}" if body else f"{date} 没有找到日记。")
@@ -516,7 +584,21 @@ if FunctionTool is not None:
             note: str = Field(default="", description="隐藏备注：在哪里、什么情景保存、bot 自己评价、已知用户评价；未知就写未知，不要编造。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
-            result = await owner.tools.attach_media(source_path=source_path, date=date, original_name=original_name or None, note=note)
+            denial = await owner._guard_group_write_permission(ctx, "保存媒体")
+            if denial:
+                return _tool_text(denial)
+            ui_settings = owner.client.service_settings.load() if hasattr(owner.client, "service_settings") else ServiceUiSettings()
+            policy_denial = owner._media_policy_denial(ctx, ui_settings)
+            if policy_denial:
+                return _tool_text(policy_denial)
+            result = await owner.tools.attach_media(
+                source_path=source_path,
+                date=date,
+                original_name=original_name or None,
+                note=note,
+                actor_is_admin=owner._is_nest_admin(ctx),
+                autonomous=not owner._is_nest_admin(ctx),
+            )
             asset = result.get("asset") or {}
             media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""
             return _tool_text(f"已归档媒体：{media_id}")
@@ -536,6 +618,9 @@ if FunctionTool is not None:
             original_name: str = Field(default="", description="可选文件名。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_group_write_permission(ctx, "发送媒体")
+            if denial:
+                return _tool_text(denial)
             result = await owner.tools.resolve_media(media_ref=media_ref, date=date, original_name=original_name)
             asset = result.get("asset") or {}
             path = asset.get("path", "")
@@ -611,6 +696,9 @@ if FunctionTool is not None:
             notes: str = Field(default="", description="内部备注，可为空。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_group_write_permission(ctx, "写人物印象")
+            if denial:
+                return _tool_text(denial)
             result = await owner.tools.write_impression(
                 name=name,
                 summary=summary,
@@ -634,6 +722,19 @@ class _ScheduledNestEvent:
     def __init__(self, origin: str):
         self.unified_msg_origin = origin
         self.message_str = ""
+        self._nest_scheduled = True
+
+    def get_sender_id(self) -> str:
+        return "__scheduled__"
+
+
+def _origin_parts(origin_umo: str) -> dict[str, str]:
+    parts = (origin_umo or "").split(":", 2)
+    return {
+        "platform_id": parts[0] if len(parts) > 0 else "",
+        "message_type": parts[1] if len(parts) > 1 else "",
+        "session_id": parts[2] if len(parts) > 2 else "",
+    }
 
 
 def _split_words(value: str | None) -> list[str]:
@@ -718,6 +819,7 @@ class NestDiaryConnectorPlugin(Star):
         self._web_thread = None
         self._webui_started = False
         self._webui_error = ""
+        self._active_scheduled_origin = ""
 
         if self.mode == "standalone":
             client = NestDiaryHttpClient(
@@ -811,6 +913,9 @@ class NestDiaryConnectorPlugin(Star):
                 memory_recall_policy=self.config.get("memory_recall_policy", "conservative"),
                 custom_webui_dir=str(self.config.get("custom_webui_dir", "")).strip(),
                 backup_custom_before_update=bool(self.config.get("backup_custom_before_update", True)),
+                nest_admin_ids=str(self.config.get("nest_admin_ids", "") or ""),
+                media_auto_save_policy=str(self.config.get("media_auto_save_policy", "admin_only") or "admin_only"),
+                media_auto_save_limit_12h=int(self.config.get("media_auto_save_limit_12h", 10)),
             )
         )
 
@@ -901,6 +1006,109 @@ class NestDiaryConnectorPlugin(Star):
         except Exception as exc:
             return f"小窝暂时连接失败：{_brief_error(exc)}"
 
+    def _configured_admin_ids(self) -> set[str]:
+        raw_values = [str(self.config.get("nest_admin_ids", "") or "")]
+        try:
+            if hasattr(self.client, "service_settings"):
+                raw_values.append(str(getattr(self.client.service_settings.load(), "nest_admin_ids", "") or ""))
+        except Exception:
+            pass
+        raw = "\n".join(raw_values)
+        raw = raw.replace(",", "\n").replace("，", "\n").replace(";", "\n")
+        return {item.strip() for item in raw.splitlines() if item.strip()}
+
+    def _event_sender_id(self, event) -> str:
+        event = self._unwrap_event(event)
+        getter = getattr(event, "get_sender_id", None)
+        if getter:
+            try:
+                value = getter()
+                return str(value or "").strip()
+            except Exception:
+                pass
+        return str(getattr(event, "sender_id", "") or getattr(event, "user_id", "") or "").strip()
+
+    def _event_origin(self, event) -> str:
+        event = self._unwrap_event(event)
+        return str(getattr(event, "unified_msg_origin", "") or getattr(self, "_active_scheduled_origin", "") or "").strip()
+
+    def _is_scheduled_event(self, event) -> bool:
+        event = self._unwrap_event(event)
+        return bool(getattr(event, "_nest_scheduled", False) or getattr(self, "_active_scheduled_origin", ""))
+
+    def _unwrap_event(self, event):
+        for attr in ("event", "message_event", "astr_event"):
+            inner = getattr(event, attr, None)
+            if inner is not None:
+                return inner
+        return event
+
+    def _is_nest_admin(self, event) -> bool:
+        admin_ids = self._configured_admin_ids()
+        if not admin_ids:
+            return True
+        sender_id = self._event_sender_id(event)
+        origin = self._event_origin(event)
+        return bool(sender_id and sender_id in admin_ids) or bool(origin and origin in admin_ids)
+
+    async def _notebook_context_for_event(self, event) -> dict:
+        origin = self._event_origin(event)
+        notebook = await self.tools.resolve_notebook(origin)
+        parts = _origin_parts(origin)
+        return {
+            "notebook_id": str(notebook.get("id") or notebook.get("notebook_id") or "default"),
+            "notebook_name": str(notebook.get("name") or notebook.get("notebook_name") or ""),
+            "origin_umo": str(notebook.get("origin_umo") or origin),
+            "platform_id": str(notebook.get("platform_id") or parts["platform_id"]),
+            "message_type": str(notebook.get("message_type") or parts["message_type"]),
+            "session_id": str(notebook.get("session_id") or parts["session_id"]),
+        }
+
+    async def _guard_group_write_permission(self, event, action_name: str) -> str:
+        if self._is_scheduled_event(event):
+            return ""
+        notebook = await self._notebook_context_for_event(event)
+        if self._configured_admin_ids() and not self._is_nest_admin(event):
+            return f"只有小窝管理员可以{action_name}。"
+        if notebook.get("message_type") == "group" and not self._is_nest_admin(event):
+            return f"当前群聊只有小窝管理员可以{action_name}。"
+        return ""
+
+    def _media_saved_count_last_12h(self) -> int:
+        if not hasattr(self.client, "media_service"):
+            return 0
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
+        count = 0
+        for manifest in self.client.media_service.list_manifests():
+            for asset in manifest.get("assets", []):
+                saved_at = str(asset.get("saved_at") or "")
+                if not saved_at:
+                    continue
+                try:
+                    when = datetime.fromisoformat(saved_at.replace("Z", "+00:00"))
+                    if when.tzinfo is None:
+                        when = when.replace(tzinfo=timezone.utc)
+                    if when >= cutoff:
+                        count += 1
+                except Exception:
+                    continue
+        return count
+
+    def _media_policy_denial(self, event, ui_settings) -> str:
+        if not ui_settings.enable_media_module:
+            return self._module_disabled_message("媒体")
+        policy = str(getattr(ui_settings, "media_auto_save_policy", "") or self.config.get("media_auto_save_policy", "admin_only") or "admin_only")
+        policy = {"manual": "admin_allowed", "bot_pick": "bot_curated"}.get(policy, policy)
+        is_admin = self._is_nest_admin(event)
+        has_admin_config = bool(self._configured_admin_ids())
+        if policy in {"admin_only", "admin_allowed"} and has_admin_config and not is_admin:
+            return "当前媒体保存策略只允许小窝管理员手动保存媒体。"
+        if policy in {"bot_curated", "review"}:
+            limit = int(getattr(ui_settings, "media_auto_save_limit_12h", 0) or self.config.get("media_auto_save_limit_12h", 10) or 10)
+            if limit > 0 and self._media_saved_count_last_12h() >= limit:
+                return f"过去 12 小时媒体保存数量已达到上限 {limit}，本次不再保存。"
+        return ""
+
     def _module_disabled_message(self, module_name: str) -> str:
         return f"{module_name} 模块当前已在插件配置中关闭，未执行工具调用。"
 
@@ -908,7 +1116,7 @@ class NestDiaryConnectorPlugin(Star):
         path = Path(image_path)
         if not path.exists():
             raise FileNotFoundError(f"图片文件不存在：{path}")
-        origin = getattr(event, "unified_msg_origin", "")
+        origin = self._event_origin(event)
         if not origin:
             raise RuntimeError("当前会话不支持主动发送图片。")
         chain = MessageChain()
@@ -962,6 +1170,10 @@ class NestDiaryConnectorPlugin(Star):
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
         try:
+            denial = await self._guard_group_write_permission(event, "写日记")
+            if denial:
+                return denial
+            notebook = await self._notebook_context_for_event(event)
             result = await self.tools.write_diary(
                 date=date,
                 title=title,
@@ -971,6 +1183,7 @@ class NestDiaryConnectorPlugin(Star):
                 people=_split_words(people),
                 media_refs=_split_lines(media_refs),
                 reason=reason,
+                **notebook,
             )
             saved_date = result.get("date", date)
             saved_title = result.get("title", title)
@@ -994,7 +1207,8 @@ class NestDiaryConnectorPlugin(Star):
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
         try:
-            result = await self.tools.read_diary(date)
+            notebook = await self._notebook_context_for_event(event)
+            result = await self.tools.read_diary(date, notebook_id=notebook["notebook_id"])
             content = result.get("body") or result.get("content") or result.get("text") or ""
             title = result.get("title") or date
             message = f"{date}《{title}》：\n{content}" if content else f"{date} 没有找到日记。"
@@ -1015,7 +1229,8 @@ class NestDiaryConnectorPlugin(Star):
         try:
             limit = max(1, min(int(top_k), int(self.config.get("memory_recall_top_k", 5))))
             snippet_chars = int(self.config.get("memory_recall_snippet_chars", 180))
-            result = await self.tools.search_diary(query, top_k=limit, snippet_chars=snippet_chars)
+            notebook = await self._notebook_context_for_event(event)
+            result = await self.tools.search_diary(query, top_k=limit, snippet_chars=snippet_chars, notebook_id=notebook["notebook_id"])
             items = result.get("items") or result.get("results") or []
             if not items:
                 message = f"没有搜到和“{query}”相关的日记。"
@@ -1052,9 +1267,15 @@ class NestDiaryConnectorPlugin(Star):
             note(string): 隐藏备注，写清保存位置、保存情景、bot 自己评价和已知用户评价。
         """
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+        denial = await self._guard_group_write_permission(event, "保存媒体")
+        if denial:
+            return denial
+        policy_denial = self._media_policy_denial(event, ui_settings)
+        if policy_denial:
+            return policy_denial
         if not ui_settings.enable_media_module:
             return self._module_disabled_message("媒体")
-        if not ui_settings.media_allow_bot_import:
+        if not ui_settings.media_allow_bot_import and not self._is_nest_admin(event):
             return "媒体模块没有允许 bot 自动导入图片或附件。"
         try:
             if hasattr(self.client, "media_service"):
@@ -1066,6 +1287,8 @@ class NestDiaryConnectorPlugin(Star):
                 date=date,
                 original_name=original_name or None,
                 note=note,
+                actor_is_admin=self._is_nest_admin(event),
+                autonomous=not self._is_nest_admin(event),
             )
             asset = result.get("asset") or {}
             media_id = asset.get("url") or asset.get("sha256") or asset.get("path") or result.get("path") or ""
@@ -1086,6 +1309,9 @@ class NestDiaryConnectorPlugin(Star):
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
         if not ui_settings.enable_media_module:
             return self._module_disabled_message("媒体")
+        denial = await self._guard_group_write_permission(event, "发送媒体")
+        if denial:
+            return denial
         try:
             result = await self.tools.resolve_media(media_ref=media_ref, date=date, original_name=original_name)
             asset = result.get("asset") or {}
@@ -1233,19 +1459,23 @@ class NestDiaryConnectorPlugin(Star):
             if not hasattr(self.context, "tool_loop_agent"):
                 raise RuntimeError("当前 AstrBot 版本缺少 tool_loop_agent，无法隐藏执行定时任务。")
             provider_id = await self._current_provider_id(origin)
-            result = await self.context.tool_loop_agent(
-                event=_ScheduledNestEvent(origin),
-                chat_provider_id=provider_id,
-                prompt=(
-                    "执行当前小窝后台任务。"
-                    "这是插件定时器触发的隐藏任务，不是用户输入。"
-                    "按系统自动任务规范完成必要工具调用，最后只返回一句内部状态。"
-                ),
-                system_prompt=self._scheduled_system_prompt(task_kind, configured_prompt, now),
-                tools=self._scheduled_agent_tools(),
-                max_steps=int(self.config.get("scheduled_agent_max_steps", 8)),
-                tool_call_timeout=int(self.config.get("request_timeout_seconds", 30)),
-            )
+            self._active_scheduled_origin = origin
+            try:
+                result = await self.context.tool_loop_agent(
+                    event=_ScheduledNestEvent(origin),
+                    chat_provider_id=provider_id,
+                    prompt=(
+                        "执行当前小窝后台任务。"
+                        "这是插件定时器触发的隐藏任务，不是用户输入。"
+                        "按系统自动任务规范完成必要工具调用，最后只返回一句内部状态。"
+                    ),
+                    system_prompt=self._scheduled_system_prompt(task_kind, configured_prompt, now),
+                    tools=self._scheduled_agent_tools(),
+                    max_steps=int(self.config.get("scheduled_agent_max_steps", 8)),
+                    tool_call_timeout=int(self.config.get("request_timeout_seconds", 30)),
+                )
+            finally:
+                self._active_scheduled_origin = ""
             summary = self._scheduled_result_text(result)
             if notify:
                 await self.context.send_message(origin, MessageChain().message(self._public_archive_feedback(summary)))
@@ -1368,6 +1598,9 @@ class NestDiaryConnectorPlugin(Star):
         if not self._impressions_module_enabled():
             return self._module_disabled_message("人物印象")
         try:
+            denial = await self._guard_group_write_permission(event, "写人物印象")
+            if denial:
+                return denial
             result = await self.tools.write_impression(
                 name=name,
                 summary=summary,
@@ -1399,6 +1632,9 @@ class NestDiaryConnectorPlugin(Star):
         if not self._impressions_module_enabled():
             return self._module_disabled_message("人物印象")
         try:
+            denial = await self._guard_group_write_permission(event, "删除人物印象")
+            if denial:
+                return denial
             await self.tools.delete_impression(name)
             message = f"已删除 {name} 的人物印象。"
         except Exception as exc:

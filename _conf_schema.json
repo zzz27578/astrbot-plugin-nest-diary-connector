@@ -68,6 +68,25 @@
     "hint": "小窝 WebUI 登录密码，默认 12345678，安装后建议修改。",
     "default": "12345678"
   },
+  "nest_admin_ids": {
+    "description": "小窝管理员账号",
+    "type": "text",
+    "hint": "填写允许在群聊里写日记、管理人物印象、保存或发送媒体的用户 ID。多个 ID 可用逗号或换行分隔；留空时保持旧版行为。",
+    "default": ""
+  },
+  "media_auto_save_policy": {
+    "description": "媒体保存权限",
+    "type": "string",
+    "hint": "admin_only/admin_allowed 仅允许管理员保存；bot_curated/review 允许临时整理，但会受到 12 小时数量上限限制。",
+    "options": ["admin_only", "admin_allowed", "bot_curated", "review"],
+    "default": "admin_only"
+  },
+  "media_auto_save_limit_12h": {
+    "description": "12 小时媒体保存上限",
+    "type": "int",
+    "hint": "当媒体保存权限为 bot_curated 或 review 时生效，用来避免短时间自动保存过多媒体。",
+    "default": 10
+  },
   "nest_data_dir": {
     "description": "小窝数据根目录",
     "type": "string",

@@ -4,7 +4,7 @@ import hashlib
 import json
 import mimetypes
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nest_diary_web.paths import NestPaths
@@ -153,6 +153,24 @@ class MediaService:
                     total += path.stat().st_size
                     count += 1
         return {"bytes": total, "count": count, "label": self._format_bytes(total)}
+
+    def count_saved_since(self, hours: int = 12) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, int(hours)))
+        total = 0
+        for manifest in self.list_manifests():
+            for asset in manifest.get("assets", []):
+                saved_at = str(asset.get("saved_at") or "")
+                if not saved_at:
+                    continue
+                try:
+                    saved_time = datetime.fromisoformat(saved_at)
+                except ValueError:
+                    continue
+                if saved_time.tzinfo is None:
+                    saved_time = saved_time.replace(tzinfo=timezone.utc)
+                if saved_time >= cutoff:
+                    total += 1
+        return total
 
     def load_organization(self) -> dict:
         path = self._organization_path()

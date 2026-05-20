@@ -8,6 +8,12 @@ class DiaryEntry:
     date: str
     body: str
     title: str | None = None
+    notebook_id: str = "default"
+    notebook_name: str = "默认日记本"
+    origin_umo: str = ""
+    platform_id: str = ""
+    message_type: str = ""
+    session_id: str = ""
     mood: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     people: list[str] = field(default_factory=list)
@@ -49,9 +55,19 @@ class ServiceUiSettings:
     memory_recall_enabled: bool = True
     memory_recall_policy: str = "conservative"
     diary_archive_granularity: str = "day"
+    diary_display_mode: str = "grouped"
+    admin_private_diary_enabled: bool = False
+    admin_private_push_enabled: bool = False
+    diary_push_format: str = "text"
+    diary_push_target: str = "admin_private"
+    permissions_allow_admin_natural_language: bool = True
+    nest_admin_ids: str = ""
     enable_media_module: bool = True
     allow_media_refs: bool = True
     media_max_items_per_day: int = 80
+    media_auto_save_policy: str = "admin_only"
+    media_auto_save_limit_12h: int = 10
+    media_auto_album_strategy: str = "confirm"
     media_allow_bot_import: bool = True
     media_auto_album: bool = True
     media_storage_strategy: str = "copy"

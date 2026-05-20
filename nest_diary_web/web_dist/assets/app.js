@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.2";
+const APP_VERSION = "0.5.3";
 
 const app = document.getElementById("app");
 const state = {
@@ -7,6 +7,7 @@ const state = {
   editingDate: initialEditDateFromLocation(),
   selectedImpressionName: initialImpressionFromLocation(),
   bootstrap: null,
+  notebooks: [],
   diary: {
     items: [],
     archive: [],
@@ -16,7 +17,7 @@ const state = {
     composerDate: initialComposeDateFromLocation(),
     filters: initialDiaryFilters(),
   },
-  search: { query: initialSearchFromLocation(), results: [], backend: "" },
+  search: { query: initialSearchFromLocation(), notebook_id: initialNotebookFromLocation(), results: [], backend: "" },
   impressions: [],
   selectedImpression: null,
   media: [],
@@ -71,7 +72,12 @@ function initialDateFromLocation() {
 
 function initialDiaryFilters() {
   const date = initialDateFromLocation();
-  return date ? { year: date.slice(0, 4), month: date.slice(0, 7), date } : { year: "", month: "", date: "" };
+  const notebook_id = initialNotebookFromLocation();
+  return date ? { notebook_id, year: date.slice(0, 4), month: date.slice(0, 7), date } : { notebook_id, year: "", month: "", date: "" };
+}
+
+function initialNotebookFromLocation() {
+  return new URLSearchParams(window.location.search).get("notebook_id") || "";
 }
 
 function initialEditDateFromLocation() {
@@ -267,6 +273,7 @@ function pageHead(eyebrow, title, actions = "") {
 
 async function loadBootstrap() {
   if (!state.bootstrap) state.bootstrap = await api("/api/ui/bootstrap");
+  state.notebooks = state.bootstrap?.notebooks || state.notebooks || [];
 }
 
 async function setView(view, options = {}) {
@@ -281,6 +288,10 @@ async function setView(view, options = {}) {
   state.notice = options.keepNotice ? state.notice : "";
   state.error = "";
   if (Object.prototype.hasOwnProperty.call(options, "date")) state.selectedDate = options.date || "";
+  if (Object.prototype.hasOwnProperty.call(options, "notebook_id")) {
+    state.diary.filters.notebook_id = options.notebook_id || "";
+    state.search.notebook_id = options.notebook_id || "";
+  }
   if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
   if (Object.prototype.hasOwnProperty.call(options, "compose")) state.diary.composerOpen = Boolean(options.compose);
   if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
@@ -337,11 +348,11 @@ document.addEventListener(
       return;
     }
     if (target.dataset.date) {
-      selectDiary(target.dataset.date);
+      selectDiary(target.dataset.date, target.dataset.notebookId || "");
       return;
     }
     if (target.dataset.editDate) {
-      openDiaryComposer(target.dataset.editDate);
+      openDiaryComposer(target.dataset.editDate, target.dataset.notebookId || "");
       return;
     }
     if (target.dataset.searchQuery) {
@@ -537,10 +548,26 @@ function renderDashboard() {
   `;
 }
 
+function notebookOptions() {
+  const items = state.notebooks?.length ? state.notebooks : state.bootstrap?.notebooks || [];
+  return items.map((item) => ({ ...item, id: item.id || item.notebook_id || "default", name: item.name || item.id || "默认日记本" }));
+}
+
+function notebookLabel(notebookId = "") {
+  const id = notebookId || "default";
+  return notebookOptions().find((item) => item.id === id)?.name || (id === "default" ? "默认日记本" : id);
+}
+
+function findDiaryEntry(date, notebookId = "") {
+  return state.diary.items.find((entry) => entry.date === date && (!notebookId || (entry.notebook_id || "default") === notebookId));
+}
+
 function entryRow(entry) {
+  const notebookId = entry.notebook_id || "default";
+  const active = state.diary.selected?.date === entry.date && (state.diary.selected?.notebook_id || "default") === notebookId;
   return `
-    <button class="row ${state.diary.selected?.date === entry.date ? "active" : ""}" data-date="${escapeHtml(entry.date)}" type="button">
-      <span>${escapeHtml(entry.date)}</span>
+    <button class="row ${active ? "active" : ""}" data-date="${escapeHtml(entry.date)}" data-notebook-id="${escapeHtml(notebookId)}" type="button">
+      <span>${escapeHtml(entry.date)} · ${escapeHtml(notebookLabel(notebookId))}</span>
       <strong>${escapeHtml(entry.title || entry.date)}</strong>
     </button>
   `;
@@ -548,26 +575,32 @@ function entryRow(entry) {
 
 async function ensureDiaryList(force = false) {
   if (state.diary.loaded && !force) return;
-  const payload = await api("/api/ui/diary");
+  const notebookId = state.diary.filters.notebook_id || "";
+  const payload = await api(`/api/ui/diary${notebookId ? `?notebook_id=${encodeURIComponent(notebookId)}` : ""}`);
   state.diary.items = payload.items;
   state.diary.archive = payload.archive;
+  state.notebooks = payload.notebooks || state.notebooks || [];
   state.diary.loaded = true;
 }
 
-async function loadDiaryEntry(date) {
+async function loadDiaryEntry(date, notebookId = "") {
   await ensureDiaryList();
   const visibleItems = filteredDiaryItems();
-  const candidate = date || state.diary.selected?.date || state.selectedDate;
-  const selectedDate = candidate && visibleItems.some((entry) => entry.date === candidate)
-    ? candidate
-    : visibleItems[0]?.date || "";
+  const candidateDate = date || state.diary.selected?.date || state.selectedDate;
+  const candidateNotebook = notebookId || state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "";
+  const selectedEntry = candidateDate
+    ? visibleItems.find((entry) => entry.date === candidateDate && (!candidateNotebook || (entry.notebook_id || "default") === candidateNotebook))
+    : visibleItems[0];
+  const selectedDate = selectedEntry?.date || "";
+  const selectedNotebook = selectedEntry?.notebook_id || candidateNotebook || "default";
   state.selectedDate = selectedDate || "";
-  state.diary.selected = selectedDate ? await api(`/api/ui/diary/${encodeURIComponent(selectedDate)}`) : null;
+  state.diary.selected = selectedDate ? await api(`/api/ui/diary/${encodeURIComponent(selectedDate)}?notebook_id=${encodeURIComponent(selectedNotebook)}`) : null;
 }
 
 function filteredDiaryItems() {
   const filters = state.diary.filters;
   return state.diary.items.filter((entry) => {
+    if (filters.notebook_id && (entry.notebook_id || "default") !== filters.notebook_id) return false;
     if (filters.date) return entry.date === filters.date;
     if (filters.month) return entry.date.startsWith(filters.month);
     if (filters.year) return entry.date.startsWith(filters.year);
@@ -581,24 +614,24 @@ function allDiaryDates() {
 
 function diaryFilterPrefix() {
   const filters = state.diary.filters;
-  return filters.date || filters.month || filters.year || "";
+  return filters.date || filters.month || filters.year || filters.notebook_id || "";
 }
 
 function clearDiaryFilters() {
-  state.diary.filters = { year: "", month: "", date: "" };
+  state.diary.filters = { notebook_id: "", year: "", month: "", date: "" };
 }
 
 async function renderDiary() {
   await ensureDiaryList();
   if (state.diary.composerOpen) {
     const composeDate = state.diary.composerDate || state.editingDate || new Date().toISOString().slice(0, 10);
-    const existing = state.diary.items.find((entry) => entry.date === composeDate);
+    const existing = findDiaryEntry(composeDate, state.diary.filters.notebook_id || "default");
     if (existing && !state.editingDate) {
       state.editingDate = composeDate;
       state.notice = state.notice || "这天已有日记，已切换为编辑。";
     }
     if (state.editingDate) {
-      await loadDiaryEntry(state.editingDate);
+      await loadDiaryEntry(state.editingDate, existing?.notebook_id || state.diary.filters.notebook_id || "default");
     } else {
       await loadDiaryEntry(state.selectedDate);
     }
@@ -627,17 +660,17 @@ async function renderDiary() {
   updateDiaryArticle({ preserveScroll: false });
 }
 
-async function selectDiary(date) {
+async function selectDiary(date, notebookId = "") {
   if (state.view !== "diary") {
     clearDiaryFilters();
-    await setView("diary", { date });
+    await setView("diary", { date, notebook_id: notebookId });
     return;
   }
   state.error = "";
   state.notice = "";
   const article = document.getElementById("diary-article");
   const previousScroll = article ? article.scrollTop : 0;
-  await loadDiaryEntry(date);
+  await loadDiaryEntry(date, notebookId);
   updateDiaryList();
   updateDiaryArchive();
   updateDiaryArticle({ preserveScroll: true, previousScroll });
@@ -649,6 +682,7 @@ function updateDiaryArchive() {
   if (!target) return;
   const filters = state.diary.filters;
   const dates = allDiaryDates();
+  const notebooks = notebookOptions();
   const years = [...new Set(dates.map((date) => date.slice(0, 4)))];
   const months = [...new Set(dates.filter((date) => !filters.year || date.startsWith(filters.year)).map((date) => date.slice(0, 7)))];
   const dateOptions = dates.filter((date) => {
@@ -656,11 +690,16 @@ function updateDiaryArchive() {
     if (filters.year) return date.startsWith(filters.year);
     return true;
   });
+  const notebookSelect = notebooks.map((item) => `<option value="${escapeHtml(item.id)}" ${filters.notebook_id === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
+  const yearSelect = years.map((year) => `<option value="${year}" ${filters.year === year ? "selected" : ""}>${year}</option>`).join("");
+  const monthSelect = months.map((month) => `<option value="${month}" ${filters.month === month ? "selected" : ""}>${month}</option>`).join("");
+  const dateSelect = dateOptions.map((date) => `<option value="${date}" ${filters.date === date ? "selected" : ""}>${date}</option>`).join("");
   target.innerHTML = `
     <div class="archive-picker">
-      <label class="archive-field"><span>年</span><select data-filter-level="year"><option value="">全部</option>${years.map((year) => `<option value="${year}" ${filters.year === year ? "selected" : ""}>${year}</option>`).join("")}</select></label>
-      <label class="archive-field"><span>月</span><select data-filter-level="month"><option value="">全部</option>${months.map((month) => `<option value="${month}" ${filters.month === month ? "selected" : ""}>${month}</option>`).join("")}</select></label>
-      <label class="archive-field archive-date-field"><span>日期</span><select data-filter-level="date"><option value="">全部</option>${dateOptions.map((date) => `<option value="${date}" ${filters.date === date ? "selected" : ""}>${date}</option>`).join("")}</select></label>
+      <label class="archive-field"><span>日记本/群组</span><select data-filter-level="notebook"><option value="">全部</option>${notebookSelect}</select></label>
+      <label class="archive-field"><span>年</span><select data-filter-level="year"><option value="">全部</option>${yearSelect}</select></label>
+      <label class="archive-field"><span>月</span><select data-filter-level="month"><option value="">全部</option>${monthSelect}</select></label>
+      <label class="archive-field"><span>日期</span><select data-filter-level="date"><option value="">全部</option>${dateSelect}</select></label>
     </div>
   `;
   target.querySelectorAll("[data-filter-level]").forEach((node) => node.addEventListener("change", applyDiaryFilterChange));
@@ -678,6 +717,11 @@ async function applyDiaryFilterChange(event) {
   const level = event.currentTarget.dataset.filterLevel;
   const value = event.currentTarget.value || "";
   const filters = state.diary.filters;
+  if (level === "notebook") {
+    filters.notebook_id = value;
+    filters.date = "";
+    state.diary.loaded = false;
+  }
   if (level === "year") {
     filters.year = value;
     if (!value || !filters.month.startsWith(value)) filters.month = "";
@@ -699,6 +743,7 @@ async function applyDiaryFilterChange(event) {
 }
 
 async function applyDiaryFilters() {
+  await ensureDiaryList(true);
   await loadDiaryEntry("");
   updateDiaryArchive();
   updateDiaryList();
@@ -712,8 +757,8 @@ function updateDiaryArticle({ preserveScroll = false, previousScroll = 0 } = {})
   const selected = state.diary.selected;
   target.innerHTML = selected
     ? `<div class="card-head">
-        <div><p class="eyebrow">${escapeHtml(selected.date)}</p><h2>${escapeHtml(selected.title)}</h2></div>
-        <div class="actions"><button class="button" data-edit-date="${escapeHtml(selected.date)}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}">删除</button></div>
+        <div><p class="eyebrow">${escapeHtml(selected.date)} · ${escapeHtml(notebookLabel(selected.notebook_id))}</p><h2>${escapeHtml(selected.title)}</h2></div>
+        <div class="actions"><button class="button" data-edit-date="${escapeHtml(selected.date)}" data-notebook-id="${escapeHtml(selected.notebook_id || "default")}" type="button">编辑</button><button class="danger" data-delete="${escapeHtml(selected.date)}" data-notebook-id="${escapeHtml(selected.notebook_id || "default")}">删除</button></div>
       </div>
       <div class="card-body">
         <div class="meta">重要度 ${selected.importance} · ${escapeHtml(selected.source || "")}</div>
@@ -726,17 +771,19 @@ function updateDiaryArticle({ preserveScroll = false, previousScroll = 0 } = {})
   if (preserveScroll) target.scrollTop = Math.min(previousScroll, target.scrollHeight);
 }
 
-async function openDiaryComposer(date = "") {
+async function openDiaryComposer(date = "", notebookId = "") {
   await ensureDiaryList();
   const targetDate = date || new Date().toISOString().slice(0, 10);
-  const existing = state.diary.items.find((entry) => entry.date === targetDate);
+  const targetNotebook = notebookId || state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "default";
+  const existing = findDiaryEntry(targetDate, targetNotebook);
   state.view = "diary";
   state.diary.composerOpen = true;
   state.diary.composerDate = targetDate;
+  state.diary.filters.notebook_id = targetNotebook;
   state.editingDate = existing ? targetDate : date || "";
   if (existing) {
-    state.diary.filters = { year: targetDate.slice(0, 4), month: targetDate.slice(0, 7), date: targetDate };
-    await loadDiaryEntry(targetDate);
+    state.diary.filters = { notebook_id: targetNotebook, year: targetDate.slice(0, 4), month: targetDate.slice(0, 7), date: targetDate };
+    await loadDiaryEntry(targetDate, targetNotebook);
     state.notice = date ? "" : "这天已有日记，已切换为编辑。";
   }
   await renderDiary();
@@ -760,7 +807,9 @@ async function updateDiaryComposer() {
   }
   target.hidden = false;
   const date = state.diary.composerDate || state.editingDate || new Date().toISOString().slice(0, 10);
-  const selected = state.editingDate && state.diary.selected?.date === state.editingDate ? state.diary.selected : null;
+  const selectedNotebook = state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "default";
+  const selected = state.editingDate && state.diary.selected?.date === state.editingDate && (state.diary.selected?.notebook_id || "default") === selectedNotebook ? state.diary.selected : null;
+  const notebookSelect = notebookOptions().map((item) => `<option value="${escapeHtml(item.id)}" ${(selected?.notebook_id || selectedNotebook) === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
   target.innerHTML = `
     <div class="card-head compact-head">
       <div><h2>${selected ? "编辑日记" : "写一篇"}</h2></div>
@@ -768,6 +817,7 @@ async function updateDiaryComposer() {
     </div>
     <form class="card-body form diary-compose-form" data-action="write-diary">
       <div class="form-grid compact">
+        <label>日记本/群组<select name="notebook_id">${notebookSelect}</select></label>
         <label>日期<input name="date" type="date" value="${escapeHtml(date)}" required></label>
         <label>标题<input name="title" value="${escapeHtml(selected?.title || "")}" placeholder="给这天起一个真正的标题"></label>
         <label>情绪<input name="mood" value="${escapeHtml((selected?.mood || []).join(","))}"></label>
@@ -782,16 +832,21 @@ async function updateDiaryComposer() {
   `;
   target.querySelector('[data-action="write-diary"]').addEventListener("submit", saveDiary);
   target.querySelector('input[name="date"]').addEventListener("change", handleDiaryComposeDateChange);
+  target.querySelector('select[name="notebook_id"]')?.addEventListener("change", handleDiaryComposeDateChange);
 }
 
 async function handleDiaryComposeDateChange(event) {
-  const nextDate = event.currentTarget.value;
+  const form = event.currentTarget.closest("form");
+  const data = new FormData(form);
+  const nextDate = data.get("date");
+  const nextNotebook = data.get("notebook_id") || "default";
   state.diary.composerDate = nextDate;
-  const existing = state.diary.items.find((entry) => entry.date === nextDate);
+  state.diary.filters.notebook_id = nextNotebook;
+  const existing = findDiaryEntry(nextDate, nextNotebook);
   if (existing) {
-    state.diary.filters = { year: nextDate.slice(0, 4), month: nextDate.slice(0, 7), date: nextDate };
+    state.diary.filters = { notebook_id: nextNotebook, year: nextDate.slice(0, 4), month: nextDate.slice(0, 7), date: nextDate };
     state.editingDate = nextDate;
-    await loadDiaryEntry(nextDate);
+    await loadDiaryEntry(nextDate, nextNotebook);
     state.notice = "这天已有日记，已切换为编辑。";
   } else {
     state.editingDate = "";
@@ -805,8 +860,9 @@ async function handleDiaryComposeDateChange(event) {
 function bindDiaryArticleActions() {
   document.querySelector("[data-delete]")?.addEventListener("click", async (event) => {
     const date = event.currentTarget.dataset.delete;
+    const notebookId = event.currentTarget.dataset.notebookId || state.diary.selected?.notebook_id || "default";
     if (!confirm(`删除 ${date} 的日记？`)) return;
-    await api(`/api/ui/diary/${encodeURIComponent(date)}`, { method: "DELETE" });
+    await api(`/api/ui/diary/${encodeURIComponent(date)}?notebook_id=${encodeURIComponent(notebookId)}`, { method: "DELETE" });
     state.diary.loaded = false;
     state.diary.selected = null;
     state.selectedDate = "";
@@ -820,6 +876,7 @@ async function saveDiary(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
   const payload = {
+    notebook_id: form.get("notebook_id") || state.diary.filters.notebook_id || "default",
     date: form.get("date"),
     title: form.get("title"),
     body: form.get("body"),
@@ -835,10 +892,10 @@ async function saveDiary(event) {
   state.diary.loaded = false;
   state.diary.composerOpen = false;
   state.diary.composerDate = result.entry.date;
-  state.diary.filters = { year: result.entry.date.slice(0, 4), month: result.entry.date.slice(0, 7), date: result.entry.date };
+  state.diary.filters = { notebook_id: result.entry.notebook_id || payload.notebook_id || "default", year: result.entry.date.slice(0, 4), month: result.entry.date.slice(0, 7), date: result.entry.date };
   state.editingDate = "";
   state.notice = "日记已保存。";
-  await setView("diary", { date: result.entry.date, keepNotice: true });
+  await setView("diary", { date: result.entry.date, notebook_id: result.entry.notebook_id || payload.notebook_id || "default", keepNotice: true });
 }
 
 async function loadSearch(query = "") {
@@ -847,26 +904,30 @@ async function loadSearch(query = "") {
     state.search.results = [];
     return;
   }
-  const payload = await api(`/api/ui/search?q=${encodeURIComponent(state.search.query)}&top_k=8`);
+  const notebookId = state.search.notebook_id || "";
+  const payload = await api(`/api/ui/search?q=${encodeURIComponent(state.search.query)}&top_k=8&notebook_id=${encodeURIComponent(notebookId)}`);
   state.search.results = payload.results;
   state.search.backend = payload.search.backend;
+  state.notebooks = payload.notebooks || state.notebooks || [];
 }
 
 async function renderSearch() {
   await loadSearch(state.search.query);
+  const scopeOptions = notebookOptions().map((item) => `<option value="${escapeHtml(item.id)}" ${state.search.notebook_id === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
   panel("search").innerHTML = `
-    ${pageHead("", "查找")}
+    ${pageHead("", "搜索")}
     <section class="card">
       <div class="card-body">
         <form class="searchbar" data-action="search">
+          <label class="search-scope">范围<select name="notebook_id"><option value="">全部日记本</option>${scopeOptions}</select></label>
           <input name="q" value="${escapeHtml(state.search.query)}" placeholder="关键词、人物、事件或情绪" />
-          <button class="primary">查找</button>
+          <button class="primary">搜索</button>
         </form>
       </div>
       <div class="list">
         ${
           state.search.results.length
-            ? state.search.results.map((item) => `<button class="row" data-date="${escapeHtml(item.date)}" type="button"><span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></button>`).join("")
+            ? state.search.results.map((item) => `<button class="row" data-date="${escapeHtml(item.date)}" data-notebook-id="${escapeHtml(item.notebook_id || "default")}" type="button"><span>${escapeHtml(item.date)} · ${escapeHtml(item.notebook_name || notebookLabel(item.notebook_id))}</span><strong>${escapeHtml(item.title)}</strong><em>${escapeHtml(item.snippet || "")}</em></button>`).join("")
             : `<div class="card-body muted">暂无结果。</div>`
         }
       </div>
@@ -874,7 +935,9 @@ async function renderSearch() {
   `;
   panel("search").querySelector('[data-action="search"]').addEventListener("submit", (event) => {
     event.preventDefault();
-    const q = new FormData(event.currentTarget).get("q");
+    const form = new FormData(event.currentTarget);
+    const q = form.get("q");
+    state.search.notebook_id = form.get("notebook_id") || "";
     setView("search", { query: q });
   });
 }
@@ -2269,18 +2332,50 @@ function moduleDetailPage(payload, detailKey) {
   `;
 }
 
+function notebookManagement(notebooks = []) {
+  const items = notebooks.length ? notebooks : notebookOptions();
+  if (!items.length) return `<div class="notice soft">还没有日记本。</div>`;
+  return `
+    <div class="notebook-settings">
+      <div class="settings-mini-head"><strong>日记本管理</strong><span>名称、归档和推送会保存到真实日记本配置。</span></div>
+      ${items.map((raw) => {
+        const item = { ...raw, id: raw.id || raw.notebook_id || "default" };
+        return `
+          <div class="notebook-row" data-notebook-row="${escapeHtml(item.id)}">
+            <input name="notebook_id" value="${escapeHtml(item.id)}" type="hidden">
+            <label>名称<input name="notebook_name_${escapeHtml(item.id)}" value="${escapeHtml(item.name || item.id)}"></label>
+            <label>归档时间<input name="notebook_archive_time_${escapeHtml(item.id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
+            <label>推送目标<select name="notebook_push_target_${escapeHtml(item.id)}"><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
+            <label class="check"><input name="notebook_enabled_${escapeHtml(item.id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
+            <label class="check"><input name="notebook_auto_archive_${escapeHtml(item.id)}" type="checkbox" ${item.auto_archive_enabled !== false ? "checked" : ""}>自动归档</label>
+            <label class="check"><input name="notebook_push_enabled_${escapeHtml(item.id)}" type="checkbox" ${item.push_enabled ? "checked" : ""}>推送</label>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function moduleSettingsBody(payload, detailKey) {
   const settings = payload.settings;
   if (detailKey === "diary") {
     return `
       <div class="setting-line"><div><strong>日记模块</strong><p class="muted">开启后可以记录和查看日记。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
       <div class="setting-line"><div><strong>自动回想</strong><p class="muted">需要时让 bot 参考以前的日记。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
+      <div class="setting-line"><div><strong>私聊写入</strong><p class="muted">允许管理员私聊内容进入专属日记本。</p></div>${switchControl("admin_private_diary_enabled", settings.admin_private_diary_enabled)}</div>
+      <div class="setting-line"><div><strong>日记推送</strong><p class="muted">按日记本设置把整理结果推送到指定位置。</p></div>${switchControl("admin_private_push_enabled", settings.admin_private_push_enabled)}</div>
+      <div class="setting-line"><div><strong>自然语言管理员权限</strong><p class="muted">允许管理员用自然语言调整日记和小窝配置。</p></div>${switchControl("permissions_allow_admin_natural_language", settings.permissions_allow_admin_natural_language)}</div>
       <div class="form-grid compact">
         <label>回想方式<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>只在需要时</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>更主动</option></select></label>
         <label>每次参考数量<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
         <label>摘要长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
         <label>日记保存方式<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>按天</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>按月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>按年</option></select></label>
+        <label>展示方式<select name="diary_display_mode"><option value="grouped" ${settings.diary_display_mode === "grouped" ? "selected" : ""}>按日记本分组</option><option value="merged" ${settings.diary_display_mode === "merged" ? "selected" : ""}>合并显示</option></select></label>
+        <label>推送格式<select name="diary_push_format"><option value="text" ${settings.diary_push_format !== "image" ? "selected" : ""}>文字</option><option value="image" ${settings.diary_push_format === "image" ? "selected" : ""}>图片</option></select></label>
+        <label>推送目标<select name="diary_push_target"><option value="admin_private" ${settings.diary_push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${settings.diary_push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${settings.diary_push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
+        <label>小窝管理员<textarea name="nest_admin_ids" placeholder="每行一个 QQ 号">${escapeHtml(settings.nest_admin_ids || "")}</textarea></label>
       </div>
+      ${notebookManagement(payload.notebooks || state.notebooks || [])}
     `;
   }
   if (detailKey === "impressions") {
@@ -2331,6 +2426,18 @@ function moduleSettingsBody(payload, detailKey) {
       <div class="setting-line"><div><strong>自动整理相册</strong><p class="muted">按日期自动整理媒体。</p></div>${switchControl("media_auto_album", settings.media_auto_album)}</div>
       <div class="form-grid compact">
         <label>每天最多保存<input name="media_max_items_per_day" type="number" min="1" max="500" value="${settings.media_max_items_per_day || 80}"></label>
+        <label>12小时图片上限<input name="media_auto_save_limit_12h" type="number" min="1" max="200" value="${settings.media_auto_save_limit_12h || 10}"></label>
+        <label>写入限制策略<select name="media_auto_save_policy">
+          <option value="admin_only" ${settings.media_auto_save_policy === "admin_only" ? "selected" : ""}>仅管理员确认</option>
+          <option value="admin_allowed" ${settings.media_auto_save_policy === "admin_allowed" ? "selected" : ""}>管理员可保存</option>
+          <option value="bot_curated" ${settings.media_auto_save_policy === "bot_curated" ? "selected" : ""}>由 bot 挑选</option>
+          <option value="review" ${settings.media_auto_save_policy === "review" ? "selected" : ""}>先进入审核</option>
+        </select></label>
+        <label>相册策略<select name="media_auto_album_strategy">
+          <option value="confirm" ${settings.media_auto_album_strategy === "confirm" ? "selected" : ""}>先确认</option>
+          <option value="auto" ${settings.media_auto_album_strategy === "auto" ? "selected" : ""}>自动整理</option>
+          <option value="off" ${settings.media_auto_album_strategy === "off" ? "selected" : ""}>不整理</option>
+        </select></label>
         <label>图片保存方式<select name="media_storage_strategy">
           <option value="copy" ${settings.media_storage_strategy !== "move" ? "selected" : ""}>复制：保留原文件</option>
           <option value="move" ${settings.media_storage_strategy === "move" ? "selected" : ""}>剪切：移入小窝</option>
@@ -2512,9 +2619,19 @@ async function saveSettings(event) {
     memory_recall_policy: valueField("memory_recall_policy", current.memory_recall_policy || "conservative"),
     enable_diary_module: boolField("enable_diary_module", current.enable_diary_module),
     diary_archive_granularity: valueField("diary_archive_granularity", current.diary_archive_granularity || "day"),
+    diary_display_mode: valueField("diary_display_mode", current.diary_display_mode || "grouped"),
+    admin_private_diary_enabled: boolField("admin_private_diary_enabled", current.admin_private_diary_enabled),
+    admin_private_push_enabled: boolField("admin_private_push_enabled", current.admin_private_push_enabled),
+    diary_push_format: valueField("diary_push_format", current.diary_push_format || "text"),
+    diary_push_target: valueField("diary_push_target", current.diary_push_target || "admin_private"),
+    permissions_allow_admin_natural_language: boolField("permissions_allow_admin_natural_language", current.permissions_allow_admin_natural_language ?? true),
+    nest_admin_ids: valueField("nest_admin_ids", current.nest_admin_ids || ""),
     enable_media_module: boolField("enable_media_module", current.enable_media_module),
     allow_media_refs: boolField("allow_media_refs", current.allow_media_refs),
     media_max_items_per_day: numberField("media_max_items_per_day", current.media_max_items_per_day || 80),
+    media_auto_save_policy: valueField("media_auto_save_policy", current.media_auto_save_policy || "admin_only"),
+    media_auto_save_limit_12h: numberField("media_auto_save_limit_12h", current.media_auto_save_limit_12h || 10),
+    media_auto_album_strategy: valueField("media_auto_album_strategy", current.media_auto_album_strategy || "confirm"),
     media_allow_bot_import: boolField("media_allow_bot_import", current.media_allow_bot_import),
     media_auto_album: boolField("media_auto_album", current.media_auto_album),
     media_storage_strategy: valueField("media_storage_strategy", current.media_storage_strategy || "copy"),
@@ -2568,6 +2685,7 @@ async function saveSettings(event) {
     }
   }
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
+  await saveNotebookSettings(formEl, form);
   refreshThemeStylesheet();
   state.toast = "设置已保存";
   state.error = "";
@@ -2579,6 +2697,29 @@ async function saveSettings(event) {
     state.toast = "";
     updateShell();
   }, 2200);
+}
+
+async function saveNotebookSettings(formEl, form) {
+  if (!formEl.querySelector('[name="notebook_id"]')) return;
+  const ids = Array.from(new Set(form.getAll("notebook_id").map((item) => String(item || "").trim()).filter(Boolean)));
+  if (!ids.length) return;
+  const current = state.notebooks || [];
+  const notebooks = ids.map((id) => {
+    const existing = current.find((item) => (item.id || item.notebook_id) === id) || {};
+    return {
+      ...existing,
+      id,
+      name: form.get(`notebook_name_${id}`) || existing.name || id,
+      enabled: form.has(`notebook_enabled_${id}`),
+      auto_archive_enabled: form.has(`notebook_auto_archive_${id}`),
+      archive_time: form.get(`notebook_archive_time_${id}`) || existing.archive_time || "03:00",
+      push_enabled: form.has(`notebook_push_enabled_${id}`),
+      push_target: form.get(`notebook_push_target_${id}`) || existing.push_target || "admin_private",
+      push_format: form.get("diary_push_format") || existing.push_format || "text",
+    };
+  });
+  const payload = await api("/api/ui/notebooks", { method: "POST", body: JSON.stringify({ notebooks }) });
+  state.notebooks = payload.items || notebooks;
 }
 
 async function saveModuleToggle(input) {

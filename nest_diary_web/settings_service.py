@@ -42,11 +42,38 @@ class ServiceSettingsStore:
             settings.memory_recall_policy = "conservative"
         if settings.diary_archive_granularity not in {"day", "month", "year"}:
             settings.diary_archive_granularity = "day"
+        if settings.diary_display_mode not in {"grouped", "merged"}:
+            settings.diary_display_mode = "grouped"
+        settings.admin_private_diary_enabled = bool(settings.admin_private_diary_enabled)
+        settings.admin_private_push_enabled = bool(settings.admin_private_push_enabled)
+        if settings.diary_push_format not in {"text", "image"}:
+            settings.diary_push_format = "text"
+        if settings.diary_push_target not in {"source", "admin_private", "both"}:
+            settings.diary_push_target = "admin_private"
+        settings.permissions_allow_admin_natural_language = bool(settings.permissions_allow_admin_natural_language)
+        settings.nest_admin_ids = "\n".join(
+            dict.fromkeys(
+                item.strip()
+                for item in str(settings.nest_admin_ids or "").replace(",", "\n").replace("，", "\n").splitlines()
+                if item.strip()
+            )
+        )
         settings.enable_media_module = bool(settings.enable_media_module)
         settings.allow_media_refs = bool(settings.allow_media_refs)
         settings.media_max_items_per_day = max(1, min(int(settings.media_max_items_per_day), 500))
+        settings.media_auto_save_policy = {"manual": "admin_allowed", "bot_pick": "bot_curated"}.get(
+            settings.media_auto_save_policy,
+            settings.media_auto_save_policy,
+        )
+        if settings.media_auto_save_policy not in {"admin_only", "admin_allowed", "bot_curated", "review"}:
+            settings.media_auto_save_policy = "admin_only"
+        settings.media_auto_save_limit_12h = max(0, min(int(settings.media_auto_save_limit_12h), 200))
+        if settings.media_auto_album_strategy not in {"off", "existing_only", "confirm", "auto"}:
+            settings.media_auto_album_strategy = "confirm"
         settings.media_allow_bot_import = bool(settings.media_allow_bot_import)
         settings.media_auto_album = bool(settings.media_auto_album)
+        if settings.media_auto_album_strategy == "off":
+            settings.media_auto_album = False
         if settings.media_storage_strategy not in {"copy", "move", "cut"}:
             settings.media_storage_strategy = "copy"
         if settings.media_storage_strategy == "cut":

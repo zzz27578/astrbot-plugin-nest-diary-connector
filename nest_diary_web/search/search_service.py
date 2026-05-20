@@ -27,31 +27,70 @@ class SearchService:
 
     def _init_db(self) -> None:
         with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS diary_meta (
-                    date TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    body TEXT NOT NULL DEFAULT '',
-                    tags TEXT NOT NULL,
-                    people TEXT NOT NULL,
-                    mood TEXT NOT NULL,
-                    importance INTEGER NOT NULL,
-                    source TEXT NOT NULL
-                )
-                """
-            )
             columns = [row[1] for row in conn.execute("PRAGMA table_info(diary_meta)").fetchall()]
-            if "body" not in columns:
-                conn.execute("ALTER TABLE diary_meta ADD COLUMN body TEXT NOT NULL DEFAULT ''")
+            if columns and "notebook_id" not in columns:
+                conn.execute("ALTER TABLE diary_meta RENAME TO diary_meta_legacy")
+                conn.execute(
+                    """
+                    CREATE TABLE diary_meta (
+                        notebook_id TEXT NOT NULL DEFAULT 'default',
+                        date TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        body TEXT NOT NULL DEFAULT '',
+                        tags TEXT NOT NULL,
+                        people TEXT NOT NULL,
+                        mood TEXT NOT NULL,
+                        importance INTEGER NOT NULL,
+                        source TEXT NOT NULL,
+                        notebook_name TEXT NOT NULL DEFAULT '默认日记本',
+                        PRIMARY KEY (notebook_id, date)
+                    )
+                    """
+                )
+                legacy_columns = [row[1] for row in conn.execute("PRAGMA table_info(diary_meta_legacy)").fetchall()]
+                body_expr = "body" if "body" in legacy_columns else "''"
+                conn.execute(
+                    f"""
+                    INSERT OR REPLACE INTO diary_meta
+                    (notebook_id, date, title, body, tags, people, mood, importance, source, notebook_name)
+                    SELECT 'default', date, title, {body_expr}, tags, people, mood, importance, source, '默认日记本'
+                    FROM diary_meta_legacy
+                    """
+                )
+                conn.execute("DROP TABLE diary_meta_legacy")
+                conn.execute("DROP TABLE IF EXISTS diary_fts")
+                columns = [row[1] for row in conn.execute("PRAGMA table_info(diary_meta)").fetchall()]
+            if not columns:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS diary_meta (
+                        notebook_id TEXT NOT NULL DEFAULT 'default',
+                        date TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        body TEXT NOT NULL DEFAULT '',
+                        tags TEXT NOT NULL,
+                        people TEXT NOT NULL,
+                        mood TEXT NOT NULL,
+                        importance INTEGER NOT NULL,
+                        source TEXT NOT NULL,
+                        notebook_name TEXT NOT NULL DEFAULT '默认日记本',
+                        PRIMARY KEY (notebook_id, date)
+                    )
+                    """
+                )
+            else:
+                if "body" not in columns:
+                    conn.execute("ALTER TABLE diary_meta ADD COLUMN body TEXT NOT NULL DEFAULT ''")
+                if "notebook_name" not in columns:
+                    conn.execute("ALTER TABLE diary_meta ADD COLUMN notebook_name TEXT NOT NULL DEFAULT '默认日记本'")
             try:
                 fts_columns = [row[1] for row in conn.execute("PRAGMA table_info(diary_fts)").fetchall()]
-                if fts_columns and fts_columns != ["date", "title", "body", "tags", "people", "mood"]:
+                if fts_columns and fts_columns != ["notebook_id", "date", "title", "body", "tags", "people", "mood"]:
                     conn.execute("DROP TABLE diary_fts")
                 conn.execute(
                     """
                     CREATE VIRTUAL TABLE IF NOT EXISTS diary_fts
-                    USING fts5(date UNINDEXED, title, body, tags, people, mood)
+                    USING fts5(notebook_id UNINDEXED, date UNINDEXED, title, body, tags, people, mood)
                     """
                 )
                 self.capabilities = SearchCapabilities(fts5=True, backend="sqlite-fts5-bm25")
@@ -59,8 +98,8 @@ class SearchService:
                 if count == 0:
                     conn.execute(
                         """
-                        INSERT INTO diary_fts(date, title, body, tags, people, mood)
-                        SELECT date, title, body, tags, people, mood FROM diary_meta
+                        INSERT INTO diary_fts(notebook_id, date, title, body, tags, people, mood)
+                        SELECT notebook_id, date, title, body, tags, people, mood FROM diary_meta
                         """
                     )
             except sqlite3.OperationalError:
@@ -71,25 +110,26 @@ class SearchService:
             self._upsert_entry(conn, entry)
 
     def sync_entries(self, entries: list[DiaryEntry]) -> int:
-        dates = {entry.date for entry in entries}
+        keys = {(entry.notebook_id, entry.date) for entry in entries}
         with self._connect() as conn:
-            existing_dates = {row[0] for row in conn.execute("SELECT date FROM diary_meta").fetchall()}
+            existing_keys = {(row[0], row[1]) for row in conn.execute("SELECT notebook_id, date FROM diary_meta").fetchall()}
             for entry in entries:
                 self._upsert_entry(conn, entry)
-            for missing_date in existing_dates - dates:
-                conn.execute("DELETE FROM diary_meta WHERE date = ?", (missing_date,))
+            for missing_notebook, missing_date in existing_keys - keys:
+                conn.execute("DELETE FROM diary_meta WHERE notebook_id = ? AND date = ?", (missing_notebook, missing_date))
                 if self.capabilities.fts5:
-                    conn.execute("DELETE FROM diary_fts WHERE date = ?", (missing_date,))
+                    conn.execute("DELETE FROM diary_fts WHERE notebook_id = ? AND date = ?", (missing_notebook, missing_date))
         return len(entries)
 
     def _upsert_entry(self, conn: sqlite3.Connection, entry: DiaryEntry) -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO diary_meta
-            (date, title, body, tags, people, mood, importance, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (notebook_id, date, title, body, tags, people, mood, importance, source, notebook_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                entry.notebook_id,
                 entry.date,
                 entry.normalized_title(),
                 entry.body,
@@ -98,13 +138,15 @@ class SearchService:
                 ",".join(entry.mood),
                 entry.importance,
                 entry.source,
+                entry.notebook_name,
             ),
         )
         if self.capabilities.fts5:
-            conn.execute("DELETE FROM diary_fts WHERE date = ?", (entry.date,))
+            conn.execute("DELETE FROM diary_fts WHERE notebook_id = ? AND date = ?", (entry.notebook_id, entry.date))
             conn.execute(
-                "INSERT INTO diary_fts(date, title, body, tags, people, mood) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO diary_fts(notebook_id, date, title, body, tags, people, mood) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
+                    entry.notebook_id,
                     entry.date,
                     entry.normalized_title(),
                     entry.body,
@@ -114,13 +156,13 @@ class SearchService:
                 ),
             )
 
-    def delete_entry(self, date: str) -> None:
+    def delete_entry(self, date: str, notebook_id: str = "default") -> None:
         with self._connect() as conn:
-            conn.execute("DELETE FROM diary_meta WHERE date = ?", (date,))
+            conn.execute("DELETE FROM diary_meta WHERE notebook_id = ? AND date = ?", (notebook_id, date))
             if self.capabilities.fts5:
-                conn.execute("DELETE FROM diary_fts WHERE date = ?", (date,))
+                conn.execute("DELETE FROM diary_fts WHERE notebook_id = ? AND date = ?", (notebook_id, date))
 
-    def search(self, query: str, top_k: int = 8, snippet_chars: int = 180) -> list[dict]:
+    def search(self, query: str, top_k: int = 8, snippet_chars: int = 180, notebook_id: str | None = None) -> list[dict]:
         query = query.strip()
         if not query:
             return []
@@ -134,33 +176,38 @@ class SearchService:
                     rows = conn.execute(
                         """
                         SELECT
+                            f.notebook_id,
                             f.date,
                             m.title,
-                            snippet(diary_fts, 2, '[', ']', '...', 18),
+                            snippet(diary_fts, 3, '[', ']', '...', 18),
                             bm25(diary_fts, 3.0, 1.5, 1.0, 1.2, 1.2, 0.8) AS score,
                             m.tags,
                             m.people,
+                            m.notebook_name,
                             'fts5'
                         FROM diary_fts f
-                        JOIN diary_meta m ON m.date = f.date
+                        JOIN diary_meta m ON m.notebook_id = f.notebook_id AND m.date = f.date
                         WHERE diary_fts MATCH ?
+                        """ + (" AND f.notebook_id = ? " if notebook_id else "") + """
                         ORDER BY score
                         LIMIT ?
                         """,
-                        (match_query, top_k),
+                        (match_query, notebook_id, top_k) if notebook_id else (match_query, top_k),
                     ).fetchall()
                 except sqlite3.OperationalError:
                     rows = []
             if rows:
                 return [
                     {
-                        "date": row[0],
-                        "title": row[1],
-                        "snippet": self._trim_snippet(row[2], snippet_chars),
-                        "score": row[3],
-                        "tags": self._split_csv(row[4]),
-                        "people": self._split_csv(row[5]),
-                        "backend": row[6],
+                        "notebook_id": row[0],
+                        "date": row[1],
+                        "title": row[2],
+                        "snippet": self._trim_snippet(row[3], snippet_chars),
+                        "score": row[4],
+                        "tags": self._split_csv(row[5]),
+                        "people": self._split_csv(row[6]),
+                        "notebook_name": row[7],
+                        "backend": row[8],
                     }
                     for row in rows
                 ]
@@ -175,51 +222,60 @@ class SearchService:
                         "(date LIKE ? OR body LIKE ? OR title LIKE ? OR tags LIKE ? OR people LIKE ? OR mood LIKE ?)"
                     )
                     params.extend([like_query, like_query, like_query, like_query, like_query, like_query])
+                scope_sql = " AND notebook_id = ?" if notebook_id else ""
                 rows = conn.execute(
                     """
-                    SELECT date, title, body, tags, people
+                    SELECT notebook_id, date, title, body, tags, people, notebook_name
                     FROM diary_meta
-                    WHERE """ + " AND ".join(where_parts) + """
+                    WHERE """ + " AND ".join(where_parts) + scope_sql + """
                     ORDER BY importance DESC, date DESC
                     LIMIT ?
                     """,
-                    (*params, top_k),
+                    (*params, notebook_id, top_k) if notebook_id else (*params, top_k),
                 ).fetchall()
             else:
                 rows = []
             if rows:
                 return [
                     {
-                        "date": row[0],
-                        "title": row[1],
-                        "snippet": self._make_snippet(row[2], query, snippet_chars),
+                        "notebook_id": row[0],
+                        "date": row[1],
+                        "title": row[2],
+                        "snippet": self._make_snippet(row[3], query, snippet_chars),
                         "score": None,
-                        "tags": self._split_csv(row[3]),
-                        "people": self._split_csv(row[4]),
+                        "tags": self._split_csv(row[4]),
+                        "people": self._split_csv(row[5]),
+                        "notebook_name": row[6],
                         "backend": "sqlite-like",
                     }
                     for row in rows
                 ]
 
             like_query = f"%{query}%"
+            notebook_sql = " AND notebook_id = ?" if notebook_id else ""
             rows = conn.execute(
                 """
-                SELECT date, title, body, tags, people
+                SELECT notebook_id, date, title, body, tags, people, notebook_name
                 FROM diary_meta
-                WHERE date LIKE ? OR body LIKE ? OR title LIKE ? OR tags LIKE ? OR people LIKE ? OR mood LIKE ?
+                WHERE (date LIKE ? OR body LIKE ? OR title LIKE ? OR tags LIKE ? OR people LIKE ? OR mood LIKE ?)
+                """ + notebook_sql + """
                 ORDER BY importance DESC, date DESC
                 LIMIT ?
                 """,
-                (like_query, like_query, like_query, like_query, like_query, like_query, top_k),
+                (like_query, like_query, like_query, like_query, like_query, like_query, notebook_id, top_k)
+                if notebook_id
+                else (like_query, like_query, like_query, like_query, like_query, like_query, top_k),
             ).fetchall()
             return [
                 {
-                    "date": row[0],
-                    "title": row[1],
-                    "snippet": self._make_snippet(row[2], query, snippet_chars),
+                    "notebook_id": row[0],
+                    "date": row[1],
+                    "title": row[2],
+                    "snippet": self._make_snippet(row[3], query, snippet_chars),
                     "score": None,
-                    "tags": self._split_csv(row[3]),
-                    "people": self._split_csv(row[4]),
+                    "tags": self._split_csv(row[4]),
+                    "people": self._split_csv(row[5]),
+                    "notebook_name": row[6],
                     "backend": "sqlite-like",
                 }
                 for row in rows

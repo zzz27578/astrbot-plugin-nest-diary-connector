@@ -12,13 +12,14 @@ class RevisionService:
         self.paths = paths
         self.paths.ensure_all()
 
-    def snapshot(self, date: str, content: str, reason: str, source: str) -> Path:
+    def snapshot(self, date: str, content: str, reason: str, source: str, notebook_id: str = "default") -> Path:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        target_dir = self.paths.revisions_dir / date[:4] / date[5:7] / date
+        target_dir = self.paths.revision_dir_for_notebook(notebook_id, date)
         target_dir.mkdir(parents=True, exist_ok=True)
         path = target_dir / f"{timestamp}.md"
         metadata = {
             "date": date,
+            "notebook_id": notebook_id,
             "created_at_utc": timestamp,
             "source": source,
             "reason": reason,

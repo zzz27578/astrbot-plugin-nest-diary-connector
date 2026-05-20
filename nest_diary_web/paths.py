@@ -3,6 +3,15 @@
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
+import re
+
+
+SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def safe_package_id(value: str, fallback: str = "default") -> str:
+    cleaned = SAFE_ID_RE.sub("_", (value or "").strip()).strip("._-")
+    return cleaned or fallback
 
 
 @dataclass(frozen=True)
@@ -47,6 +56,14 @@ class NestPaths:
         return self.modules_dir / "diary" / "entries"
 
     @property
+    def diary_notebooks_dir(self) -> Path:
+        return self.modules_dir / "diary" / "notebooks"
+
+    @property
+    def diary_notebook_registry_file(self) -> Path:
+        return self.modules_dir / "diary" / "notebooks.json"
+
+    @property
     def index_dir(self) -> Path:
         return self.modules_dir / "diary" / "index"
 
@@ -67,8 +84,20 @@ class NestPaths:
         return self.framework_settings_dir
 
     def diary_file(self, date: str) -> Path:
+        return self.diary_file_for_notebook("default", date)
+
+    def diary_entries_dir_for_notebook(self, notebook_id: str) -> Path:
+        notebook_id = safe_package_id(notebook_id)
+        return self.diary_notebooks_dir / notebook_id / "entries"
+
+    def diary_file_for_notebook(self, notebook_id: str, date: str) -> Path:
+        notebook_id = safe_package_id(notebook_id)
         year, month, _day = date.split("-")
-        return self.diary_dir / year / month / f"{date}.md"
+        return self.diary_entries_dir_for_notebook(notebook_id) / year / month / f"{date}.md"
+
+    def revision_dir_for_notebook(self, notebook_id: str, date: str) -> Path:
+        notebook_id = safe_package_id(notebook_id)
+        return self.revisions_dir / notebook_id / date[:4] / date[5:7] / date
 
     def ensure_all(self) -> None:
         for path in [
@@ -81,6 +110,7 @@ class NestPaths:
             self.user_custom_dir / "webui" / "modules",
             self.user_custom_dir / "webui" / "extensions",
             self.diary_dir,
+            self.diary_notebooks_dir / "default" / "entries",
             self.memory_dir / "people",
             self.memory_dir / "topics",
             self.memory_dir / "events",
