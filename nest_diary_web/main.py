@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.6"
+APP_VERSION = "0.5.7"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -778,6 +778,7 @@ class SecurityUpdateRequest(BaseModel):
 class NotebookUpdateRequest(BaseModel):
     notebooks: list[dict] = Field(default_factory=list)
     delete_ids: list[str] = Field(default_factory=list)
+    replace: bool = False
 
 
 @app.get("/api/v1/impressions")
@@ -945,7 +946,14 @@ async def ui_list_notebooks(_session: None = Depends(require_web_session)):
 
 @app.post("/api/ui/notebooks")
 async def ui_save_notebooks(payload: NotebookUpdateRequest, _session: None = Depends(require_web_session)):
-    return {"status": "ok", "items": diary_service.save_notebooks(payload.notebooks, delete_ids=payload.delete_ids)}
+    return {
+        "status": "ok",
+        "items": diary_service.save_notebooks(
+            payload.notebooks,
+            delete_ids=payload.delete_ids,
+            replace=payload.replace,
+        ),
+    }
 
 
 @app.get("/api/ui/impressions")
@@ -1093,6 +1101,7 @@ async def ui_get_settings(_session: None = Depends(require_web_session)):
         "settings": _settings_payload(),
         "security": _security_payload(),
         "search": diary_service.search_status(),
+        "notebooks": diary_service.list_notebooks(),
         "frontend_styles": _frontend_styles(ui_settings),
         "module_catalog": _module_catalog(ui_settings),
         "runtime": {

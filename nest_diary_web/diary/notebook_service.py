@@ -92,11 +92,31 @@ class NotebookService:
         self._save(items)
         return current
 
-    def save_notebooks(self, notebooks: list[dict], delete_ids: list[str] | None = None) -> list[DiaryNotebook]:
+    def save_notebooks(
+        self,
+        notebooks: list[dict],
+        delete_ids: list[str] | None = None,
+        replace: bool = False,
+    ) -> list[DiaryNotebook]:
         items = self._load()
         now = self._now()
-        for raw_id in delete_ids or []:
-            notebook_id = safe_package_id(str(raw_id or ""))
+        submitted_ids = {
+            safe_package_id(str(raw.get("id") or raw.get("notebook_id") or ""))
+            for raw in notebooks
+            if str(raw.get("id") or raw.get("notebook_id") or "").strip()
+        }
+        delete_id_set = {
+            safe_package_id(str(raw_id or ""))
+            for raw_id in (delete_ids or [])
+            if str(raw_id or "").strip()
+        }
+        if replace:
+            delete_id_set.update(
+                notebook_id
+                for notebook_id in items
+                if notebook_id != "default" and notebook_id not in submitted_ids
+            )
+        for notebook_id in delete_id_set:
             if not notebook_id or notebook_id == "default":
                 continue
             items.pop(notebook_id, None)
@@ -109,6 +129,8 @@ class NotebookService:
                 continue
             notebook_id = safe_package_id(raw_id)
             if not notebook_id:
+                continue
+            if notebook_id in delete_id_set:
                 continue
             current = items.get(notebook_id) or DiaryNotebook(
                 id=notebook_id,

@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.6";
+const APP_VERSION = "0.5.7";
 
 const DIARY_T2I_TEMPLATES = [
   {
@@ -2388,6 +2388,7 @@ function formatDateTime(value = "") {
 async function renderSettings() {
   const payload = await api("/api/ui/settings");
   state.settings = payload;
+  state.notebooks = payload.notebooks || state.notebooks || [];
   const settings = payload.settings;
   if (!["modules", "access", "backup"].includes(state.settingsSection)) state.settingsSection = "modules";
   panel("settings").innerHTML = `
@@ -2684,8 +2685,21 @@ function deleteNotebookRow(id) {
   if (!id || id === "default") return;
   const row = document.querySelector(`[data-notebook-row="${CSS.escape(id)}"]`);
   if (!row) return;
+  const form = row.closest("form");
+  if (form) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "notebook_delete_id";
+    input.value = id;
+    input.dataset.notebookDeleteInput = id;
+    form.appendChild(input);
+  }
   state.notebookDeleteIds = Array.from(new Set([...(state.notebookDeleteIds || []), id]));
+  state.notebooks = (state.notebooks || []).filter((item) => (item.id || item.notebook_id) !== id);
+  state.toast = "日记本已标记删除，保存后生效";
   row.remove();
+  updateShell();
+  clearToastSoon();
 }
 
 function notebookOriginFromForm(form, id) {
@@ -3040,7 +3054,13 @@ async function saveSettings(event) {
 
 async function saveNotebookSettings(formEl, form) {
   const ids = Array.from(new Set(form.getAll("notebook_id").map((item) => String(item || "").trim()).filter(Boolean)));
-  if (!ids.length && !(state.notebookDeleteIds || []).length) return;
+  const deleteIds = Array.from(
+    new Set([
+      ...(state.notebookDeleteIds || []),
+      ...form.getAll("notebook_delete_id").map((item) => String(item || "").trim()),
+    ])
+  ).filter((id) => id && id !== "default");
+  if (!ids.length && !deleteIds.length) return;
   const current = state.notebooks || [];
   const notebooks = ids.map((id) => {
     const existing = current.find((item) => (item.id || item.notebook_id) === id) || {};
@@ -3061,9 +3081,10 @@ async function saveNotebookSettings(formEl, form) {
       push_format: form.get("diary_push_format") || existing.push_format || "text",
     };
   });
-  const payload = await api("/api/ui/notebooks", { method: "POST", body: JSON.stringify({ notebooks, delete_ids: state.notebookDeleteIds || [] }) });
+  const payload = await api("/api/ui/notebooks", { method: "POST", body: JSON.stringify({ notebooks, delete_ids: deleteIds, replace: true }) });
   state.notebooks = payload.items || notebooks;
   state.notebookDeleteIds = [];
+  formEl.querySelectorAll('[name="notebook_delete_id"]').forEach((input) => input.remove());
 }
 
 async function saveModuleToggle(input) {
