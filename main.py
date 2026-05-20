@@ -43,18 +43,25 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.8"
+PLUGIN_VERSION = "0.5.9"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
 )
 DEFAULT_DIARY_T2I_TEMPLATE = (
-    "<div style=\"font-family:'Microsoft YaHei',sans-serif;width:760px;padding:42px;"
-    "background:#fffdf8;color:#20242a;border:2px solid #20242a;\">"
-    "<p style=\"margin:0 0 12px;color:#176f66;font-weight:800;\">{{ date }} · {{ notebook_name }}</p>"
-    "<h1 style=\"margin:0 0 22px;font-size:34px;line-height:1.2;\">{{ title }}</h1>"
-    "<div style=\"white-space:pre-wrap;font-size:20px;line-height:1.75;\">{{ body }}</div>"
-    "</div>"
+    "<!doctype html><html><head><meta charset=\"utf-8\"><style>"
+    "html,body{margin:0;padding:0;width:760px;background:transparent;}"
+    "body{font-family:'Microsoft YaHei','Noto Sans SC',sans-serif;color:#20242a;}"
+    ".diary-push-page{box-sizing:border-box;width:760px;min-height:360px;padding:46px 50px 52px;"
+    "background:#fffdf8;border:2px solid #20242a;}"
+    ".meta{margin:0 0 14px;color:#176f66;font-size:18px;line-height:1.4;font-weight:800;}"
+    "h1{margin:0 0 24px;font-size:34px;line-height:1.22;font-weight:900;letter-spacing:0;}"
+    ".body{white-space:pre-wrap;font-size:20px;line-height:1.78;word-break:break-word;}"
+    ".rule{width:70px;height:5px;background:#176f66;margin:0 0 22px;}"
+    "</style></head><body><main class=\"diary-push-page\">"
+    "<div class=\"rule\"></div><p class=\"meta\">{{ date }} · {{ notebook_name }}</p>"
+    "<h1>{{ title }}</h1><div class=\"body\">{{ body }}</div>"
+    "</main></body></html>"
 )
 
 
@@ -109,7 +116,8 @@ class NestDiaryHttpClient:
 
     async def resolve_notebook(self, origin_umo: str) -> dict:
         parts = _origin_parts(origin_umo)
-        prefix = "group" if parts["message_type"] == "group" else "private" if parts["message_type"] == "private" else "session"
+        family = _message_type_family(parts["message_type"])
+        prefix = "group" if family == "group" else "private" if family == "private" else "session"
         notebook_id = safe_package_id(f"{prefix}_{parts['platform_id']}_{parts['session_id']}") if origin_umo else "default"
         return {"id": notebook_id or "default", "name": "", "origin_umo": origin_umo, **parts}
 
@@ -183,6 +191,7 @@ class EmbeddedNestClient:
     def __init__(self, data_dir: Path, admin_password: str = "12345678", external_api_key: str = ""):
         self.paths = NestPaths(data_dir)
         self.diary_service = DiaryService(self.paths)
+        self.diary_service.notebooks.audit_protocols()
         self.media_service = MediaService(self.paths)
         self.impression_service = ImpressionService(self.paths)
         self.service_settings = ServiceSettingsStore(self.paths)
@@ -813,6 +822,26 @@ def _origin_parts(origin_umo: str) -> dict[str, str]:
     }
 
 
+def _message_type_family(message_type: str) -> str:
+    compact = str(message_type or "").strip().lower().replace("_", "").replace("-", "")
+    if not compact:
+        return "session"
+    if compact in {"private", "privatemessage", "friend", "friendmessage", "dm", "direct", "directmessage", "c2c"}:
+        return "private"
+    if "friend" in compact or "private" in compact:
+        return "private"
+    if compact in {"group", "groupmessage", "guild", "channel", "room", "groupchat"}:
+        return "group"
+    if "group" in compact or "guild" in compact or "channel" in compact:
+        return "group"
+    return compact
+
+
+def _origin_is_full_umo(value: str) -> bool:
+    parts = _origin_parts(value)
+    return bool(parts["platform_id"] and parts["message_type"] and parts["session_id"])
+
+
 def _split_words(value: str | None) -> list[str]:
     if not value:
         return []
@@ -1372,10 +1401,64 @@ class NestDiaryConnectorPlugin(Star):
         admin_ids = sorted(self._configured_admin_ids())
         if not admin_ids:
             return ""
-        platform_id = (notebook or {}).get("platform_id") or _origin_parts(self._event_origin(event))["platform_id"]
+        current_origin = self._event_origin(event)
+        current_parts = _origin_parts(current_origin)
+        notebook = notebook or {}
+
+        full_admin_origins = [item for item in admin_ids if _origin_is_full_umo(item)]
+        if current_origin in full_admin_origins:
+            return current_origin
+
+        platform_id = str(notebook.get("platform_id") or current_parts["platform_id"] or "").strip()
         if not platform_id:
             return ""
-        return f"{platform_id}:private:{admin_ids[0]}"
+
+        for admin_origin in full_admin_origins:
+            parts = _origin_parts(admin_origin)
+            if parts["platform_id"] == platform_id and _message_type_family(parts["message_type"]) == "private":
+                return admin_origin
+
+        plain_admin_ids = [item for item in admin_ids if not _origin_is_full_umo(item)]
+        if not plain_admin_ids:
+            return ""
+        sender_id = self._event_sender_id(event)
+        admin_id = sender_id if sender_id in plain_admin_ids else plain_admin_ids[0]
+
+        if (
+            current_parts["platform_id"] == platform_id
+            and current_parts["session_id"] == admin_id
+            and _message_type_family(current_parts["message_type"]) == "private"
+        ):
+            return current_origin
+
+        message_type = self._private_message_type_for_platform(platform_id, current_parts, notebook)
+        return f"{platform_id}:{message_type}:{admin_id}"
+
+    def _private_message_type_for_platform(self, platform_id: str, current_parts: dict[str, str], notebook: dict) -> str:
+        candidates = [
+            str(notebook.get("message_type") or ""),
+            str(current_parts.get("message_type") or ""),
+        ]
+        try:
+            if hasattr(self.client, "diary_service"):
+                for item in self.client.diary_service.notebooks.list_notebooks():
+                    if item.platform_id == platform_id:
+                        candidates.append(item.message_type)
+                        for alias in item.origin_aliases or []:
+                            candidates.append(_origin_parts(alias)["message_type"])
+        except Exception:
+            pass
+
+        for candidate in candidates:
+            if _message_type_family(candidate) == "private":
+                return candidate
+        for candidate in candidates:
+            candidate = str(candidate or "").strip()
+            if "GroupMessage" in candidate:
+                return candidate.replace("GroupMessage", "FriendMessage")
+            if candidate.lower() == "group":
+                return "private"
+        return "private"
 
     def _diary_push_text(self, entry: dict) -> str:
         title = entry.get("title") or entry.get("date") or "小窝日记"
@@ -1396,7 +1479,18 @@ class NestDiaryConnectorPlugin(Star):
         template = self._selected_diary_t2i_template(ui_settings)
         html_render = getattr(self, "html_render", None)
         if html_render:
-            return await html_render(template, data, return_url=False, options={"full_page": True, "type": "png"})
+            options = {
+                "full_page": True,
+                "type": "png",
+                "animations": "disabled",
+                "caret": "hide",
+                "timeout": 60000,
+                "viewport": {"width": 760, "height": 600},
+            }
+            if "diary-push-page" in template:
+                options["selector"] = ".diary-push-page"
+                options.pop("full_page", None)
+            return await html_render(template, data, return_url=False, options=options)
         text_to_image = getattr(self, "text_to_image", None)
         if text_to_image:
             return await text_to_image(self._diary_push_text(entry), return_url=False)
@@ -1408,22 +1502,34 @@ class NestDiaryConnectorPlugin(Star):
         builtin_templates = {
             "plain_note": getattr(ServiceUiSettings(), "diary_t2i_template", DEFAULT_DIARY_T2I_TEMPLATE),
             "terminal_report": (
-                "<div style=\"width:820px;padding:38px;font-family:'Microsoft YaHei',sans-serif;"
-                "background:#f1f4f2;color:#1f2527;border:1px solid #2c3b3b;\">"
-                "<div style=\"display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #2c3b3b;"
-                "padding-bottom:14px;margin-bottom:24px;\">"
-                "<strong style=\"font-size:18px;\">小窝日记</strong>"
-                "<span style=\"color:#58706b;font-weight:800;\">{{ date }} / {{ notebook_name }}</span></div>"
-                "<h1 style=\"margin:0 0 20px;font-size:32px;line-height:1.18;\">{{ title }}</h1>"
-                "<div style=\"white-space:pre-wrap;font-size:19px;line-height:1.72;\">{{ body }}</div></div>"
+                "<!doctype html><html><head><meta charset=\"utf-8\"><style>"
+                "html,body{margin:0;padding:0;width:760px;background:transparent;}"
+                "body{font-family:'Microsoft YaHei','Noto Sans SC',sans-serif;color:#1f2527;}"
+                ".diary-push-page{box-sizing:border-box;width:760px;min-height:360px;padding:42px 46px 50px;"
+                "background:#f1f4f2;border:1px solid #2c3b3b;}"
+                ".head{display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #2c3b3b;"
+                "padding-bottom:14px;margin-bottom:24px;font-size:18px;line-height:1.4;font-weight:900;}"
+                ".meta{color:#58706b;font-weight:800;text-align:right;}"
+                "h1{margin:0 0 22px;font-size:32px;line-height:1.2;font-weight:900;letter-spacing:0;}"
+                ".body{white-space:pre-wrap;font-size:19px;line-height:1.76;word-break:break-word;}"
+                "</style></head><body><main class=\"diary-push-page\">"
+                "<div class=\"head\"><strong>小窝日记</strong><span class=\"meta\">{{ date }} / {{ notebook_name }}</span></div>"
+                "<h1>{{ title }}</h1><div class=\"body\">{{ body }}</div>"
+                "</main></body></html>"
             ),
             "magazine_page": (
-                "<div style=\"width:760px;padding:52px 48px;font-family:'Microsoft YaHei',sans-serif;"
-                "background:#fbfaf5;color:#202124;\">"
-                "<div style=\"width:64px;height:5px;background:#d25f45;margin-bottom:28px;\"></div>"
-                "<p style=\"margin:0 0 16px;color:#6a756f;font-size:17px;font-weight:800;\">{{ date }} · {{ notebook_name }}</p>"
-                "<h1 style=\"margin:0 0 26px;font-size:38px;line-height:1.16;\">{{ title }}</h1>"
-                "<div style=\"white-space:pre-wrap;font-size:20px;line-height:1.86;\">{{ body }}</div></div>"
+                "<!doctype html><html><head><meta charset=\"utf-8\"><style>"
+                "html,body{margin:0;padding:0;width:760px;background:transparent;}"
+                "body{font-family:'Microsoft YaHei','Noto Sans SC',sans-serif;color:#202124;}"
+                ".diary-push-page{box-sizing:border-box;width:760px;min-height:360px;padding:54px 50px 58px;background:#fbfaf5;}"
+                ".rule{width:64px;height:5px;background:#d25f45;margin-bottom:28px;}"
+                ".meta{margin:0 0 16px;color:#6a756f;font-size:17px;line-height:1.4;font-weight:800;}"
+                "h1{margin:0 0 26px;font-size:38px;line-height:1.16;font-weight:900;letter-spacing:0;}"
+                ".body{white-space:pre-wrap;font-size:20px;line-height:1.86;word-break:break-word;}"
+                "</style></head><body><main class=\"diary-push-page\">"
+                "<div class=\"rule\"></div><p class=\"meta\">{{ date }} · {{ notebook_name }}</p>"
+                "<h1>{{ title }}</h1><div class=\"body\">{{ body }}</div>"
+                "</main></body></html>"
             ),
         }
         if name in builtin_templates:
@@ -1467,7 +1573,7 @@ class NestDiaryConnectorPlugin(Star):
                 return entry, candidate
 
         origin_parts = _origin_parts(self._event_origin(event))
-        if origin_parts["message_type"] == "private" and self._is_nest_admin(event):
+        if _message_type_family(origin_parts["message_type"]) == "private" and self._is_nest_admin(event):
             matches: list[tuple[dict, str]] = []
             try:
                 notebooks = (await self.tools.list_notebooks()).get("items") or []
@@ -1515,6 +1621,17 @@ class NestDiaryConnectorPlugin(Star):
                 notebook_config = self.client.diary_service.notebooks.get(selected_notebook).__dict__
         except Exception:
             notebook_config = {}
+        if notebook_config:
+            notebook.update(
+                {
+                    "notebook_id": notebook_config.get("id", notebook.get("notebook_id", selected_notebook)),
+                    "notebook_name": notebook_config.get("name", notebook.get("notebook_name", "")),
+                    "origin_umo": notebook_config.get("origin_umo") or notebook.get("origin_umo", ""),
+                    "platform_id": notebook_config.get("platform_id") or notebook.get("platform_id", ""),
+                    "message_type": notebook_config.get("message_type") or notebook.get("message_type", ""),
+                    "session_id": notebook_config.get("session_id") or notebook.get("session_id", ""),
+                }
+            )
         target = target or notebook_config.get("push_target") or getattr(ui_settings, "diary_push_target", "none")
         push_format = push_format or getattr(ui_settings, "diary_push_format", "text")
         if target == "none":

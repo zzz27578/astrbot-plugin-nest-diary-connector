@@ -69,12 +69,19 @@ class ServiceUiSettings:
         "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
     )
     diary_t2i_template: str = (
-        "<div style=\"font-family:'Microsoft YaHei',sans-serif;width:760px;padding:42px;"
-        "background:#fffdf8;color:#20242a;border:2px solid #20242a;\">"
-        "<p style=\"margin:0 0 12px;color:#176f66;font-weight:800;\">{{ date }} · {{ notebook_name }}</p>"
-        "<h1 style=\"margin:0 0 22px;font-size:34px;line-height:1.2;\">{{ title }}</h1>"
-        "<div style=\"white-space:pre-wrap;font-size:20px;line-height:1.75;\">{{ body }}</div>"
-        "</div>"
+        "<!doctype html><html><head><meta charset=\"utf-8\"><style>"
+        "html,body{margin:0;padding:0;width:760px;background:transparent;}"
+        "body{font-family:'Microsoft YaHei','Noto Sans SC',sans-serif;color:#20242a;}"
+        ".diary-push-page{box-sizing:border-box;width:760px;min-height:360px;padding:46px 50px 52px;"
+        "background:#fffdf8;border:2px solid #20242a;}"
+        ".meta{margin:0 0 14px;color:#176f66;font-size:18px;line-height:1.4;font-weight:800;}"
+        "h1{margin:0 0 24px;font-size:34px;line-height:1.22;font-weight:900;letter-spacing:0;}"
+        ".body{white-space:pre-wrap;font-size:20px;line-height:1.78;word-break:break-word;}"
+        ".rule{width:70px;height:5px;background:#176f66;margin:0 0 22px;}"
+        "</style></head><body><main class=\"diary-push-page\">"
+        "<div class=\"rule\"></div><p class=\"meta\">{{ date }} · {{ notebook_name }}</p>"
+        "<h1>{{ title }}</h1><div class=\"body\">{{ body }}</div>"
+        "</main></body></html>"
     )
     enable_media_module: bool = True
     allow_media_refs: bool = True
