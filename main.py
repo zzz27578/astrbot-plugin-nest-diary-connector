@@ -43,7 +43,19 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.7"
+PLUGIN_VERSION = "0.5.8"
+DEFAULT_DIARY_WRITE_PROMPT = (
+    "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
+    "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
+)
+DEFAULT_DIARY_T2I_TEMPLATE = (
+    "<div style=\"font-family:'Microsoft YaHei',sans-serif;width:760px;padding:42px;"
+    "background:#fffdf8;color:#20242a;border:2px solid #20242a;\">"
+    "<p style=\"margin:0 0 12px;color:#176f66;font-weight:800;\">{{ date }} · {{ notebook_name }}</p>"
+    "<h1 style=\"margin:0 0 22px;font-size:34px;line-height:1.2;\">{{ title }}</h1>"
+    "<div style=\"white-space:pre-wrap;font-size:20px;line-height:1.75;\">{{ body }}</div>"
+    "</div>"
+)
 
 
 class NestDiaryHttpClient:
@@ -80,6 +92,8 @@ class NestDiaryHttpClient:
                 params={"notebook_id": notebook_id or "default"},
                 headers=self._headers(),
             ) as response:
+                if response.status == 404:
+                    raise FileNotFoundError(f"Diary entry not found: {date}")
                 response.raise_for_status()
                 return await response.json()
 
@@ -98,6 +112,15 @@ class NestDiaryHttpClient:
         prefix = "group" if parts["message_type"] == "group" else "private" if parts["message_type"] == "private" else "session"
         notebook_id = safe_package_id(f"{prefix}_{parts['platform_id']}_{parts['session_id']}") if origin_umo else "default"
         return {"id": notebook_id or "default", "name": "", "origin_umo": origin_umo, **parts}
+
+    async def list_notebooks(self) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                f"{self.service_url}/api/v1/diary/notebooks",
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
 
     async def attach_media(self, payload: dict) -> dict:
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
@@ -267,6 +290,9 @@ class EmbeddedNestClient:
     async def resolve_notebook(self, origin_umo: str) -> dict:
         return self.diary_service.resolve_notebook_from_origin(origin_umo)
 
+    async def list_notebooks(self) -> dict:
+        return {"items": self.diary_service.list_notebooks()}
+
     async def attach_media(self, payload: dict) -> dict:
         ui_settings = self.service_settings.load()
         if not ui_settings.enable_media_module:
@@ -356,6 +382,11 @@ class NestDiaryTools:
             return await self.client.resolve_notebook(origin_umo)
         parts = _origin_parts(origin_umo)
         return {"id": "default", "name": "", "origin_umo": origin_umo, **parts}
+
+    async def list_notebooks(self) -> dict:
+        if hasattr(self.client, "list_notebooks"):
+            return await self.client.list_notebooks()
+        return {"items": []}
 
     async def write_diary(
         self,
@@ -651,6 +682,7 @@ if FunctionTool is not None:
             self,
             ctx: ContextWrapper,
             date: str = Field(description="要推送的日记日期，格式 YYYY-MM-DD。"),
+            notebook_id: str = Field(default="", description="可选日记本 ID；留空使用当前会话日记本。"),
             target: str = Field(default="", description="推送目标：none、source、admin_private、both；留空使用小窝设置。"),
             push_format: str = Field(default="", description="推送格式：text 或 image；留空使用小窝设置。"),
         ) -> ToolExecResult:
@@ -660,7 +692,10 @@ if FunctionTool is not None:
             denial = await owner._guard_permission(ctx, "diary_read", "推送日记")
             if denial:
                 return _tool_text(denial)
-            return _tool_text(await owner._push_diary_entry(ctx, date=date, target=target, push_format=push_format))
+            try:
+                return _tool_text(await owner._push_diary_entry(ctx, date=date, notebook_id=notebook_id, target=target, push_format=push_format))
+            except Exception as exc:
+                return _tool_text(f"推送日记失败：{_brief_error(exc)}")
 
 
     @pydantic_dataclass
@@ -1117,30 +1152,33 @@ class NestDiaryConnectorPlugin(Star):
             "以下内容由小窝插件自动注入给 bot，用于规范工具调用；它不是用户输入，禁止在可见聊天中复述、引用或解释。",
             "只有在用户确实需要记忆、日记、媒体、人物印象、推送或查找小窝内容时，才调用小窝工具。",
         ]
-        if ui_settings.enable_diary_module:
-            diary_prompt = (ui_settings.diary_write_prompt or "").strip()
+        if bool(getattr(ui_settings, "enable_diary_module", True)):
+            diary_prompt = str(getattr(ui_settings, "diary_write_prompt", DEFAULT_DIARY_WRITE_PROMPT) or "").strip()
             if diary_prompt:
                 parts.extend(["<写日记要求规范>", diary_prompt, "</写日记要求规范>"])
             parts.append("写日记必须基于当前会话或可检索到的稳定证据；材料不足时不要编造，不要把系统规范写进日记正文。")
         else:
             parts.append("日记模块当前关闭，不得调用 write_diary、read_diary、search_diary 或 push_diary。")
-        if ui_settings.enable_media_module:
+        if bool(getattr(ui_settings, "enable_media_module", True)):
+            media_limit = int(getattr(ui_settings, "media_auto_save_limit_12h", 10) or 0)
             parts.append(
-                f"媒体策略：保存媒体前遵守 WebUI 的写入限制；当前 12 小时自动保存上限为 {ui_settings.media_auto_save_limit_12h}。"
+                f"媒体策略：保存媒体前遵守 WebUI 的写入限制；当前 12 小时自动保存上限为 {media_limit}。"
                 "媒体备注属于隐藏元数据，应写清来源、保存情景、bot 评价和已知用户评价。"
             )
         else:
             parts.append("媒体模块当前关闭，不得调用 attach_media 或 send_media。")
         if (
-            ui_settings.enable_impressions_module
-            and ui_settings.auto_impression_from_diary
-            and ui_settings.impression_write_level != "off"
+            bool(getattr(ui_settings, "enable_impressions_module", True))
+            and bool(getattr(ui_settings, "auto_impression_from_diary", False))
+            and getattr(ui_settings, "impression_write_level", "balanced") != "off"
         ):
-            impression_prompt = (ui_settings.impression_prompt or "").strip()
+            impression_prompt = str(getattr(ui_settings, "impression_prompt", "") or "").strip()
             parts.append(
                 "人物印象只在有稳定证据时更新；弱情绪、单次玩笑或不确定称呼不得自动建档。"
-                f"写入强度：{ui_settings.impression_write_level}；更新策略：{ui_settings.impression_update_strategy}；"
-                f"允许新建人物：{'是' if ui_settings.impression_allow_new_people else '否'}；最低确认程度：{ui_settings.impression_min_confidence}/5。"
+                f"写入强度：{getattr(ui_settings, 'impression_write_level', 'balanced')}；"
+                f"更新策略：{getattr(ui_settings, 'impression_update_strategy', 'evidence_only')}；"
+                f"允许新建人物：{'是' if getattr(ui_settings, 'impression_allow_new_people', False) else '否'}；"
+                f"最低确认程度：{getattr(ui_settings, 'impression_min_confidence', 3)}/5。"
             )
             if impression_prompt:
                 parts.extend(["<人物印象规范>", impression_prompt, "</人物印象规范>"])
@@ -1182,11 +1220,31 @@ class NestDiaryConnectorPlugin(Star):
         return bool(getattr(event, "_nest_scheduled", False) or getattr(self, "_active_scheduled_origin", ""))
 
     def _unwrap_event(self, event):
-        for attr in ("event", "message_event", "astr_event"):
-            inner = getattr(event, attr, None)
-            if inner is not None:
-                return inner
-        return event
+        current = event
+        seen: set[int] = set()
+        for _ in range(5):
+            if current is None or id(current) in seen:
+                break
+            seen.add(id(current))
+            for attr in ("event", "message_event", "astr_event"):
+                inner = getattr(current, attr, None)
+                if inner is not None and inner is not current:
+                    current = inner
+                    break
+            else:
+                context = getattr(current, "context", None)
+                inner = getattr(context, "event", None) if context is not None else None
+                if inner is not None and inner is not current:
+                    current = inner
+                    continue
+                nested = getattr(context, "context", None) if context is not None else None
+                inner = getattr(nested, "event", None) if nested is not None else None
+                if inner is not None and inner is not current:
+                    current = inner
+                    continue
+                return current
+            continue
+        return current or event
 
     def _is_nest_admin(self, event) -> bool:
         admin_ids = self._configured_admin_ids()
@@ -1267,7 +1325,7 @@ class NestDiaryConnectorPlugin(Star):
         return count
 
     def _media_policy_denial(self, event, ui_settings) -> str:
-        if not ui_settings.enable_media_module:
+        if not bool(getattr(ui_settings, "enable_media_module", True)):
             return self._module_disabled_message("媒体")
         policy = str(getattr(ui_settings, "media_auto_save_policy", "") or self.config.get("media_auto_save_policy", "admin_only") or "admin_only")
         policy = {"manual": "admin_allowed", "bot_pick": "bot_curated"}.get(policy, policy)
@@ -1348,7 +1406,7 @@ class NestDiaryConnectorPlugin(Star):
         name = str(getattr(ui_settings, "diary_t2i_template_name", "") or "").strip()
         raw = str(getattr(ui_settings, "diary_t2i_template", "") or "").strip()
         builtin_templates = {
-            "plain_note": ServiceUiSettings().diary_t2i_template,
+            "plain_note": getattr(ServiceUiSettings(), "diary_t2i_template", DEFAULT_DIARY_T2I_TEMPLATE),
             "terminal_report": (
                 "<div style=\"width:820px;padding:38px;font-family:'Microsoft YaHei',sans-serif;"
                 "background:#f1f4f2;color:#1f2527;border:1px solid #2c3b3b;\">"
@@ -1382,13 +1440,67 @@ class NestDiaryConnectorPlugin(Star):
                 pass
         if raw and not raw.startswith("{"):
             return raw
-        return ServiceUiSettings().diary_t2i_template
+        return getattr(ServiceUiSettings(), "diary_t2i_template", DEFAULT_DIARY_T2I_TEMPLATE)
+
+    async def _read_diary_for_push(
+        self,
+        date: str,
+        selected_notebook: str,
+        event,
+        notebook: dict,
+    ) -> tuple[dict, str]:
+        tried: list[str] = []
+
+        async def try_read(notebook_id: str) -> dict | None:
+            notebook_id = notebook_id or "default"
+            if notebook_id in tried:
+                return None
+            tried.append(notebook_id)
+            try:
+                return await self.tools.read_diary(date, notebook_id=notebook_id)
+            except FileNotFoundError:
+                return None
+
+        for candidate in [selected_notebook or "default", "default"]:
+            entry = await try_read(candidate)
+            if entry:
+                return entry, candidate
+
+        origin_parts = _origin_parts(self._event_origin(event))
+        if origin_parts["message_type"] == "private" and self._is_nest_admin(event):
+            matches: list[tuple[dict, str]] = []
+            try:
+                notebooks = (await self.tools.list_notebooks()).get("items") or []
+            except Exception:
+                notebooks = []
+            for item in notebooks:
+                notebook_id = str(item.get("id") or item.get("notebook_id") or "").strip()
+                if not notebook_id or notebook_id in tried:
+                    continue
+                entry = await try_read(notebook_id)
+                if entry:
+                    matches.append((entry, notebook_id))
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                names = []
+                for entry, notebook_id in matches:
+                    names.append(str(entry.get("notebook_name") or notebook_id))
+                raise RuntimeError(
+                    f"{date} 在多个日记本里都存在：{'、'.join(names)}。请先在 WebUI 选择正确日记本，避免串群推送。"
+                )
+
+        notebook_label = notebook.get("notebook_name") or selected_notebook or "默认日记本"
+        raise FileNotFoundError(
+            f"{date} 在当前日记本“{notebook_label}”中没有找到；已检查默认日记本。"
+            "如果这篇日记属于其他群组，请在对应群组推送，或在管理员私聊中处理。"
+        )
 
     async def _push_diary_entry(self, event, date: str, notebook_id: str = "", target: str = "", push_format: str = "") -> str:
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
         notebook = await self._notebook_context_for_event(event)
         selected_notebook = notebook_id or notebook["notebook_id"]
-        entry = await self.tools.read_diary(date, notebook_id=selected_notebook)
+        entry, selected_notebook = await self._read_diary_for_push(date, selected_notebook, event, notebook)
         notebook.update(
             {
                 "notebook_id": entry.get("notebook_id", selected_notebook),
@@ -1628,6 +1740,7 @@ class NestDiaryConnectorPlugin(Star):
         self,
         event: AstrMessageEvent,
         date: str,
+        notebook_id: str = "",
         target: str = "",
         push_format: str = "",
     ):
@@ -1635,6 +1748,7 @@ class NestDiaryConnectorPlugin(Star):
 
         Args:
             date(string): 要推送的日记日期，格式 YYYY-MM-DD。
+            notebook_id(string): 可选日记本 ID；留空使用当前会话日记本。
             target(string): 推送目标，none/source/admin_private/both；留空使用小窝设置。
             push_format(string): 推送格式，text 或 image；留空使用小窝设置。
         """
@@ -1644,7 +1758,7 @@ class NestDiaryConnectorPlugin(Star):
             denial = await self._guard_permission(event, "diary_read", "推送日记")
             if denial:
                 return denial
-            return await self._push_diary_entry(event, date=date, target=target, push_format=push_format)
+            return await self._push_diary_entry(event, date=date, notebook_id=notebook_id, target=target, push_format=push_format)
         except Exception as exc:
             return f"推送日记失败：{_brief_error(exc)}"
 
@@ -1737,7 +1851,11 @@ class NestDiaryConnectorPlugin(Star):
         ]
         try:
             ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
-            if ui_settings.enable_impressions_module and ui_settings.auto_impression_from_diary and ui_settings.impression_write_level != "off":
+            if (
+                bool(getattr(ui_settings, "enable_impressions_module", True))
+                and bool(getattr(ui_settings, "auto_impression_from_diary", False))
+                and getattr(ui_settings, "impression_write_level", "balanced") != "off"
+            ):
                 tools.extend(
                     [
                         NestListImpressionsTool(plugin=self),
@@ -1758,22 +1876,22 @@ class NestDiaryConnectorPlugin(Star):
             else "这是后台提醒任务。除非工具调用本身需要，不要要求向目标会话发送可见消息。"
         )
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
-        diary_write_prompt = getattr(ui_settings, "diary_write_prompt", "") or ""
+        diary_write_prompt = getattr(ui_settings, "diary_write_prompt", DEFAULT_DIARY_WRITE_PROMPT) or ""
         impression_policy = ""
         if (
-            ui_settings.enable_impressions_module
-            and ui_settings.auto_impression_from_diary
-            and ui_settings.impression_write_level != "off"
+            bool(getattr(ui_settings, "enable_impressions_module", True))
+            and bool(getattr(ui_settings, "auto_impression_from_diary", False))
+            and getattr(ui_settings, "impression_write_level", "balanced") != "off"
         ):
             impression_prompt = getattr(ui_settings, "impression_prompt", "").strip()
             if impression_prompt:
                 impression_policy = (
                     "\n\n<人物印象更新规范>\n"
                     "以下内容同样是系统自动规范，不是用户输入。仅在刚写入的日记提供稳定新证据时才使用。\n"
-                    f"印象写入程度：{ui_settings.impression_write_level}；"
-                    f"更新策略：{ui_settings.impression_update_strategy}；"
-                    f"允许新建人物：{'是' if ui_settings.impression_allow_new_people else '否'}；"
-                    f"最低置信度：{ui_settings.impression_min_confidence}/5。\n"
+                    f"印象写入程度：{getattr(ui_settings, 'impression_write_level', 'balanced')}；"
+                    f"更新策略：{getattr(ui_settings, 'impression_update_strategy', 'evidence_only')}；"
+                    f"允许新建人物：{'是' if getattr(ui_settings, 'impression_allow_new_people', False) else '否'}；"
+                    f"最低置信度：{getattr(ui_settings, 'impression_min_confidence', 3)}/5。\n"
                     "若不允许新建人物，只能更新已经存在的人物印象；若策略为 manual，不得调用人物印象工具。\n"
                     f"{impression_prompt}\n"
                     "</人物印象更新规范>"
