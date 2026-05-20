@@ -538,10 +538,10 @@ button.ghost {
 .row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(92px, 150px) minmax(0, 1fr);
+  grid-template-columns: minmax(116px, 172px) minmax(0, 1fr);
   gap: 8px 14px;
-  align-items: baseline;
-  padding: 12px;
+  align-items: start;
+  padding: 14px;
   border: 1px solid var(--line);
   color: inherit;
   background: rgba(255, 255, 255, 0.9);
@@ -576,6 +576,15 @@ button.ghost {
   overflow-wrap: anywhere;
 }
 
+.row strong {
+  display: -webkit-box;
+  max-height: 2.8em;
+  overflow: hidden;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .row em {
   grid-column: 2;
   color: var(--muted);
@@ -585,8 +594,8 @@ button.ghost {
 
 .diary-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(300px, 410px) minmax(0, 1fr);
+  gap: 22px;
   align-items: stretch;
 }
 
@@ -598,8 +607,8 @@ button.ghost {
 }
 
 .diary-list {
-  min-height: calc(100vh - 156px);
-  max-height: calc(100vh - 156px);
+  min-height: calc(100vh - 126px);
+  max-height: calc(100vh - 126px);
   overflow: auto;
   padding-right: 4px;
   border-color: var(--line);
@@ -634,7 +643,7 @@ button.ghost {
 }
 
 .diary-article {
-  min-height: calc(100vh - 156px);
+  min-height: calc(100vh - 126px);
   border-color: var(--line-strong);
   background: var(--paper);
 }
@@ -686,9 +695,9 @@ button.ghost {
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 16px;
   border-bottom: 1px solid var(--line);
   background: var(--paper);
 }
@@ -697,10 +706,10 @@ button.ghost {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 5px;
-  min-height: 42px;
-  padding: 8px;
+  min-height: 44px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   background: #fff;
   transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
@@ -714,7 +723,8 @@ button.ghost {
 
 .archive-picker select {
   min-height: 34px;
-  padding: 4px 6px;
+  max-width: none;
+  padding: 4px 26px 4px 6px;
   border: 0;
   background: transparent;
 }
@@ -724,6 +734,16 @@ button.ghost {
   font-weight: 900;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.archive-date-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.archive-book-field {
+  border-color: var(--line-strong) !important;
 }
 
 .chips {
@@ -872,13 +892,44 @@ textarea {
 
 .notebook-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1.3fr) 112px minmax(150px, 1fr) repeat(3, auto);
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 1.2fr) 118px minmax(150px, 0.9fr) repeat(2, auto);
   gap: 10px;
   align-items: end;
   padding: 12px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.78);
   transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.new-notebook-row {
+  border-style: dashed;
+  background: rgba(220, 239, 235, 0.32);
+}
+
+.permission-subpage {
+  margin: 8px 0;
+  border-color: var(--line-strong);
+}
+
+.permission-subpage summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+}
+
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.permission-choice {
+  min-height: 56px;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
 }
 
 .notebook-row:hover {
@@ -2252,7 +2303,6 @@ details[open] > *:not(summary) {
     grid-template-columns: 1fr;
   }
 
-  .archive-picker,
   .notebook-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2327,8 +2377,8 @@ details[open] > *:not(summary) {
     grid-template-columns: 1fr;
   }
 
-  .archive-picker,
-  .notebook-row {
+  .notebook-row,
+  .archive-date-strip {
     grid-template-columns: 1fr;
   }
 

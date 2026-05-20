@@ -59,9 +59,22 @@ class ServiceUiSettings:
     admin_private_diary_enabled: bool = False
     admin_private_push_enabled: bool = False
     diary_push_format: str = "text"
-    diary_push_target: str = "admin_private"
+    diary_push_target: str = "none"
     permissions_allow_admin_natural_language: bool = True
+    non_admin_permissions: list[str] = field(default_factory=list)
     nest_admin_ids: str = ""
+    diary_write_prompt: str = (
+        "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
+        "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
+    )
+    diary_t2i_template: str = (
+        "<div style=\"font-family:'Microsoft YaHei',sans-serif;width:760px;padding:42px;"
+        "background:#fffdf8;color:#20242a;border:2px solid #20242a;\">"
+        "<p style=\"margin:0 0 12px;color:#176f66;font-weight:800;\">{{ date }} · {{ notebook_name }}</p>"
+        "<h1 style=\"margin:0 0 22px;font-size:34px;line-height:1.2;\">{{ title }}</h1>"
+        "<div style=\"white-space:pre-wrap;font-size:20px;line-height:1.75;\">{{ body }}</div>"
+        "</div>"
+    )
     enable_media_module: bool = True
     allow_media_refs: bool = True
     media_max_items_per_day: int = 80

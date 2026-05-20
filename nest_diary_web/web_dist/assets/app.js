@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.3";
+const APP_VERSION = "0.5.4";
 
 const app = document.getElementById("app");
 const state = {
@@ -696,10 +696,12 @@ function updateDiaryArchive() {
   const dateSelect = dateOptions.map((date) => `<option value="${date}" ${filters.date === date ? "selected" : ""}>${date}</option>`).join("");
   target.innerHTML = `
     <div class="archive-picker">
-      <label class="archive-field"><span>日记本/群组</span><select data-filter-level="notebook"><option value="">全部</option>${notebookSelect}</select></label>
-      <label class="archive-field"><span>年</span><select data-filter-level="year"><option value="">全部</option>${yearSelect}</select></label>
-      <label class="archive-field"><span>月</span><select data-filter-level="month"><option value="">全部</option>${monthSelect}</select></label>
-      <label class="archive-field"><span>日期</span><select data-filter-level="date"><option value="">全部</option>${dateSelect}</select></label>
+      <label class="archive-field archive-book-field"><span>日记本 / 群组</span><select data-filter-level="notebook"><option value="">全部日记本</option>${notebookSelect}</select></label>
+      <div class="archive-date-strip">
+        <label class="archive-field"><span>年</span><select data-filter-level="year"><option value="">全部</option>${yearSelect}</select></label>
+        <label class="archive-field"><span>月</span><select data-filter-level="month"><option value="">全部</option>${monthSelect}</select></label>
+        <label class="archive-field"><span>日期</span><select data-filter-level="date"><option value="">全部</option>${dateSelect}</select></label>
+      </div>
     </div>
   `;
   target.querySelectorAll("[data-filter-level]").forEach((node) => node.addEventListener("change", applyDiaryFilterChange));
@@ -2334,25 +2336,54 @@ function moduleDetailPage(payload, detailKey) {
 
 function notebookManagement(notebooks = []) {
   const items = notebooks.length ? notebooks : notebookOptions();
-  if (!items.length) return `<div class="notice soft">还没有日记本。</div>`;
+  const rows = items.map((raw) => {
+    const item = { ...raw, id: raw.id || raw.notebook_id || "default" };
+    return `
+      <div class="notebook-row" data-notebook-row="${escapeHtml(item.id)}">
+        <input name="notebook_id" value="${escapeHtml(item.id)}" type="hidden">
+        <label>名称<input name="notebook_name_${escapeHtml(item.id)}" value="${escapeHtml(item.name || item.id)}"></label>
+        <label>绑定会话<input name="notebook_origin_${escapeHtml(item.id)}" value="${escapeHtml(item.origin_umo || "")}" placeholder="平台:group/private:编号"></label>
+        <label>写日记时间<input name="notebook_archive_time_${escapeHtml(item.id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
+        <label>推送目标<select name="notebook_push_target_${escapeHtml(item.id)}"><option value="none" ${item.push_target === "none" ? "selected" : ""}>不推送</option><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
+        <label class="check"><input name="notebook_enabled_${escapeHtml(item.id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
+        <label class="check"><input name="notebook_auto_archive_${escapeHtml(item.id)}" type="checkbox" ${item.auto_archive_enabled !== false ? "checked" : ""}>自动写日记</label>
+      </div>
+    `;
+  }).join("");
   return `
     <div class="notebook-settings">
-      <div class="settings-mini-head"><strong>日记本管理</strong><span>名称、归档和推送会保存到真实日记本配置。</span></div>
-      ${items.map((raw) => {
-        const item = { ...raw, id: raw.id || raw.notebook_id || "default" };
-        return `
-          <div class="notebook-row" data-notebook-row="${escapeHtml(item.id)}">
-            <input name="notebook_id" value="${escapeHtml(item.id)}" type="hidden">
-            <label>名称<input name="notebook_name_${escapeHtml(item.id)}" value="${escapeHtml(item.name || item.id)}"></label>
-            <label>归档时间<input name="notebook_archive_time_${escapeHtml(item.id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
-            <label>推送目标<select name="notebook_push_target_${escapeHtml(item.id)}"><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
-            <label class="check"><input name="notebook_enabled_${escapeHtml(item.id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
-            <label class="check"><input name="notebook_auto_archive_${escapeHtml(item.id)}" type="checkbox" ${item.auto_archive_enabled !== false ? "checked" : ""}>自动归档</label>
-            <label class="check"><input name="notebook_push_enabled_${escapeHtml(item.id)}" type="checkbox" ${item.push_enabled ? "checked" : ""}>推送</label>
-          </div>
-        `;
-      }).join("")}
+      <div class="settings-mini-head"><strong>日记本管理</strong><span>给群号或私聊号起名字，bot 识别用编号，页面显示用名称。</span></div>
+      ${rows || `<div class="notice soft">还没有日记本。</div>`}
+      <div class="notebook-row new-notebook-row">
+        <label>新增名称<input name="new_notebook_name" placeholder="例如：主群日记本"></label>
+        <label>绑定会话<input name="new_notebook_origin" placeholder="aiocqhttp:group:123456"></label>
+        <label>写日记时间<input name="new_notebook_archive_time" type="time" value="03:00"></label>
+        <label>推送目标<select name="new_notebook_push_target"><option value="none">不推送</option><option value="admin_private">管理员私聊</option><option value="source">原会话</option><option value="both">两边都推送</option></select></label>
+        <label class="check"><input name="new_notebook_enabled" type="checkbox" checked>启用</label>
+        <label class="check"><input name="new_notebook_auto_archive" type="checkbox" checked>自动写日记</label>
+      </div>
     </div>
+  `;
+}
+
+function permissionSettings(settings) {
+  const selected = settings.non_admin_permissions || [];
+  const item = (value, label) => `<label class="choice-card permission-choice"><input name="non_admin_permissions" value="${value}" type="checkbox" ${selected.includes(value) ? "checked" : ""}><span><strong>${label}</strong></span></label>`;
+  return `
+    <details class="permission-subpage">
+      <summary>非管理员权限设置</summary>
+      <div class="permission-grid">
+        ${item("diary_read", "查看日记")}
+        ${item("diary_search", "搜索日记")}
+        ${item("diary_write", "写入日记")}
+        ${item("diary_delete", "删除日记")}
+        ${item("media_read", "查看媒体")}
+        ${item("media_write", "保存媒体")}
+        ${item("media_send", "发送媒体")}
+        ${item("impression_read", "查看人物印象")}
+        ${item("impression_write", "修改人物印象")}
+      </div>
+    </details>
   `;
 }
 
@@ -2362,19 +2393,18 @@ function moduleSettingsBody(payload, detailKey) {
     return `
       <div class="setting-line"><div><strong>日记模块</strong><p class="muted">开启后可以记录和查看日记。</p></div>${switchControl("enable_diary_module", settings.enable_diary_module)}</div>
       <div class="setting-line"><div><strong>自动回想</strong><p class="muted">需要时让 bot 参考以前的日记。</p></div>${switchControl("memory_recall_enabled", settings.memory_recall_enabled)}</div>
-      <div class="setting-line"><div><strong>私聊写入</strong><p class="muted">允许管理员私聊内容进入专属日记本。</p></div>${switchControl("admin_private_diary_enabled", settings.admin_private_diary_enabled)}</div>
-      <div class="setting-line"><div><strong>日记推送</strong><p class="muted">按日记本设置把整理结果推送到指定位置。</p></div>${switchControl("admin_private_push_enabled", settings.admin_private_push_enabled)}</div>
       <div class="setting-line"><div><strong>自然语言管理员权限</strong><p class="muted">允许管理员用自然语言调整日记和小窝配置。</p></div>${switchControl("permissions_allow_admin_natural_language", settings.permissions_allow_admin_natural_language)}</div>
       <div class="form-grid compact">
         <label>回想方式<select name="memory_recall_policy"><option value="conservative" ${settings.memory_recall_policy === "conservative" ? "selected" : ""}>只在需要时</option><option value="active" ${settings.memory_recall_policy === "active" ? "selected" : ""}>更主动</option></select></label>
         <label>每次参考数量<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
         <label>摘要长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
-        <label>日记保存方式<select name="diary_archive_granularity"><option value="day" ${settings.diary_archive_granularity === "day" ? "selected" : ""}>按天</option><option value="month" ${settings.diary_archive_granularity === "month" ? "selected" : ""}>按月</option><option value="year" ${settings.diary_archive_granularity === "year" ? "selected" : ""}>按年</option></select></label>
-        <label>展示方式<select name="diary_display_mode"><option value="grouped" ${settings.diary_display_mode === "grouped" ? "selected" : ""}>按日记本分组</option><option value="merged" ${settings.diary_display_mode === "merged" ? "selected" : ""}>合并显示</option></select></label>
+        <label>展示方式<select name="diary_display_mode"><option value="grouped" ${settings.diary_display_mode === "grouped" ? "selected" : ""}>按日记本分组</option><option value="merged" ${settings.diary_display_mode === "merged" ? "selected" : ""}>合并显示（只影响页面展示，不会泄露群聊推送）</option></select></label>
         <label>推送格式<select name="diary_push_format"><option value="text" ${settings.diary_push_format !== "image" ? "selected" : ""}>文字</option><option value="image" ${settings.diary_push_format === "image" ? "selected" : ""}>图片</option></select></label>
-        <label>推送目标<select name="diary_push_target"><option value="admin_private" ${settings.diary_push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${settings.diary_push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${settings.diary_push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
-        <label>小窝管理员<textarea name="nest_admin_ids" placeholder="每行一个 QQ 号">${escapeHtml(settings.nest_admin_ids || "")}</textarea></label>
+        <label>小窝管理员 QQ<input name="nest_admin_ids" value="${escapeHtml((settings.nest_admin_ids || "").split(/\s+/)[0] || "")}" placeholder="只填一个管理员 QQ"></label>
+        <label class="wide-field">写日记提示词<textarea name="diary_write_prompt">${escapeHtml(settings.diary_write_prompt || "")}</textarea></label>
+        <label class="wide-field">图片推送模板<textarea name="diary_t2i_template">${escapeHtml(settings.diary_t2i_template || "")}</textarea></label>
       </div>
+      ${permissionSettings(settings)}
       ${notebookManagement(payload.notebooks || state.notebooks || [])}
     `;
   }
@@ -2618,14 +2648,17 @@ async function saveSettings(event) {
     memory_recall_enabled: boolField("memory_recall_enabled", current.memory_recall_enabled),
     memory_recall_policy: valueField("memory_recall_policy", current.memory_recall_policy || "conservative"),
     enable_diary_module: boolField("enable_diary_module", current.enable_diary_module),
-    diary_archive_granularity: valueField("diary_archive_granularity", current.diary_archive_granularity || "day"),
+    diary_archive_granularity: "day",
     diary_display_mode: valueField("diary_display_mode", current.diary_display_mode || "grouped"),
-    admin_private_diary_enabled: boolField("admin_private_diary_enabled", current.admin_private_diary_enabled),
-    admin_private_push_enabled: boolField("admin_private_push_enabled", current.admin_private_push_enabled),
+    admin_private_diary_enabled: false,
+    admin_private_push_enabled: false,
     diary_push_format: valueField("diary_push_format", current.diary_push_format || "text"),
-    diary_push_target: valueField("diary_push_target", current.diary_push_target || "admin_private"),
+    diary_push_target: "none",
     permissions_allow_admin_natural_language: boolField("permissions_allow_admin_natural_language", current.permissions_allow_admin_natural_language ?? true),
+    non_admin_permissions: form.getAll("non_admin_permissions"),
     nest_admin_ids: valueField("nest_admin_ids", current.nest_admin_ids || ""),
+    diary_write_prompt: valueField("diary_write_prompt", current.diary_write_prompt || ""),
+    diary_t2i_template: valueField("diary_t2i_template", current.diary_t2i_template || ""),
     enable_media_module: boolField("enable_media_module", current.enable_media_module),
     allow_media_refs: boolField("allow_media_refs", current.allow_media_refs),
     media_max_items_per_day: numberField("media_max_items_per_day", current.media_max_items_per_day || 80),
@@ -2700,9 +2733,10 @@ async function saveSettings(event) {
 }
 
 async function saveNotebookSettings(formEl, form) {
-  if (!formEl.querySelector('[name="notebook_id"]')) return;
   const ids = Array.from(new Set(form.getAll("notebook_id").map((item) => String(item || "").trim()).filter(Boolean)));
-  if (!ids.length) return;
+  const newName = String(form.get("new_notebook_name") || "").trim();
+  const newOrigin = String(form.get("new_notebook_origin") || "").trim();
+  if (!ids.length && !newName && !newOrigin) return;
   const current = state.notebooks || [];
   const notebooks = ids.map((id) => {
     const existing = current.find((item) => (item.id || item.notebook_id) === id) || {};
@@ -2710,14 +2744,29 @@ async function saveNotebookSettings(formEl, form) {
       ...existing,
       id,
       name: form.get(`notebook_name_${id}`) || existing.name || id,
+      origin_umo: form.get(`notebook_origin_${id}`) || existing.origin_umo || "",
       enabled: form.has(`notebook_enabled_${id}`),
       auto_archive_enabled: form.has(`notebook_auto_archive_${id}`),
       archive_time: form.get(`notebook_archive_time_${id}`) || existing.archive_time || "03:00",
-      push_enabled: form.has(`notebook_push_enabled_${id}`),
-      push_target: form.get(`notebook_push_target_${id}`) || existing.push_target || "admin_private",
+      push_enabled: (form.get(`notebook_push_target_${id}`) || existing.push_target || "none") !== "none",
+      push_target: form.get(`notebook_push_target_${id}`) || existing.push_target || "none",
       push_format: form.get("diary_push_format") || existing.push_format || "text",
     };
   });
+  if (newName || newOrigin) {
+    const generatedId = newOrigin ? `notebook_${newOrigin.replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/^[_\-.]+|[_\-.]+$/g, "")}` : `notebook_${Date.now()}`;
+    notebooks.push({
+      id: generatedId || `notebook_${Date.now()}`,
+      name: newName || newOrigin || "新日记本",
+      origin_umo: newOrigin,
+      enabled: form.has("new_notebook_enabled"),
+      auto_archive_enabled: form.has("new_notebook_auto_archive"),
+      archive_time: form.get("new_notebook_archive_time") || "03:00",
+      push_enabled: (form.get("new_notebook_push_target") || "none") !== "none",
+      push_target: form.get("new_notebook_push_target") || "none",
+      push_format: form.get("diary_push_format") || "text",
+    });
+  }
   const payload = await api("/api/ui/notebooks", { method: "POST", body: JSON.stringify({ notebooks }) });
   state.notebooks = payload.items || notebooks;
 }

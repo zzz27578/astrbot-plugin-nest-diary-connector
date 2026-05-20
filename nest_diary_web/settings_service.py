@@ -48,9 +48,26 @@ class ServiceSettingsStore:
         settings.admin_private_push_enabled = bool(settings.admin_private_push_enabled)
         if settings.diary_push_format not in {"text", "image"}:
             settings.diary_push_format = "text"
-        if settings.diary_push_target not in {"source", "admin_private", "both"}:
-            settings.diary_push_target = "admin_private"
+        if settings.diary_push_target not in {"none", "source", "admin_private", "both"}:
+            settings.diary_push_target = "none"
         settings.permissions_allow_admin_natural_language = bool(settings.permissions_allow_admin_natural_language)
+        allowed_permissions = {
+            "diary_read",
+            "diary_search",
+            "diary_write",
+            "diary_delete",
+            "media_read",
+            "media_write",
+            "media_send",
+            "impression_read",
+            "impression_write",
+        }
+        if not isinstance(settings.non_admin_permissions, list):
+            settings.non_admin_permissions = []
+        settings.non_admin_permissions = [
+            item for item in dict.fromkeys(str(item).strip() for item in settings.non_admin_permissions)
+            if item in allowed_permissions
+        ]
         settings.nest_admin_ids = "\n".join(
             dict.fromkeys(
                 item.strip()
@@ -58,6 +75,8 @@ class ServiceSettingsStore:
                 if item.strip()
             )
         )
+        settings.diary_write_prompt = str(settings.diary_write_prompt or "").strip() or ServiceUiSettings().diary_write_prompt
+        settings.diary_t2i_template = str(settings.diary_t2i_template or "").strip() or ServiceUiSettings().diary_t2i_template
         settings.enable_media_module = bool(settings.enable_media_module)
         settings.allow_media_refs = bool(settings.allow_media_refs)
         settings.media_max_items_per_day = max(1, min(int(settings.media_max_items_per_day), 500))

@@ -19,7 +19,7 @@ class DiaryNotebook:
     auto_archive_enabled: bool = True
     archive_time: str = "03:00"
     push_enabled: bool = False
-    push_target: str = "admin_private"
+    push_target: str = "none"
     push_format: str = "text"
     admins: list[str] | None = None
     created_at: str = ""
@@ -110,6 +110,12 @@ class NotebookService:
             )
             current.name = str(raw.get("name") or current.name or notebook_id).strip() or notebook_id
             current.origin_umo = str(raw.get("origin_umo") or current.origin_umo or "").strip()
+            if current.origin_umo and (not raw.get("platform_id") or not raw.get("message_type") or not raw.get("session_id")):
+                parts = current.origin_umo.split(":", 2)
+                if len(parts) == 3:
+                    current.platform_id = parts[0]
+                    current.message_type = parts[1]
+                    current.session_id = parts[2]
             current.platform_id = str(raw.get("platform_id") or current.platform_id or "").strip()
             current.message_type = str(raw.get("message_type") or current.message_type or "").strip()
             current.session_id = str(raw.get("session_id") or current.session_id or "").strip()
@@ -117,7 +123,9 @@ class NotebookService:
             current.auto_archive_enabled = bool(raw.get("auto_archive_enabled", current.auto_archive_enabled))
             current.archive_time = str(raw.get("archive_time") or current.archive_time or "03:00").strip()
             current.push_enabled = bool(raw.get("push_enabled", current.push_enabled))
-            current.push_target = str(raw.get("push_target") or current.push_target or "admin_private").strip()
+            current.push_target = str(raw.get("push_target") or current.push_target or "none").strip()
+            if current.push_target not in {"none", "source", "admin_private", "both"}:
+                current.push_target = "none"
             current.push_format = str(raw.get("push_format") or current.push_format or "text").strip()
             admins = raw.get("admins")
             if isinstance(admins, list):

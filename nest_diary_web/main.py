@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.3"
+APP_VERSION = "0.5.4"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -734,9 +734,12 @@ class SettingsUpdateRequest(BaseModel):
     admin_private_diary_enabled: bool = False
     admin_private_push_enabled: bool = False
     diary_push_format: str = "text"
-    diary_push_target: str = "admin_private"
+    diary_push_target: str = "none"
     permissions_allow_admin_natural_language: bool = True
+    non_admin_permissions: list[str] = Field(default_factory=list)
     nest_admin_ids: str = ""
+    diary_write_prompt: str = ""
+    diary_t2i_template: str = ""
     enable_media_module: bool = True
     allow_media_refs: bool = True
     media_max_items_per_day: int = 80
@@ -1151,7 +1154,10 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             diary_push_format=payload.diary_push_format,
             diary_push_target=payload.diary_push_target,
             permissions_allow_admin_natural_language=payload.permissions_allow_admin_natural_language,
+            non_admin_permissions=payload.non_admin_permissions,
             nest_admin_ids=payload.nest_admin_ids,
+            diary_write_prompt=payload.diary_write_prompt,
+            diary_t2i_template=payload.diary_t2i_template,
             enable_media_module=payload.enable_media_module,
             allow_media_refs=payload.allow_media_refs,
             media_max_items_per_day=payload.media_max_items_per_day,

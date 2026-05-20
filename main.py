@@ -42,7 +42,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.3"
+PLUGIN_VERSION = "0.5.4"
 
 
 class NestDiaryHttpClient:
@@ -534,6 +534,9 @@ if FunctionTool is not None:
             top_k: int = Field(default=5, description="最多返回多少条。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_permission(ctx, "diary_search", "搜索日记")
+            if denial:
+                return _tool_text(denial)
             limit = max(1, min(int(top_k), int(owner.config.get("memory_recall_top_k", 5))))
             snippet_chars = int(owner.config.get("memory_recall_snippet_chars", 180))
             notebook = await owner._notebook_context_for_event(ctx)
@@ -562,6 +565,9 @@ if FunctionTool is not None:
             date: str = Field(description="要读取的日期，格式 YYYY-MM-DD。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_permission(ctx, "diary_read", "查看日记")
+            if denial:
+                return _tool_text(denial)
             notebook = await owner._notebook_context_for_event(ctx)
             result = await owner.tools.read_diary(date, notebook_id=notebook["notebook_id"])
             title = result.get("title") or date
@@ -629,6 +635,26 @@ if FunctionTool is not None:
 
 
     @pydantic_dataclass
+    class NestPushDiaryTool(FunctionTool[AstrAgentContext]):
+        """把指定日记推送到当前会话、管理员私聊或两者，可按设置生成文字或图片。"""
+
+        plugin: object = Field(default=None, repr=False, exclude=True)
+
+        async def run(
+            self,
+            ctx: ContextWrapper,
+            date: str = Field(description="要推送的日记日期，格式 YYYY-MM-DD。"),
+            target: str = Field(default="", description="推送目标：none、source、admin_private、both；留空使用小窝设置。"),
+            push_format: str = Field(default="", description="推送格式：text 或 image；留空使用小窝设置。"),
+        ) -> ToolExecResult:
+            owner = _tool_owner(self)
+            denial = await owner._guard_permission(ctx, "diary_read", "推送日记")
+            if denial:
+                return _tool_text(denial)
+            return _tool_text(await owner._push_diary_entry(ctx, date=date, target=target, push_format=push_format))
+
+
+    @pydantic_dataclass
     class NestListImpressionsTool(FunctionTool[AstrAgentContext]):
         """列出已经记录的人物印象摘要。"""
 
@@ -636,6 +662,9 @@ if FunctionTool is not None:
 
         async def run(self, ctx: ContextWrapper) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_permission(ctx, "impression_read", "查看人物印象")
+            if denial:
+                return _tool_text(denial)
             result = await owner.tools.list_impressions()
             items = result.get("items") or []
             if not items:
@@ -656,6 +685,9 @@ if FunctionTool is not None:
             name: str = Field(description="人物名称。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
+            denial = await owner._guard_permission(ctx, "impression_read", "查看人物印象")
+            if denial:
+                return _tool_text(denial)
             item = await owner.tools.read_impression(name)
             return _tool_text(
                 "\n".join(
@@ -914,6 +946,7 @@ class NestDiaryConnectorPlugin(Star):
                 custom_webui_dir=str(self.config.get("custom_webui_dir", "")).strip(),
                 backup_custom_before_update=bool(self.config.get("backup_custom_before_update", True)),
                 nest_admin_ids=str(self.config.get("nest_admin_ids", "") or ""),
+                diary_write_prompt=str(self.config.get("daily_write_prompt", "") or ""),
                 media_auto_save_policy=str(self.config.get("media_auto_save_policy", "admin_only") or "admin_only"),
                 media_auto_save_limit_12h=int(self.config.get("media_auto_save_limit_12h", 10)),
             )
@@ -1064,15 +1097,33 @@ class NestDiaryConnectorPlugin(Star):
             "session_id": str(notebook.get("session_id") or parts["session_id"]),
         }
 
-    async def _guard_group_write_permission(self, event, action_name: str) -> str:
+    def _non_admin_permissions(self) -> set[str]:
+        try:
+            if hasattr(self.client, "service_settings"):
+                return set(getattr(self.client.service_settings.load(), "non_admin_permissions", []) or [])
+        except Exception:
+            pass
+        return set()
+
+    async def _guard_permission(self, event, permission: str, action_name: str) -> str:
         if self._is_scheduled_event(event):
             return ""
-        notebook = await self._notebook_context_for_event(event)
+        _notebook = await self._notebook_context_for_event(event)
         if self._configured_admin_ids() and not self._is_nest_admin(event):
+            if permission in self._non_admin_permissions():
+                return ""
             return f"只有小窝管理员可以{action_name}。"
-        if notebook.get("message_type") == "group" and not self._is_nest_admin(event):
-            return f"当前群聊只有小窝管理员可以{action_name}。"
         return ""
+
+    async def _guard_group_write_permission(self, event, action_name: str) -> str:
+        permission = {
+            "写日记": "diary_write",
+            "保存媒体": "media_write",
+            "发送媒体": "media_send",
+            "写人物印象": "impression_write",
+            "删除人物印象": "impression_write",
+        }.get(action_name, "")
+        return await self._guard_permission(event, permission, action_name) if permission else ""
 
     def _media_saved_count_last_12h(self) -> int:
         if not hasattr(self.client, "media_service"):
@@ -1113,10 +1164,12 @@ class NestDiaryConnectorPlugin(Star):
         return f"{module_name} 模块当前已在插件配置中关闭，未执行工具调用。"
 
     async def _send_image_to_event(self, event: AstrMessageEvent, image_path: str, caption: str = "") -> None:
+        await self._send_image_to_origin(self._event_origin(event), image_path, caption=caption)
+
+    async def _send_image_to_origin(self, origin: str, image_path: str, caption: str = "") -> None:
         path = Path(image_path)
         if not path.exists():
             raise FileNotFoundError(f"图片文件不存在：{path}")
-        origin = self._event_origin(event)
         if not origin:
             raise RuntimeError("当前会话不支持主动发送图片。")
         chain = MessageChain()
@@ -1130,6 +1183,88 @@ class NestDiaryConnectorPlugin(Star):
                 raise RuntimeError("当前 AstrBot 版本缺少可用的图片发送接口。")
             chain = chain.chain([image_component])
         await self.context.send_message(origin, chain)
+
+    async def _send_text_to_origin(self, origin: str, text: str) -> None:
+        if not origin:
+            raise RuntimeError("当前会话不支持主动发送消息。")
+        await self.context.send_message(origin, MessageChain().message(text))
+
+    def _admin_private_origin(self, event, notebook: dict | None = None) -> str:
+        admin_ids = sorted(self._configured_admin_ids())
+        if not admin_ids:
+            return ""
+        platform_id = (notebook or {}).get("platform_id") or _origin_parts(self._event_origin(event))["platform_id"]
+        if not platform_id:
+            return ""
+        return f"{platform_id}:private:{admin_ids[0]}"
+
+    def _diary_push_text(self, entry: dict) -> str:
+        title = entry.get("title") or entry.get("date") or "小窝日记"
+        notebook_name = entry.get("notebook_name") or "默认日记本"
+        body = entry.get("body") or ""
+        return f"{entry.get('date', '')} · {notebook_name}\n《{title}》\n\n{body}".strip()
+
+    async def _render_diary_push_image(self, entry: dict, ui_settings: ServiceUiSettings) -> str:
+        data = {
+            "date": entry.get("date", ""),
+            "title": entry.get("title", ""),
+            "body": entry.get("body", ""),
+            "notebook_name": entry.get("notebook_name", "默认日记本"),
+            "mood": entry.get("mood", []),
+            "tags": entry.get("tags", []),
+            "people": entry.get("people", []),
+        }
+        template = getattr(ui_settings, "diary_t2i_template", "") or ServiceUiSettings().diary_t2i_template
+        html_render = getattr(self, "html_render", None)
+        if html_render:
+            return await html_render(template, data, return_url=False, options={"full_page": True, "type": "png"})
+        text_to_image = getattr(self, "text_to_image", None)
+        if text_to_image:
+            return await text_to_image(self._diary_push_text(entry), return_url=False)
+        raise RuntimeError("当前 AstrBot 版本没有可用的文字转图片接口。")
+
+    async def _push_diary_entry(self, event, date: str, notebook_id: str = "", target: str = "", push_format: str = "") -> str:
+        ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+        notebook = await self._notebook_context_for_event(event)
+        selected_notebook = notebook_id or notebook["notebook_id"]
+        entry = await self.tools.read_diary(date, notebook_id=selected_notebook)
+        notebook.update(
+            {
+                "notebook_id": entry.get("notebook_id", selected_notebook),
+                "notebook_name": entry.get("notebook_name", notebook.get("notebook_name", "")),
+                "origin_umo": entry.get("origin_umo", notebook.get("origin_umo", "")),
+                "platform_id": entry.get("platform_id", notebook.get("platform_id", "")),
+            }
+        )
+        notebook_config = {}
+        try:
+            if hasattr(self.client, "diary_service"):
+                notebook_config = self.client.diary_service.notebooks.get(selected_notebook).__dict__
+        except Exception:
+            notebook_config = {}
+        target = target or notebook_config.get("push_target") or getattr(ui_settings, "diary_push_target", "none")
+        push_format = push_format or getattr(ui_settings, "diary_push_format", "text")
+        if target == "none":
+            return "已跳过推送。"
+        origins: list[str] = []
+        if target in {"source", "both"}:
+            origins.append(notebook.get("origin_umo") or self._event_origin(event))
+        if target in {"admin_private", "both"}:
+            admin_origin = self._admin_private_origin(event, notebook)
+            if admin_origin:
+                origins.append(admin_origin)
+        origins = [item for item in dict.fromkeys(origins) if item]
+        if not origins:
+            raise RuntimeError("没有可用的推送目标，请先绑定日记本会话或填写小窝管理员。")
+        if push_format == "image":
+            image_path = await self._render_diary_push_image(entry, ui_settings)
+            for origin in origins:
+                await self._send_image_to_origin(origin, image_path)
+        else:
+            text = self._diary_push_text(entry)
+            for origin in origins:
+                await self._send_text_to_origin(origin, text)
+        return f"已推送 {date} 的日记。"
 
     def _filesystem_image_component(self, path: Path):
         for module_name in ("astrbot.api.message_components", "astrbot.core.message.components"):
@@ -1207,6 +1342,9 @@ class NestDiaryConnectorPlugin(Star):
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
         try:
+            denial = await self._guard_permission(event, "diary_read", "查看日记")
+            if denial:
+                return denial
             notebook = await self._notebook_context_for_event(event)
             result = await self.tools.read_diary(date, notebook_id=notebook["notebook_id"])
             content = result.get("body") or result.get("content") or result.get("text") or ""
@@ -1227,6 +1365,9 @@ class NestDiaryConnectorPlugin(Star):
         if not self.diary_module_enabled:
             return self._module_disabled_message("日记")
         try:
+            denial = await self._guard_permission(event, "diary_search", "搜索日记")
+            if denial:
+                return denial
             limit = max(1, min(int(top_k), int(self.config.get("memory_recall_top_k", 5))))
             snippet_chars = int(self.config.get("memory_recall_snippet_chars", 180))
             notebook = await self._notebook_context_for_event(event)
@@ -1321,6 +1462,31 @@ class NestDiaryConnectorPlugin(Star):
         except Exception as exc:
             return f"发送图片失败：{_brief_error(exc)}"
 
+    @filter.llm_tool(name="push_diary")
+    async def push_diary_tool(
+        self,
+        event: AstrMessageEvent,
+        date: str,
+        target: str = "",
+        push_format: str = "",
+    ):
+        """把小窝日记推送到指定位置。
+
+        Args:
+            date(string): 要推送的日记日期，格式 YYYY-MM-DD。
+            target(string): 推送目标，none/source/admin_private/both；留空使用小窝设置。
+            push_format(string): 推送格式，text 或 image；留空使用小窝设置。
+        """
+        if not self.diary_module_enabled:
+            return self._module_disabled_message("日记")
+        try:
+            denial = await self._guard_permission(event, "diary_read", "推送日记")
+            if denial:
+                return denial
+            return await self._push_diary_entry(event, date=date, target=target, push_format=push_format)
+        except Exception as exc:
+            return f"推送日记失败：{_brief_error(exc)}"
+
     async def _scheduled_prompt_loop(self):
         while True:
             try:
@@ -1370,6 +1536,7 @@ class NestDiaryConnectorPlugin(Star):
             NestWriteDiaryTool(plugin=self),
             NestSearchDiaryTool(plugin=self),
             NestReadDiaryTool(plugin=self),
+            NestPushDiaryTool(plugin=self),
             NestAttachMediaTool(plugin=self),
         ]
         try:
@@ -1395,6 +1562,7 @@ class NestDiaryConnectorPlugin(Star):
             else "这是后台提醒任务。除非工具调用本身需要，不要要求向目标会话发送可见消息。"
         )
         ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+        diary_write_prompt = getattr(ui_settings, "diary_write_prompt", "") or ""
         impression_policy = ""
         if (
             ui_settings.enable_impressions_module
@@ -1427,7 +1595,8 @@ class NestDiaryConnectorPlugin(Star):
             "<系统自动任务规范>\n"
             f"{configured_prompt}\n"
             "</系统自动任务规范>"
-            f"{impression_policy}"
+            + (f"\n\n<写日记规范>\n{diary_write_prompt}\n</写日记规范>" if diary_write_prompt else "")
+            + f"{impression_policy}"
         )
 
     async def _current_provider_id(self, origin: str) -> str | None:
@@ -1510,6 +1679,9 @@ class NestDiaryConnectorPlugin(Star):
         if not self._impressions_module_enabled():
             return self._module_disabled_message("人物印象")
         try:
+            denial = await self._guard_permission(event, "impression_read", "查看人物印象")
+            if denial:
+                return denial
             result = await self.tools.list_impressions()
             items = result.get("items") or []
             if not items:
@@ -1533,6 +1705,9 @@ class NestDiaryConnectorPlugin(Star):
         if not self._impressions_module_enabled():
             return self._module_disabled_message("人物印象")
         try:
+            denial = await self._guard_permission(event, "impression_read", "查看人物印象")
+            if denial:
+                return denial
             item = await self.tools.read_impression(name)
             parts = [f"{item.get('name', name)} 的人物印象：", item.get("summary", "")]
             if item.get("identity"):
