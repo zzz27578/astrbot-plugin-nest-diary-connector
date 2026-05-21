@@ -51,6 +51,8 @@ class ServiceSettingsStore:
         if settings.diary_push_target not in {"none", "source", "admin_private", "both"}:
             settings.diary_push_target = "none"
         settings.diary_t2i_template_name = str(settings.diary_t2i_template_name or "plain_note").strip() or "plain_note"
+        settings.diary_image_send_max_retries = max(0, min(int(settings.diary_image_send_max_retries), 10))
+        settings.diary_image_send_failure_notice = bool(settings.diary_image_send_failure_notice)
         settings.permissions_allow_admin_natural_language = bool(settings.permissions_allow_admin_natural_language)
         allowed_permissions = {
             "diary_read",

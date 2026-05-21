@@ -24,7 +24,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.12"
+APP_VERSION = "0.5.13"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -736,6 +736,8 @@ class SettingsUpdateRequest(BaseModel):
     diary_push_format: str = "text"
     diary_push_target: str = "none"
     diary_t2i_template_name: str = "plain_note"
+    diary_image_send_max_retries: int = 3
+    diary_image_send_failure_notice: bool = True
     permissions_allow_admin_natural_language: bool = True
     non_admin_permissions: list[str] = Field(default_factory=list)
     nest_admin_ids: str = ""
@@ -1166,6 +1168,8 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             diary_push_format=payload.diary_push_format,
             diary_push_target=payload.diary_push_target,
             diary_t2i_template_name=payload.diary_t2i_template_name,
+            diary_image_send_max_retries=payload.diary_image_send_max_retries,
+            diary_image_send_failure_notice=payload.diary_image_send_failure_notice,
             permissions_allow_admin_natural_language=payload.permissions_allow_admin_natural_language,
             non_admin_permissions=payload.non_admin_permissions,
             nest_admin_ids=payload.nest_admin_ids,

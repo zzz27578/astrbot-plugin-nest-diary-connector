@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.12";
+const APP_VERSION = "0.5.13";
 
 const DIARY_T2I_TEMPLATES = [
   {
@@ -2723,9 +2723,11 @@ function moduleSettingsBody(payload, detailKey) {
         <label>每次参考数量<input name="search_default_top_k" type="number" min="1" max="20" value="${settings.search_default_top_k}"></label>
         <label>摘要长度<input name="search_snippet_chars" type="number" min="80" max="360" value="${settings.search_snippet_chars}"></label>
         <label>推送格式<select name="diary_push_format"><option value="text" ${settings.diary_push_format !== "image" ? "selected" : ""}>文字</option><option value="image" ${settings.diary_push_format === "image" ? "selected" : ""}>图片</option></select></label>
+        <label>图片失败重试次数<input name="diary_image_send_max_retries" type="number" min="0" max="10" value="${Number(settings.diary_image_send_max_retries ?? 3)}"></label>
         <label>小窝管理员 QQ<input name="nest_admin_ids" value="${escapeHtml((settings.nest_admin_ids || "").split(/\s+/)[0] || "")}" placeholder="只填一个管理员 QQ"></label>
         <label class="wide-field">写日记要求规范<textarea name="diary_write_prompt">${escapeHtml(settings.diary_write_prompt || "")}</textarea></label>
       </div>
+      <div class="setting-line"><div><strong>图片失败提示</strong><p class="muted">图片推送重试后仍失败时，在目标会话发送一条简短提示。</p></div>${switchControl("diary_image_send_failure_notice", settings.diary_image_send_failure_notice ?? true)}</div>
       <input name="diary_t2i_template_name" type="hidden" value="${escapeHtml(settings.diary_t2i_template_name || t2iTemplate.id)}">
       <textarea name="diary_t2i_template" hidden>${escapeHtml(settings.diary_t2i_template || t2iTemplate.template)}</textarea>
       <div class="t2i-template-summary">
@@ -2974,6 +2976,8 @@ async function saveSettings(event) {
     diary_push_format: valueField("diary_push_format", current.diary_push_format || "text"),
     diary_push_target: "none",
     diary_t2i_template_name: valueField("diary_t2i_template_name", current.diary_t2i_template_name || "plain_note"),
+    diary_image_send_max_retries: Math.max(0, Math.min(10, numberField("diary_image_send_max_retries", current.diary_image_send_max_retries ?? 3))),
+    diary_image_send_failure_notice: boolField("diary_image_send_failure_notice", current.diary_image_send_failure_notice ?? true),
     permissions_allow_admin_natural_language: boolField("permissions_allow_admin_natural_language", current.permissions_allow_admin_natural_language ?? true),
     non_admin_permissions: form.getAll("non_admin_permissions"),
     nest_admin_ids: valueField("nest_admin_ids", current.nest_admin_ids || ""),

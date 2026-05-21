@@ -59,7 +59,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.12"
+PLUGIN_VERSION = "0.5.13"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1394,27 +1394,52 @@ class NestDiaryConnectorPlugin(Star):
         if not origin:
             raise RuntimeError("当前会话不支持主动发送图片。")
         image_value, image_kind = self._normalize_image_payload(image_path)
-        chain = self._build_image_message_chain(image_value, image_kind, caption=caption)
-        try:
-            ok = await self.context.send_message(origin, chain)
-            if ok is False:
-                raise RuntimeError("AstrBot 未找到可用会话，图片没有发出。")
-            return
-        except Exception as first_error:
-            retry_payload = self._make_qq_safe_image_payload(image_value, image_kind)
-            if not retry_payload:
-                raise
-            retry_chain = self._build_image_message_chain(retry_payload, "base64", caption=caption)
+        max_retries, failure_notice = self._image_send_retry_settings()
+        attempts = max_retries + 1
+        retry_payload = ""
+        last_error = None
+
+        for attempt_index in range(attempts):
+            send_value = image_value
+            send_kind = image_kind
+            if attempt_index > 0:
+                if not retry_payload:
+                    retry_payload = self._make_qq_safe_image_payload(image_value, image_kind)
+                if retry_payload:
+                    send_value = retry_payload
+                    send_kind = "base64"
+            chain = self._build_image_message_chain(send_value, send_kind, caption=caption)
             try:
-                ok = await self.context.send_message(origin, retry_chain)
+                ok = await self.context.send_message(origin, chain)
                 if ok is False:
                     raise RuntimeError("AstrBot 未找到可用会话，图片没有发出。")
                 return
-            except Exception as retry_error:
-                raise RuntimeError(
-                    f"图片发送失败：QQ/NT 富媒体上传失败。已尝试原图和压缩 JPEG 重发；"
-                    f"原始错误：{first_error}；重发错误：{retry_error}"
-                ) from retry_error
+            except Exception as exc:
+                last_error = exc
+                if attempt_index + 1 < attempts:
+                    await asyncio.sleep(min(2.0, 0.6 + attempt_index * 0.35))
+
+        if failure_notice:
+            try:
+                await self._send_text_to_origin(origin, f"图片推送失败，已重试 {max_retries} 次仍未成功。请稍后再试。")
+            except Exception:
+                pass
+        raise RuntimeError(
+            f"图片发送失败：QQ/NT 富媒体上传失败。已尝试 {attempts} 次；最后错误：{last_error}"
+        ) from last_error
+
+    def _image_send_retry_settings(self) -> tuple[int, bool]:
+        try:
+            settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+        except Exception:
+            settings = ServiceUiSettings()
+        try:
+            retries = int(getattr(settings, "diary_image_send_max_retries", 3))
+        except Exception:
+            retries = 3
+        retries = max(0, min(retries, 10))
+        notice = bool(getattr(settings, "diary_image_send_failure_notice", True))
+        return retries, notice
 
     def _build_image_message_chain(self, image_value: str, image_kind: str, caption: str = "") -> MessageChain:
         chain = MessageChain()

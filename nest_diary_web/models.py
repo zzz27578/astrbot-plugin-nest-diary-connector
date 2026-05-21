@@ -61,6 +61,8 @@ class ServiceUiSettings:
     diary_push_format: str = "text"
     diary_push_target: str = "none"
     diary_t2i_template_name: str = "plain_note"
+    diary_image_send_max_retries: int = 3
+    diary_image_send_failure_notice: bool = True
     permissions_allow_admin_natural_language: bool = True
     non_admin_permissions: list[str] = field(default_factory=list)
     nest_admin_ids: str = ""
