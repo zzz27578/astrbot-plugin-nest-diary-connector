@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import aiohttp
 import asyncio
+import base64
 import json
 import os
 import shutil
 import socket
 import sys
+import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
+from html import escape as html_escape
 from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -19,6 +22,11 @@ if str(PLUGIN_DIR) not in sys.path:
 
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star, register
+
+try:
+    from jinja2 import Template
+except Exception:
+    Template = None
 
 try:
     from pydantic import Field
@@ -43,7 +51,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.9"
+PLUGIN_VERSION = "0.5.10"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1371,26 +1379,68 @@ class NestDiaryConnectorPlugin(Star):
     def _module_disabled_message(self, module_name: str) -> str:
         return f"{module_name} 模块当前已在小窝设置中关闭，未执行工具调用。"
 
-    async def _send_image_to_event(self, event: AstrMessageEvent, image_path: str, caption: str = "") -> None:
+    async def _send_image_to_event(self, event: AstrMessageEvent, image_path, caption: str = "") -> None:
         await self._send_image_to_origin(self._event_origin(event), image_path, caption=caption)
 
-    async def _send_image_to_origin(self, origin: str, image_path: str, caption: str = "") -> None:
-        path = Path(image_path)
-        if not path.exists():
-            raise FileNotFoundError(f"图片文件不存在：{path}")
+    async def _send_image_to_origin(self, origin: str, image_path, caption: str = "") -> None:
         if not origin:
             raise RuntimeError("当前会话不支持主动发送图片。")
+        image_value, image_kind = self._normalize_image_payload(image_path)
         chain = MessageChain()
         if caption:
             chain = chain.message(caption)
-        if hasattr(chain, "file_image"):
-            chain = chain.file_image(str(path))
+        if image_kind == "url" and hasattr(chain, "url_image"):
+            chain = chain.url_image(image_value)
+        elif image_kind == "base64" and hasattr(chain, "base64_image"):
+            chain = chain.base64_image(image_value.removeprefix("base64://"))
+        elif image_kind == "file" and hasattr(chain, "file_image"):
+            chain = chain.file_image(image_value)
         else:
-            image_component = self._filesystem_image_component(path)
+            image_component = self._image_component_for_payload(image_value, image_kind)
             if image_component is None or not hasattr(chain, "chain"):
                 raise RuntimeError("当前 AstrBot 版本缺少可用的图片发送接口。")
-            chain = chain.chain([image_component])
+            chain.chain.append(image_component)
         await self.context.send_message(origin, chain)
+
+    def _normalize_image_payload(self, image_payload) -> tuple[str, str]:
+        if isinstance(image_payload, bytes):
+            suffix = ".png" if image_payload.startswith(b"\x89PNG") else ".jpg"
+            fd, tmp_path = tempfile.mkstemp(prefix="nest_diary_push_", suffix=suffix)
+            with os.fdopen(fd, "wb") as f:
+                f.write(image_payload)
+            return tmp_path, "file"
+        value = str(image_payload or "").strip()
+        if not value:
+            raise FileNotFoundError("图片渲染结果为空，无法发送。")
+        if value.startswith(("http://", "https://")):
+            return value, "url"
+        if value.startswith("base64://"):
+            return value, "base64"
+        if value.startswith("data:image/") and "," in value:
+            return "base64://" + value.split(",", 1)[1], "base64"
+        if value.startswith("file:///"):
+            value = value[8:]
+        path = Path(value)
+        if not path.exists():
+            raise FileNotFoundError(f"图片文件不存在：{value}")
+        return str(path), "file"
+
+    def _image_component_for_payload(self, image_value: str, image_kind: str):
+        for module_name in ("astrbot.api.message_components", "astrbot.core.message.components"):
+            try:
+                module = __import__(module_name, fromlist=["Image"])
+                image = getattr(module, "Image", None)
+                if not image:
+                    continue
+                if image_kind == "url" and hasattr(image, "fromURL"):
+                    return image.fromURL(image_value)
+                if image_kind == "base64" and hasattr(image, "fromBase64"):
+                    return image.fromBase64(image_value.removeprefix("base64://"))
+                if image_kind == "file" and hasattr(image, "fromFileSystem"):
+                    return image.fromFileSystem(image_value)
+            except Exception:
+                continue
+        return None
 
     async def _send_text_to_origin(self, origin: str, text: str) -> None:
         if not origin:
@@ -1466,7 +1516,72 @@ class NestDiaryConnectorPlugin(Star):
         body = entry.get("body") or ""
         return f"{entry.get('date', '')} · {notebook_name}\n《{title}》\n\n{body}".strip()
 
-    async def _render_diary_push_image(self, entry: dict, ui_settings: ServiceUiSettings) -> str:
+    def _render_template_locally(self, template: str, data: dict) -> str:
+        safe_data = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                safe_data[key] = html_escape(value)
+            elif isinstance(value, list):
+                safe_data[key] = [html_escape(str(item)) for item in value]
+            else:
+                safe_data[key] = value
+        if Template:
+            return Template(template).render(**safe_data)
+        rendered = template
+        for key, value in safe_data.items():
+            if isinstance(value, list):
+                value = "、".join(value)
+            for pattern in (f"{{{{ {key} }}}}", f"{{{{{key}}}}}"):
+                rendered = rendered.replace(pattern, str(value))
+        return rendered
+
+    def _prepare_diary_push_html(self, template: str, data: dict) -> str:
+        html = self._render_template_locally(template, data)
+        long_image_css = (
+            "<style id=\"nest-diary-push-long-image-fix\">"
+            "html,body{margin:0!important;padding:0!important;width:760px!important;"
+            "min-width:760px!important;max-width:760px!important;background:transparent!important;"
+            "overflow:visible!important;}"
+            "body{display:block!important;box-sizing:border-box!important;}"
+            ".diary-push-page{width:760px!important;max-width:760px!important;box-sizing:border-box!important;"
+            "height:auto!important;min-height:360px!important;overflow:visible!important;}"
+            ".diary-push-page *{box-sizing:border-box!important;}"
+            "</style>"
+        )
+        if "</head>" in html:
+            return html.replace("</head>", f"{long_image_css}</head>", 1)
+        return f"<!doctype html><html><head><meta charset=\"utf-8\">{long_image_css}</head><body>{html}</body></html>"
+
+    def _image_payload_is_valid(self, image_payload) -> bool:
+        head = b""
+        def decode_head(value: str) -> bytes:
+            sample = value[:128]
+            sample += "=" * (-len(sample) % 4)
+            return base64.b64decode(sample)[:10]
+
+        try:
+            if isinstance(image_payload, bytes):
+                head = image_payload[:10]
+            else:
+                value = str(image_payload or "").strip()
+                if value.startswith(("http://", "https://")):
+                    return True
+                if value.startswith("base64://"):
+                    head = decode_head(value.removeprefix("base64://"))
+                elif value.startswith("data:image/") and "," in value:
+                    head = decode_head(value.split(",", 1)[1])
+                else:
+                    if value.startswith("file:///"):
+                        value = value[8:]
+                    path = Path(value)
+                    if path.exists():
+                        with path.open("rb") as f:
+                            head = f.read(10)
+        except Exception:
+            return False
+        return head.startswith(b"\xff\xd8") or head.startswith(b"\x89PNG")
+
+    async def _render_diary_push_image(self, entry: dict, ui_settings: ServiceUiSettings):
         data = {
             "date": entry.get("date", ""),
             "title": entry.get("title", ""),
@@ -1479,18 +1594,42 @@ class NestDiaryConnectorPlugin(Star):
         template = self._selected_diary_t2i_template(ui_settings)
         html_render = getattr(self, "html_render", None)
         if html_render:
-            options = {
-                "full_page": True,
-                "type": "png",
-                "animations": "disabled",
-                "caret": "hide",
-                "timeout": 60000,
-                "viewport": {"width": 760, "height": 600},
-            }
-            if "diary-push-page" in template:
-                options["selector"] = ".diary-push-page"
-                options.pop("full_page", None)
-            return await html_render(template, data, return_url=False, options=options)
+            html = self._prepare_diary_push_html(template, data)
+            strategies = [
+                {
+                    "full_page": True,
+                    "type": "png",
+                    "animations": "disabled",
+                    "caret": "hide",
+                    "timeout": 90000,
+                    "viewport": {"width": 760, "height": 600},
+                    "device_scale_factor_level": "high",
+                },
+                {
+                    "full_page": True,
+                    "type": "jpeg",
+                    "quality": 92,
+                    "animations": "disabled",
+                    "caret": "hide",
+                    "timeout": 90000,
+                    "viewport": {"width": 760, "height": 600},
+                    "device_scale_factor_level": "normal",
+                },
+            ]
+            last_error = None
+            for options in strategies:
+                try:
+                    image_payload = await html_render(html, {}, return_url=False, options=options)
+                    if self._image_payload_is_valid(image_payload):
+                        return image_payload
+                    last_error = RuntimeError("T2I 返回的不是有效图片。")
+                except Exception as exc:
+                    last_error = exc
+            if last_error:
+                text_to_image = getattr(self, "text_to_image", None)
+                if text_to_image:
+                    return await text_to_image(self._diary_push_text(entry), return_url=False)
+                raise RuntimeError(f"图片推送渲染失败：{last_error}") from last_error
         text_to_image = getattr(self, "text_to_image", None)
         if text_to_image:
             return await text_to_image(self._diary_push_text(entry), return_url=False)
