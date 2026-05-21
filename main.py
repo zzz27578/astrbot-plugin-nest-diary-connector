@@ -3,6 +3,7 @@ from __future__ import annotations
 import aiohttp
 import asyncio
 import base64
+import io
 import json
 import os
 import shutil
@@ -29,6 +30,13 @@ except Exception:
     Template = None
 
 try:
+    from PIL import Image as PILImage
+    from PIL import ImageChops
+except Exception:
+    PILImage = None
+    ImageChops = None
+
+try:
     from pydantic import Field
     from pydantic.dataclasses import dataclass as pydantic_dataclass
     from astrbot.core.agent.tool import ContextWrapper, FunctionTool, ToolExecResult, ToolSet
@@ -51,7 +59,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.10"
+PLUGIN_VERSION = "0.5.11"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1581,6 +1589,73 @@ class NestDiaryConnectorPlugin(Star):
             return False
         return head.startswith(b"\xff\xd8") or head.startswith(b"\x89PNG")
 
+    def _crop_diary_render_payload_if_needed(self, image_payload):
+        if PILImage is None or ImageChops is None:
+            return image_payload
+
+        source_path = None
+        image_bytes = None
+        value = ""
+        if isinstance(image_payload, bytes):
+            image_bytes = image_payload
+        else:
+            value = str(image_payload or "").strip()
+            if value.startswith("base64://"):
+                image_bytes = base64.b64decode(value.removeprefix("base64://"))
+            elif value.startswith("data:image/") and "," in value:
+                image_bytes = base64.b64decode(value.split(",", 1)[1])
+            elif value.startswith(("http://", "https://")):
+                return image_payload
+            else:
+                if value.startswith("file:///"):
+                    value = value[8:]
+                source_path = Path(value)
+                if not source_path.exists():
+                    return image_payload
+
+        try:
+            if image_bytes is not None:
+                image = PILImage.open(io.BytesIO(image_bytes))
+                suffix = ".png" if image_bytes.startswith(b"\x89PNG") else ".jpg"
+            else:
+                image = PILImage.open(source_path)
+                suffix = (source_path.suffix or ".png").lower()
+
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            if width <= 0 or height <= 0:
+                return image_payload
+
+            background = rgb.getpixel((width - 1, height - 1))
+            background_is_blank = all(channel >= 245 for channel in background)
+            if not background_is_blank and width <= 820:
+                return image_payload
+
+            diff = ImageChops.difference(rgb, PILImage.new("RGB", rgb.size, background))
+            bbox = diff.getbbox()
+            if not bbox:
+                return image_payload
+
+            left, top, right, bottom = bbox
+            right_margin = width - right
+            bottom_margin = height - bottom
+            if right_margin < 24 and bottom_margin < 24:
+                return image_payload
+            if (right - left) < 320 or (bottom - top) < 180:
+                return image_payload
+
+            cropped = image.crop((max(0, left), max(0, top), min(width, right), min(height, bottom)))
+            save_suffix = ".png" if suffix not in {".jpg", ".jpeg"} else ".jpg"
+            fd, tmp_path = tempfile.mkstemp(prefix="nest_diary_push_cropped_", suffix=save_suffix)
+            os.close(fd)
+            if save_suffix == ".jpg":
+                cropped.convert("RGB").save(tmp_path, format="JPEG", quality=95)
+            else:
+                cropped.save(tmp_path, format="PNG")
+            return tmp_path
+        except Exception:
+            return image_payload
+
     async def _render_diary_push_image(self, entry: dict, ui_settings: ServiceUiSettings):
         data = {
             "date": entry.get("date", ""),
@@ -1621,7 +1696,7 @@ class NestDiaryConnectorPlugin(Star):
                 try:
                     image_payload = await html_render(html, {}, return_url=False, options=options)
                     if self._image_payload_is_valid(image_payload):
-                        return image_payload
+                        return self._crop_diary_render_payload_if_needed(image_payload)
                     last_error = RuntimeError("T2I 返回的不是有效图片。")
                 except Exception as exc:
                     last_error = exc
