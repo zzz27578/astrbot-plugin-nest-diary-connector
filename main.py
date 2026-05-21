@@ -59,7 +59,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.11"
+PLUGIN_VERSION = "0.5.12"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1394,6 +1394,29 @@ class NestDiaryConnectorPlugin(Star):
         if not origin:
             raise RuntimeError("当前会话不支持主动发送图片。")
         image_value, image_kind = self._normalize_image_payload(image_path)
+        chain = self._build_image_message_chain(image_value, image_kind, caption=caption)
+        try:
+            ok = await self.context.send_message(origin, chain)
+            if ok is False:
+                raise RuntimeError("AstrBot 未找到可用会话，图片没有发出。")
+            return
+        except Exception as first_error:
+            retry_payload = self._make_qq_safe_image_payload(image_value, image_kind)
+            if not retry_payload:
+                raise
+            retry_chain = self._build_image_message_chain(retry_payload, "base64", caption=caption)
+            try:
+                ok = await self.context.send_message(origin, retry_chain)
+                if ok is False:
+                    raise RuntimeError("AstrBot 未找到可用会话，图片没有发出。")
+                return
+            except Exception as retry_error:
+                raise RuntimeError(
+                    f"图片发送失败：QQ/NT 富媒体上传失败。已尝试原图和压缩 JPEG 重发；"
+                    f"原始错误：{first_error}；重发错误：{retry_error}"
+                ) from retry_error
+
+    def _build_image_message_chain(self, image_value: str, image_kind: str, caption: str = "") -> MessageChain:
         chain = MessageChain()
         if caption:
             chain = chain.message(caption)
@@ -1408,7 +1431,7 @@ class NestDiaryConnectorPlugin(Star):
             if image_component is None or not hasattr(chain, "chain"):
                 raise RuntimeError("当前 AstrBot 版本缺少可用的图片发送接口。")
             chain.chain.append(image_component)
-        await self.context.send_message(origin, chain)
+        return chain
 
     def _normalize_image_payload(self, image_payload) -> tuple[str, str]:
         if isinstance(image_payload, bytes):
@@ -1432,6 +1455,60 @@ class NestDiaryConnectorPlugin(Star):
         if not path.exists():
             raise FileNotFoundError(f"图片文件不存在：{value}")
         return str(path), "file"
+
+    def _image_payload_bytes(self, image_value: str, image_kind: str) -> bytes | None:
+        try:
+            if image_kind == "file":
+                path = Path(image_value[8:] if image_value.startswith("file:///") else image_value)
+                if path.exists():
+                    return path.read_bytes()
+            if image_kind == "base64":
+                value = image_value.removeprefix("base64://")
+                return base64.b64decode(value)
+            if image_value.startswith("data:image/") and "," in image_value:
+                return base64.b64decode(image_value.split(",", 1)[1])
+        except Exception:
+            return None
+        return None
+
+    def _make_qq_safe_image_payload(self, image_value: str, image_kind: str) -> str:
+        if PILImage is None:
+            return ""
+        image_bytes = self._image_payload_bytes(image_value, image_kind)
+        if not image_bytes:
+            return ""
+        try:
+            image = PILImage.open(io.BytesIO(image_bytes))
+            if image.mode in {"RGBA", "LA"} or "transparency" in image.info:
+                background = PILImage.new("RGB", image.size, (255, 255, 255))
+                rgba = image.convert("RGBA")
+                background.paste(rgba, mask=rgba.getchannel("A"))
+                image = background
+            else:
+                image = image.convert("RGB")
+
+            max_width = 1280
+            if image.width > max_width:
+                ratio = max_width / image.width
+                image = image.resize((max_width, max(1, int(image.height * ratio))), PILImage.LANCZOS)
+
+            max_pixels = 8_000_000
+            pixels = image.width * image.height
+            if pixels > max_pixels:
+                ratio = (max_pixels / pixels) ** 0.5
+                image = image.resize((max(1, int(image.width * ratio)), max(1, int(image.height * ratio))), PILImage.LANCZOS)
+
+            last = b""
+            for quality in (88, 78, 68):
+                buffer = io.BytesIO()
+                image.save(buffer, format="JPEG", quality=quality, optimize=True)
+                data = buffer.getvalue()
+                last = data
+                if len(data) <= 3 * 1024 * 1024:
+                    break
+            return "base64://" + base64.b64encode(last).decode("ascii")
+        except Exception:
+            return ""
 
     def _image_component_for_payload(self, image_value: str, image_kind: str):
         for module_name in ("astrbot.api.message_components", "astrbot.core.message.components"):
