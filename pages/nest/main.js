@@ -1,7 +1,7 @@
 (async () => {
   const setText = (id, text) => {
     const node = document.getElementById(id);
-    if (node) node.textContent = text;
+    if (node) node.textContent = text || "";
   };
 
   const error = document.getElementById("error");
@@ -20,7 +20,7 @@
           lastError = err;
         }
       }
-      throw lastError || new Error("Plugin Page API unavailable");
+      throw lastError || new Error("插件页面接口不可用");
     }
 
     const urls = [
@@ -41,7 +41,7 @@
         lastError = err;
       }
     }
-    throw lastError || new Error("status unavailable");
+    throw lastError || new Error("无法读取插件状态");
   };
 
   try {
@@ -53,7 +53,7 @@
     setText("mode", `${status.mode} / v${status.version}`);
     setText("webui", status.webui_started ? webuiUrl : status.webui_error || "未启动");
     setText("data-dir", status.data_dir);
-    setText("custom-dir", status.custom_webui_dir);
+    setText("custom-dir", status.custom_webui_dir || "默认目录");
 
     if (link) link.href = webuiUrl;
   } catch (err) {

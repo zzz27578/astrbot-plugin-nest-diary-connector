@@ -7,6 +7,8 @@ description: Use this skill whenever the agent needs to remember, search, write,
 
 Operate the diary module inside 小窝 through tools, not through the web UI. 小窝 is the framework; diary is only one module in it. The web UI is for authorized administration, theme work, and module management. The agent interface is the tool layer.
 
+WebUI first-run guidance, appearance selection, module installation, password changes, import/export, and other administrator screens are admin-side operations. The agent should not imitate a browser user to perform diary work; use tools for diary, media, search, and impressions.
+
 Available tools:
 
 - `nest_status`: check whether 小窝, the diary module, and WebUI are reachable.
@@ -210,11 +212,13 @@ The 小窝 framework keeps framework-level settings and personalization under `f
 
 ```text
 modules/diary/entries/YYYY/MM/YYYY-MM-DD.md
+modules/diary/notebooks/<notebook-id>/entries/YYYY/MM/YYYY-MM-DD.md
+modules/diary/notebooks.json
 modules/diary/index/
 modules/diary/snapshots/
 ```
 
-Search uses a local SQLite index. When FTS5 is available it ranks results with BM25 and returns snippets; when FTS5 is unavailable it falls back to local LIKE matching. Older deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
+Newer deployments store diary bodies under the notebook-specific `notebooks/<notebook-id>/entries` tree so private chats and groups stay isolated. The legacy `entries/` tree may still exist for old data and migration compatibility. Search uses a local SQLite index. When FTS5 is available it ranks results with BM25 and returns snippets; when FTS5 is unavailable it falls back to local LIKE matching. Older deployments may still expose `diary/YYYY/MM/YYYY-MM-DD.md`; use tools instead of path assumptions. Prefer these retrieval patterns:
 
 ```text
 search_diary(query="2026-05", top_k=8)

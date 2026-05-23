@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.13";
+const APP_VERSION = "0.5.14";
 
 const DIARY_T2I_TEMPLATES = [
   {
@@ -77,9 +77,16 @@ const state = {
   error: "",
   rendered: new Set(),
   settingsMenuOpen: initialViewFromLocation() === "settings",
-  settingsSection: "modules",
-  settingsModuleDetail: "",
+  settingsSection: initialSettingsSectionFromLocation(),
+  settingsModuleDetail: initialSettingsModuleFromLocation(),
   moduleFilter: "all",
+  moduleInstallOpen: false,
+  moduleInstallBusy: false,
+  moduleInstallMessage: "",
+  versionBusy: false,
+  onboardingOpen: false,
+  onboardingStep: 0,
+  onboardingChecked: false,
   t2iTemplateDialogOpen: false,
   t2iCustomOpen: false,
   notebookDeleteIds: [],
@@ -126,13 +133,20 @@ function initialEditDateFromLocation() {
   return new URLSearchParams(window.location.search).get("date") || "";
 }
 
+function localDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function initialComposerFromLocation() {
   return window.location.pathname === "/write";
 }
 
 function initialComposeDateFromLocation() {
-  if (window.location.pathname !== "/write") return new Date().toISOString().slice(0, 10);
-  return new URLSearchParams(window.location.search).get("date") || new Date().toISOString().slice(0, 10);
+  if (window.location.pathname !== "/write") return localDateString();
+  return new URLSearchParams(window.location.search).get("date") || localDateString();
 }
 
 function initialSearchFromLocation() {
@@ -143,6 +157,78 @@ function initialSearchFromLocation() {
 function initialImpressionFromLocation() {
   if (window.location.pathname !== "/impressions") return "";
   return new URLSearchParams(window.location.search).get("name") || "";
+}
+
+function initialSettingsSectionFromLocation() {
+  if (window.location.pathname !== "/settings") return "appearance";
+  const section = new URLSearchParams(window.location.search).get("section") || "appearance";
+  return ["appearance", "modules", "access", "backup"].includes(section) ? section : "appearance";
+}
+
+function initialSettingsModuleFromLocation() {
+  if (window.location.pathname !== "/settings") return "";
+  return new URLSearchParams(window.location.search).get("module") || "";
+}
+
+function applyRouteStateFromLocation() {
+  state.view = initialViewFromLocation();
+  state.selectedDate = initialDateFromLocation();
+  state.editingDate = initialEditDateFromLocation();
+  state.selectedImpressionName = initialImpressionFromLocation();
+  state.diary.composerOpen = initialComposerFromLocation();
+  state.diary.composerDate = initialComposeDateFromLocation();
+  state.diary.filters = initialDiaryFilters();
+  state.search.query = initialSearchFromLocation();
+  state.search.notebook_id = initialNotebookFromLocation();
+  state.settingsMenuOpen = state.view === "settings";
+  state.settingsSection = initialSettingsSectionFromLocation();
+  state.settingsModuleDetail = initialSettingsModuleFromLocation();
+}
+
+function queryString(params) {
+  const value = params.toString();
+  return value ? `?${value}` : "";
+}
+
+function routeForState(view = state.view) {
+  const params = new URLSearchParams();
+  if (view === "dashboard") return "/";
+  if (view === "media") return "/media";
+  if (view === "settings") {
+    params.set("section", state.settingsSection || "appearance");
+    if (state.settingsModuleDetail) params.set("module", state.settingsModuleDetail);
+    return `/settings${queryString(params)}`;
+  }
+  if (view === "search") {
+    if (state.search.query) params.set("q", state.search.query);
+    if (state.search.notebook_id) params.set("notebook_id", state.search.notebook_id);
+    return `/search${queryString(params)}`;
+  }
+  if (view === "impressions") {
+    if (state.selectedImpressionName) params.set("name", state.selectedImpressionName);
+    return `/impressions${queryString(params)}`;
+  }
+  if (view === "diary") {
+    const notebookId = state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "";
+    if (state.diary.composerOpen) {
+      const date = state.diary.composerDate || state.editingDate || state.selectedDate || "";
+      if (date) params.set("date", date);
+      if (notebookId && notebookId !== "default") params.set("notebook_id", notebookId);
+      return `/write${queryString(params)}`;
+    }
+    const date = state.selectedDate || state.diary.selected?.date || state.diary.filters.date || "";
+    if (notebookId && notebookId !== "default") params.set("notebook_id", notebookId);
+    if (date) return `/diary/${encodeURIComponent(date)}${queryString(params)}`;
+    return `/diary${queryString(params)}`;
+  }
+  return "/";
+}
+
+function syncRouteForState(view = state.view, replace = false) {
+  const next = routeForState(view);
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (next === current) return;
+  window.history[replace ? "replaceState" : "pushState"]({ view }, "", next);
 }
 
 async function api(path, options = {}) {
@@ -311,7 +397,8 @@ function renderNavLinks() {
       const children =
         key === "settings" && state.settingsMenuOpen
           ? `<div class="nav-submenu">
-              ${settingsTab("modules", "模块管理")}
+              ${settingsTab("appearance", "外观设置")}
+              ${settingsTab("modules", "模块控制台")}
               ${settingsTab("access", "访问密钥")}
               ${settingsTab("backup", "导入导出")}
             </div>`
@@ -366,6 +453,11 @@ function pageHead(eyebrow, title, actions = "") {
 async function loadBootstrap() {
   if (!state.bootstrap) state.bootstrap = await api("/api/ui/bootstrap");
   state.notebooks = state.bootstrap?.notebooks || state.notebooks || [];
+  if (!state.onboardingChecked && state.bootstrap?.settings && state.bootstrap.settings.onboarding_completed === false) {
+    state.onboardingOpen = true;
+    state.onboardingStep = 0;
+  }
+  state.onboardingChecked = true;
 }
 
 async function setView(view, options = {}) {
@@ -399,19 +491,26 @@ async function setView(view, options = {}) {
     state.diary.composerOpen = false;
     state.editingDate = "";
   }
+  if (!options.skipRoute) syncRouteForState(view, Boolean(options.replaceRoute));
   await loadView();
 }
 
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
       target.classList?.contains("media-dialog-backdrop") &&
       event.target !== target &&
-      (target.dataset.mediaClose !== undefined || target.dataset.mediaFolderModalClose !== undefined)
+      (
+        target.dataset.mediaClose !== undefined ||
+        target.dataset.mediaFolderModalClose !== undefined ||
+        target.dataset.moduleInstallClose !== undefined ||
+        target.dataset.onboardingClose !== undefined ||
+        target.dataset.t2iClose !== undefined
+      )
     ) {
       return;
     }
@@ -560,8 +659,46 @@ document.addEventListener(
       setModuleFilter(target.dataset.moduleFilter);
       return;
     }
+    if (target.dataset.moduleInstallOpen !== undefined) {
+      openModuleInstallDialog();
+      return;
+    }
+    if (target.dataset.moduleInstallClose !== undefined) {
+      closeModuleInstallDialog();
+      return;
+    }
+    if (target.dataset.versionCheck !== undefined) {
+      checkVersion();
+      return;
+    }
+    if (target.dataset.versionUpdate !== undefined) {
+      updateVersion();
+      return;
+    }
     if (target.dataset.moduleSettings) {
       openModuleSettings(target.dataset.moduleSettings);
+      return;
+    }
+    if (target.dataset.styleSelect) {
+      selectFrontendStyle(target.dataset.styleSelect, target);
+      return;
+    }
+    if (target.dataset.onboardingReplay !== undefined) {
+      openOnboarding(0);
+      return;
+    }
+    if (target.dataset.onboardingNext !== undefined) {
+      state.onboardingStep = Math.min(onboardingSteps().length - 1, state.onboardingStep + 1);
+      renderGlobalDialogs();
+      return;
+    }
+    if (target.dataset.onboardingPrev !== undefined) {
+      state.onboardingStep = Math.max(0, state.onboardingStep - 1);
+      renderGlobalDialogs();
+      return;
+    }
+    if (target.dataset.onboardingFinish !== undefined || target.dataset.onboardingClose !== undefined) {
+      finishOnboarding();
       return;
     }
     if (target.dataset.notebookAdd !== undefined) {
@@ -613,10 +750,11 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
-  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"]');
+  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"], [data-action="install-module-from-link"]');
   if (!form) return;
   if (form.dataset.action === "create-media-folder") createMediaFolder(event);
   if (form.dataset.action === "save-media-note") saveMediaNote(event);
+  if (form.dataset.action === "install-module-from-link") installModuleFromLink(event);
 });
 
 async function loadView() {
@@ -631,6 +769,7 @@ async function loadView() {
     if (state.view === "media") await renderMedia();
     if (state.view === "settings") await renderSettings();
     updateShell();
+    renderGlobalDialogs();
   } catch (err) {
     state.error = err.message;
     updateShell();
@@ -668,7 +807,7 @@ function renderDashboard() {
       <article class="card home-side-card">
         <div class="card-head"><h2>小窝状态</h2></div>
         <div class="card-body home-quiet-list">
-          <p><strong>归档</strong><span>日记按年月日保存，保留修订快照。</span></p>
+          <p><strong>归档</strong><span>日记按年月日保存，保留历史快照。</span></p>
           <p><strong>印象</strong><span>人物印象独立管理；日记后是否更新由策略和 bot 判断。</span></p>
           <p><strong>个性化</strong><span>外观、模块和拓展包都放在独立目录中。</span></p>
         </div>
@@ -718,7 +857,7 @@ async function loadDiaryEntry(date, notebookId = "") {
   const candidateDate = date || state.diary.selected?.date || state.selectedDate;
   const candidateNotebook = notebookId || state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "";
   const selectedEntry = candidateDate
-    ? visibleItems.find((entry) => entry.date === candidateDate && (!candidateNotebook || (entry.notebook_id || "default") === candidateNotebook))
+    ? visibleItems.find((entry) => entry.date === candidateDate && (!candidateNotebook || (entry.notebook_id || "default") === candidateNotebook)) || visibleItems[0]
     : visibleItems[0];
   const selectedDate = selectedEntry?.date || "";
   const selectedNotebook = selectedEntry?.notebook_id || candidateNotebook || "default";
@@ -753,7 +892,7 @@ function clearDiaryFilters() {
 async function renderDiary() {
   await ensureDiaryList();
   if (state.diary.composerOpen) {
-    const composeDate = state.diary.composerDate || state.editingDate || new Date().toISOString().slice(0, 10);
+    const composeDate = state.diary.composerDate || state.editingDate || localDateString();
     const existing = findDiaryEntry(composeDate, state.diary.filters.notebook_id || "default");
     if (existing && !state.editingDate) {
       state.editingDate = composeDate;
@@ -800,6 +939,7 @@ async function selectDiary(date, notebookId = "") {
   const article = document.getElementById("diary-article");
   const previousScroll = article ? article.scrollTop : 0;
   await loadDiaryEntry(date, notebookId);
+  syncRouteForState("diary");
   updateDiaryList();
   updateDiaryArchive();
   updateDiaryArticle({ preserveScroll: true, previousScroll });
@@ -876,6 +1016,7 @@ async function applyDiaryFilterChange(event) {
 async function applyDiaryFilters() {
   await ensureDiaryList(true);
   await loadDiaryEntry("");
+  syncRouteForState("diary");
   updateDiaryArchive();
   updateDiaryList();
   updateDiaryArticle({ preserveScroll: false });
@@ -904,7 +1045,7 @@ function updateDiaryArticle({ preserveScroll = false, previousScroll = 0 } = {})
 
 async function openDiaryComposer(date = "", notebookId = "") {
   await ensureDiaryList();
-  const targetDate = date || new Date().toISOString().slice(0, 10);
+  const targetDate = date || localDateString();
   const targetNotebook = notebookId || state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "default";
   const existing = findDiaryEntry(targetDate, targetNotebook);
   state.view = "diary";
@@ -917,6 +1058,7 @@ async function openDiaryComposer(date = "", notebookId = "") {
     await loadDiaryEntry(targetDate, targetNotebook);
     state.notice = date ? "" : "这天已有日记，已切换为编辑。";
   }
+  syncRouteForState("diary");
   await renderDiary();
   updateShell();
 }
@@ -924,6 +1066,8 @@ async function openDiaryComposer(date = "", notebookId = "") {
 function closeDiaryComposer() {
   state.diary.composerOpen = false;
   state.editingDate = "";
+  if (state.diary.filters.date) state.selectedDate = state.diary.filters.date;
+  syncRouteForState("diary");
   updateDiaryComposer();
   updateShell();
 }
@@ -937,7 +1081,7 @@ async function updateDiaryComposer() {
     return;
   }
   target.hidden = false;
-  const date = state.diary.composerDate || state.editingDate || new Date().toISOString().slice(0, 10);
+  const date = state.diary.composerDate || state.editingDate || localDateString();
   const selectedNotebook = state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "default";
   const selected = state.editingDate && state.diary.selected?.date === state.editingDate && (state.diary.selected?.notebook_id || "default") === selectedNotebook ? state.diary.selected : null;
   const notebookSelect = notebookOptions().map((item) => `<option value="${escapeHtml(item.id)}" ${(selected?.notebook_id || selectedNotebook) === item.id ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
@@ -1170,6 +1314,7 @@ async function selectImpression(name) {
     await setView("impressions");
     return;
   }
+  syncRouteForState("impressions");
   await renderImpressions();
   updateShell();
 }
@@ -1177,6 +1322,7 @@ async function selectImpression(name) {
 function newImpression() {
   state.selectedImpressionName = "";
   state.selectedImpression = null;
+  syncRouteForState("impressions");
   panel("impressions").querySelectorAll("[data-impression-name]").forEach((node) => node.classList.remove("active"));
   const target = document.getElementById("impression-detail");
   if (target) {
@@ -1213,6 +1359,7 @@ async function saveImpression(event) {
   state.notice = "人物印象已保存。";
   state.selectedImpressionName = result.item.name;
   state.bootstrap = null;
+  syncRouteForState("impressions");
   await renderImpressions();
   updateShell();
 }
@@ -1225,6 +1372,7 @@ async function deleteImpression(event) {
   state.selectedImpressionName = "";
   state.selectedImpression = null;
   state.bootstrap = null;
+  syncRouteForState("impressions");
   await renderImpressions();
   updateShell();
 }
@@ -1475,8 +1623,166 @@ function renderGlobalDialogs() {
   root.innerHTML = `
     ${state.selectedMedia ? mediaDialog(state.selectedMedia) : ""}
     ${state.mediaFolderModalOpen ? mediaFolderCreateDialog() : ""}
+    ${state.moduleInstallOpen ? moduleInstallDialog() : ""}
     ${state.t2iTemplateDialogOpen ? t2iTemplateDialog() : ""}
+    ${state.onboardingOpen ? onboardingDialog() : ""}
   `;
+}
+
+function onboardingSteps() {
+  return [
+    {
+      title: "先给小窝安好门牌",
+      body: "这里是私有 WebUI。第一次使用建议先改管理员密码，再确认标题、头像和外观样式。",
+      target: "访问密钥 / 外观设置",
+    },
+    {
+      title: "日记是一个模块",
+      body: "bot 写日记、查日记、写人物印象都走工具层；网页负责管理、查看和调整，不需要让 bot 模仿人点页面。",
+      target: "模块控制台 / 日记模块",
+    },
+    {
+      title: "数据和个性化分层保存",
+      body: "官方模块用于稳定更新，自定义主题、拓展包和用户数据放在独立目录。更新插件时尽量不碰用户自己的设计。",
+      target: "导入导出 / 自定义目录",
+    },
+  ];
+}
+
+function onboardingDialog() {
+  const steps = onboardingSteps();
+  const index = Math.max(0, Math.min(state.onboardingStep || 0, steps.length - 1));
+  const step = steps[index];
+  return `
+    <div class="media-dialog-backdrop onboarding-backdrop" data-onboarding-close>
+      <article class="nest-dialog onboarding-dialog" role="dialog" aria-modal="true" aria-label="小窝首次使用引导" onclick="event.stopPropagation()">
+        <button class="media-dialog-close" data-onboarding-close type="button" aria-label="关闭">×</button>
+        <div class="onboarding-visual">
+          <span>${index + 1}</span>
+          <i></i>
+        </div>
+        <p class="eyebrow">首次使用引导</p>
+        <h2>${escapeHtml(step.title)}</h2>
+        <p class="onboarding-body">${escapeHtml(step.body)}</p>
+        <div class="onboarding-target">${escapeHtml(step.target)}</div>
+        <div class="onboarding-dots">${steps.map((_, i) => `<span class="${i === index ? "active" : ""}"></span>`).join("")}</div>
+        <div class="actions dialog-actions">
+          <button class="button ghost" data-onboarding-prev ${index === 0 ? "disabled" : ""} type="button">上一步</button>
+          ${
+            index >= steps.length - 1
+              ? `<button class="primary" data-onboarding-finish type="button">完成引导</button>`
+              : `<button class="primary" data-onboarding-next type="button">下一步</button>`
+          }
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function openOnboarding(step = 0) {
+  state.onboardingOpen = true;
+  state.onboardingStep = step;
+  renderGlobalDialogs();
+}
+
+async function finishOnboarding() {
+  state.onboardingOpen = false;
+  state.onboardingStep = 0;
+  try {
+    const payload = await api("/api/ui/onboarding", { method: "POST", body: JSON.stringify({ completed: true }) });
+    if (payload?.settings) {
+      if (state.bootstrap?.settings) state.bootstrap.settings.onboarding_completed = true;
+      if (state.settings?.settings) state.settings.settings.onboarding_completed = true;
+    }
+  } catch (err) {
+    state.toast = `引导状态保存失败：${err.message}`;
+    updateShell();
+    clearToastSoon();
+  }
+  renderGlobalDialogs();
+}
+
+function moduleInstallDialog() {
+  return `
+    <div class="media-dialog-backdrop soft" data-module-install-close>
+      <article class="nest-dialog module-install-dialog" role="dialog" aria-modal="true" aria-label="从链接安装模块" onclick="event.stopPropagation()">
+        <button class="media-dialog-close" data-module-install-close type="button" aria-label="关闭">×</button>
+        <div class="settings-mini-head">
+          <strong>从链接安装模块</strong>
+          <span>支持 GitHub 仓库或 zip 包</span>
+        </div>
+        <form class="form" data-action="install-module-from-link">
+          <label>模块链接<input name="source_url" type="url" placeholder="https://github.com/owner/nest-extension" required></label>
+          <div class="choice-grid module-install-options">
+            <label class="choice-card"><input name="enable_after_install" type="checkbox" checked><span><strong>安装后启用</strong><em>外观模块会切换为当前样式，其他模块会加入启用列表。</em></span></label>
+            <label class="choice-card"><input name="overwrite" type="checkbox"><span><strong>覆盖同名模块</strong><em>覆盖前会自动备份旧目录。</em></span></label>
+          </div>
+          ${state.moduleInstallMessage ? `<div class="notice soft">${escapeHtml(state.moduleInstallMessage)}</div>` : ""}
+          <div class="actions dialog-actions">
+            <button class="button ghost" data-module-install-close type="button">取消</button>
+            <button class="primary" ${state.moduleInstallBusy ? "disabled" : ""}>${state.moduleInstallBusy ? "安装中..." : "安装模块"}</button>
+          </div>
+        </form>
+      </article>
+    </div>
+  `;
+}
+
+function openModuleInstallDialog() {
+  state.moduleInstallOpen = true;
+  state.moduleInstallMessage = "";
+  renderGlobalDialogs();
+}
+
+function closeModuleInstallDialog() {
+  if (state.moduleInstallBusy) return;
+  state.moduleInstallOpen = false;
+  state.moduleInstallMessage = "";
+  renderGlobalDialogs();
+}
+
+async function installModuleFromLink(event) {
+  event.preventDefault();
+  if (state.moduleInstallBusy) return;
+  const form = new FormData(event.currentTarget);
+  state.moduleInstallBusy = true;
+  state.moduleInstallMessage = "正在下载并检查模块包...";
+  renderGlobalDialogs();
+  try {
+    const payload = await api("/api/ui/modules/install", {
+      method: "POST",
+      body: JSON.stringify({
+        source_url: form.get("source_url"),
+        overwrite: form.has("overwrite"),
+        enable_after_install: form.has("enable_after_install"),
+      }),
+    });
+    state.moduleInstallOpen = false;
+    state.moduleInstallBusy = false;
+    state.moduleInstallMessage = "";
+    state.toast = `已安装 ${payload.module?.name || payload.module?.id || "模块"}`;
+    state.bootstrap = null;
+    await renderSettings();
+    updateShell();
+    clearToastSoon();
+  } catch (err) {
+    state.moduleInstallBusy = false;
+    state.moduleInstallMessage = err.message;
+    renderGlobalDialogs();
+  }
+}
+
+function selectFrontendStyle(styleId, source = null) {
+  const form = source?.closest("form") || document.querySelector('[data-action="save-appearance"], [data-action="save-settings"]');
+  const select = form?.querySelector('select[name="active_frontend_style"]');
+  if (!select) return;
+  select.value = styleId || "default";
+  form.querySelectorAll("[data-style-select]").forEach((node) => {
+    node.classList.toggle("active", node.dataset.styleSelect === select.value);
+  });
+  state.toast = "样式已选择，保存后生效";
+  updateShell();
+  clearToastSoon();
 }
 
 function t2iTemplateDialog() {
@@ -2390,10 +2696,13 @@ async function renderSettings() {
   state.settings = payload;
   state.notebooks = payload.notebooks || state.notebooks || [];
   const settings = payload.settings;
-  if (!["modules", "access", "backup"].includes(state.settingsSection)) state.settingsSection = "modules";
+  if (!["appearance", "modules", "access", "backup"].includes(state.settingsSection)) state.settingsSection = "appearance";
   panel("settings").innerHTML = `
     <section class="settings-layout settings-layout-single">
       <div class="settings-content">
+        <section class="settings-panel ${settingsPanelClass("appearance")}" data-settings-panel="appearance">
+          ${appearanceSettingsPage(payload)}
+        </section>
         <section class="settings-panel ${settingsPanelClass("modules")}" data-settings-panel="modules">
           <form data-action="save-settings">
             ${state.settingsModuleDetail ? moduleDetailPage(payload, state.settingsModuleDetail) : moduleManagerPage(payload)}
@@ -2420,6 +2729,7 @@ async function renderSettings() {
               <h2>导入导出</h2>
             </div>
             <div class="settings-collapse form">
+              ${versionMaintenance(payload)}
               <form class="backup-export-form" data-action="export-backup">
                 <div>
                   <h3>导出范围</h3>
@@ -2446,9 +2756,11 @@ async function renderSettings() {
     </section>
   `;
   panel("settings").querySelector('[data-action="save-settings"]').addEventListener("submit", saveSettings);
+  panel("settings").querySelector('[data-action="save-appearance"]')?.addEventListener("submit", saveSettings);
   panel("settings").querySelector('[data-action="save-security"]').addEventListener("submit", saveSecurity);
   panel("settings").querySelector('[data-action="export-backup"]').addEventListener("submit", exportBackup);
   panel("settings").querySelector('[data-action="import-backup"]').addEventListener("submit", importBackup);
+  renderGlobalDialogs();
 }
 
 function settingsTab(id, label) {
@@ -2468,6 +2780,7 @@ async function switchSettingsSection(id) {
   state.settingsMenuOpen = true;
   state.settingsSection = id;
   state.settingsModuleDetail = "";
+  syncRouteForState("settings");
   await renderSettings();
   updateShell();
 }
@@ -2475,8 +2788,30 @@ async function switchSettingsSection(id) {
 async function openModuleSettings(id) {
   state.settingsSection = "modules";
   state.settingsModuleDetail = id || "";
+  syncRouteForState("settings");
   await renderSettings();
   updateShell();
+}
+
+function appearanceSettingsPage(payload) {
+  const settings = payload.settings;
+  return `
+    <section class="settings-page appearance-page">
+      <div class="settings-page-head">
+        <div>
+          <h2>外观设置</h2>
+          <p class="muted">设置小窝标题、头像和页面风格。这里的选项都会真实保存。</p>
+        </div>
+        <button class="button ghost" data-onboarding-replay type="button">重新查看引导</button>
+      </div>
+      <form class="settings-collapse form" data-action="save-appearance">
+        ${webuiAppearanceBody(payload, "page")}
+        <div class="module-detail-actions">
+          <button class="primary">保存外观</button>
+        </div>
+      </form>
+    </section>
+  `;
 }
 
 async function closeModuleSettings() {
@@ -2484,6 +2819,7 @@ async function closeModuleSettings() {
   state.notebookDeleteIds = [];
   state.t2iTemplateDialogOpen = false;
   state.t2iCustomOpen = false;
+  syncRouteForState("settings");
   await renderSettings();
   updateShell();
 }
@@ -2502,9 +2838,10 @@ function moduleManagerPage(payload) {
     <section class="module-manager-page">
       <div class="module-page-head">
         <div>
-          <h2>模块管理</h2>
-          <p class="muted">管理小窝里的功能、外观和拓展。</p>
+          <h2>模块控制台</h2>
+          <p class="muted">管理小窝里的功能模块、外观样式和拓展包。</p>
         </div>
+        <button class="button primary" data-module-install-open type="button">从链接安装</button>
       </div>
       ${moduleWarnings(payload.module_catalog.conflicts || [])}
       ${moduleWarnings(payload.module_catalog.appearance_conflicts || [])}
@@ -2517,7 +2854,7 @@ function moduleManagerPage(payload) {
         ${moduleFilterButton("all", "全部", modules.length)}
         ${moduleFilterButton("core", "功能模块", modules.filter((item) => item.category === "core").length)}
         ${moduleFilterButton("appearance", "外观模块", modules.filter((item) => item.category === "appearance").length)}
-        ${moduleFilterButton("extension", "拓展模块", modules.filter((item) => item.category === "extension").length)}
+        ${moduleFilterButton("extension", "拓展包", modules.filter((item) => item.category === "extension").length)}
       </div>
       <div class="module-card-grid module-card-grid-standalone">
         ${moduleHiddenInputs(modules)}
@@ -2762,20 +3099,7 @@ function moduleSettingsBody(payload, detailKey) {
     `;
   }
   if (detailKey === "webui") {
-    return `
-      <div class="brand-settings">
-        <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
-        <div class="form-grid compact">
-          <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：小莫的小窝"></label>
-          <label>小窝副标题<input name="site_subtitle" value="${escapeHtml(settings.site_subtitle || "把今天安放好，旧事也能被轻轻找回来")}" placeholder="显示在首页标题下面"></label>
-          <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
-          <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
-          <label>当前样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${settings.active_frontend_style === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
-          <label>自定义页面目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认目录"></label>
-        </div>
-      </div>
-      ${check("backup_custom_before_update", "更新前备份自定义内容", settings.backup_custom_before_update)}
-    `;
+    return webuiAppearanceBody(payload, "module");
   }
   if (detailKey === "media") {
     return `
@@ -2877,7 +3201,7 @@ function moduleBadges(module, groupKind = "") {
   const badges = [
     `<span class="chip">${escapeHtml(moduleSourceLabel(module, groupKind))}</span>`,
     appearanceLabel ? `<span class="chip ${module.appearance_mode === "global" ? "danger-chip" : ""}">${escapeHtml(appearanceLabel)}</span>` : "",
-    groupKind === "extension" ? `<span class="chip">拓展模块</span>` : "",
+    groupKind === "extension" ? `<span class="chip">拓展包</span>` : "",
     conflicts.length ? `<span class="chip danger-chip">有冲突</span>` : "",
   ];
   return badges.filter(Boolean);
@@ -2900,9 +3224,60 @@ function moduleTypeLabel(type = "") {
 
 function styleKindLabel(kind = "") {
   if (kind === "official") return "官方";
+  if (kind === "appearance") return "外观";
   if (kind === "custom") return "自定义";
   if (kind === "missing") return "未找到";
   return kind || "样式";
+}
+
+function webuiAppearanceBody(payload, mode = "module") {
+  const settings = payload.settings;
+  const currentId = settings.active_frontend_style || "default";
+  return `
+    <div class="brand-settings">
+      <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(settings.brand_avatar_url)}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
+      <div class="form-grid compact">
+        <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：某某的小窝"></label>
+        <label>小窝副标题<input name="site_subtitle" value="${escapeHtml(settings.site_subtitle || "把今天安放好，旧事也能被轻轻找回来")}" placeholder="显示在首页标题下面"></label>
+        <label>头像地址<input name="brand_avatar_url" value="${escapeHtml(settings.brand_avatar_url || "")}" placeholder="可填写图片地址，也可上传"></label>
+        <label>上传头像<input name="brand_avatar_file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+        <label>当前样式<select name="active_frontend_style">${payload.frontend_styles.map((style) => `<option value="${escapeHtml(style.id)}" ${currentId === style.id ? "selected" : ""}>${escapeHtml(style.name)} · ${escapeHtml(styleKindLabel(style.kind))}</option>`).join("")}</select></label>
+        <label>自定义页面目录<input name="custom_webui_dir" value="${escapeHtml(settings.custom_webui_dir || "")}" placeholder="留空使用默认目录"></label>
+      </div>
+    </div>
+    ${frontendStyleCards(payload.frontend_styles || [], currentId)}
+    <div class="setting-line">
+      <div>
+        <strong>更新前备份自定义内容</strong>
+        <p class="muted">插件更新前尽量保留用户自己做的页面、主题和模块。</p>
+      </div>
+      ${switchControl("backup_custom_before_update", settings.backup_custom_before_update)}
+    </div>
+    <input name="onboarding_completed" type="hidden" value="${settings.onboarding_completed ? "true" : "false"}">
+    ${mode === "module" ? `<button class="button ghost" data-onboarding-replay type="button">重新查看新手引导</button>` : ""}
+  `;
+}
+
+function frontendStyleCards(styles = [], currentId = "default") {
+  const description = {
+    default: "稳定、清晰，适合作为默认维护界面。",
+    "nest-paper-garden": "纸感手账风，适合长时间阅读日记。",
+    "nest-glass-cabin": "轻玻璃小屋，清爽现代，层次更通透。",
+    "nest-night-atelier": "温柔深色工作室，适合夜间整理。"
+  };
+  return `
+    <div class="style-chooser" data-style-chooser>
+      ${styles.map((style) => `
+        <button class="style-card ${currentId === style.id ? "active" : ""}" data-style-select="${escapeHtml(style.id)}" type="button">
+          <span class="style-swatch style-${escapeHtml(style.id)}"></span>
+          <span>
+            <strong>${escapeHtml(style.name)}</strong>
+            <em>${escapeHtml(style.description || description[style.id] || "可选前端样式。")}</em>
+          </span>
+        </button>
+      `).join("")}
+    </div>
+  `;
 }
 
 function exportOptions(catalog) {
@@ -2941,6 +3316,23 @@ function exportOptions(catalog) {
     .join("");
 }
 
+function versionMaintenance(payload) {
+  const runtime = payload.runtime || {};
+  return `
+    <section class="version-panel">
+      <div>
+        <h3>版本维护</h3>
+        <p class="muted">当前版本 ${escapeHtml(APP_VERSION)}。检查会读取插件仓库元数据；更新会调用后端更新服务。</p>
+        ${state.notice ? "" : `<p class="muted">自更新：${runtime.self_update ? "已启用" : "未启用，建议在 AstrBot 插件管理中更新"}</p>`}
+      </div>
+      <div class="actions">
+        <button class="button" data-version-check type="button" ${state.versionBusy ? "disabled" : ""}>检查更新</button>
+        <button class="button ghost" data-version-update type="button" ${state.versionBusy ? "disabled" : ""}>更新版本</button>
+      </div>
+    </section>
+  `;
+}
+
 async function saveSettings(event) {
   event.preventDefault();
   const shouldClose = event.submitter?.dataset.saveClose !== undefined;
@@ -2950,6 +3342,11 @@ async function saveSettings(event) {
   const hasField = (name) => formEl.querySelector(`[name="${CSS.escape(name)}"]`) !== null;
   const valueField = (name, fallback = "") => (hasField(name) ? form.get(name) : fallback);
   const boolField = (name, fallback = false) => (hasField(name) ? form.has(name) : Boolean(fallback));
+  const boolValueField = (name, fallback = false) => {
+    if (!hasField(name)) return Boolean(fallback);
+    const value = String(form.get(name) || "").trim().toLowerCase();
+    return value ? ["1", "true", "yes", "on", "开"].includes(value) : form.has(name);
+  };
   const numberField = (name, fallback = 0) => Number(valueField(name, fallback) || fallback || 0);
   const listField = (name, fallback = []) => {
     if (form.getAll("__module_group_present").includes(name)) return form.getAll(name);
@@ -3005,10 +3402,22 @@ async function saveSettings(event) {
     enabled_custom_extensions: listField("enabled_custom_extensions", current.enabled_custom_extensions || []),
     enabled_appearance_modules: listField("enabled_appearance_modules", current.enabled_appearance_modules || []),
     appearance_modules_initialized: true,
+    onboarding_completed: boolValueField("onboarding_completed", current.onboarding_completed),
     custom_webui_dir: valueField("custom_webui_dir", current.custom_webui_dir || ""),
     backup_custom_before_update: boolField("backup_custom_before_update", current.backup_custom_before_update),
     impression_prompt: valueField("impression_prompt", current.impression_prompt || ""),
   };
+  if (hasField("active_frontend_style")) {
+    const appearance = state.settings?.module_catalog?.appearance || [];
+    const globalStyleIds = appearance.filter((item) => item.appearance_mode === "global").map((item) => item.id);
+    const activeStyle = payload.active_frontend_style || "default";
+    payload.enabled_appearance_modules = (payload.enabled_appearance_modules || []).filter(
+      (item) => !globalStyleIds.includes(item) || item === activeStyle
+    );
+    if (activeStyle !== "default" && globalStyleIds.includes(activeStyle)) {
+      payload.enabled_appearance_modules = syncEnabledModule(payload.enabled_appearance_modules, activeStyle, true);
+    }
+  }
   if (event.submitter?.dataset.moduleToggle !== undefined) {
     const moduleId = event.submitter.dataset.moduleId;
     const moduleInput = event.submitter.dataset.moduleInput;
@@ -3188,6 +3597,50 @@ async function importBackup(event) {
   updateShell();
 }
 
+async function checkVersion() {
+  if (state.versionBusy) return;
+  state.versionBusy = true;
+  state.notice = "正在检查版本...";
+  state.error = "";
+  updateShell();
+  try {
+    const result = await api("/api/ui/version/check");
+    state.notice = `${result.message} 当前 ${result.current}，最新 ${result.latest}。`;
+  } catch (err) {
+    state.error = err.message || "版本检测失败";
+    state.notice = "";
+  } finally {
+    state.versionBusy = false;
+    await renderSettings();
+    updateShell();
+  }
+}
+
+async function updateVersion() {
+  if (state.versionBusy) return;
+  state.versionBusy = true;
+  state.notice = "正在请求更新...";
+  state.error = "";
+  updateShell();
+  try {
+    const result = await api("/api/ui/version/update", { method: "POST" });
+    const output = result.output ? `\n${result.output}` : "";
+    if (result.ok) {
+      state.notice = `${result.message}${output}`;
+    } else {
+      state.error = `${result.message}${output}`;
+      state.notice = "";
+    }
+  } catch (err) {
+    state.error = err.message || "更新失败";
+    state.notice = "";
+  } finally {
+    state.versionBusy = false;
+    await renderSettings();
+    updateShell();
+  }
+}
+
 async function saveSecurity(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
@@ -3207,4 +3660,9 @@ async function saveSecurity(event) {
 
 ensureShell();
 panel(state.view).innerHTML = `<div class="loading">正在进入小窝...</div>`;
+window.addEventListener("popstate", async () => {
+  applyRouteStateFromLocation();
+  await loadView();
+});
+syncRouteForState(state.view, true);
 loadView();

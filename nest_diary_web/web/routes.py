@@ -62,10 +62,17 @@ def create_web_router(
     def discover_frontend_styles(settings: ServiceUiSettings) -> list[dict]:
         themes_dir = custom_webui_root(settings) / "themes"
         styles = [{"id": "default", "name": "官方默认", "kind": "official"}]
+        seen = {"default"}
+        for item in discover_appearance_modules(settings):
+            if item.get("appearance_mode") != "global" or item["id"] in seen:
+                continue
+            styles.append({"id": item["id"], "name": item["name"], "kind": item.get("kind", "appearance")})
+            seen.add(item["id"])
         if themes_dir.exists():
             for path in sorted(themes_dir.iterdir()):
-                if path.is_dir():
+                if path.is_dir() and path.name not in seen:
                     styles.append({"id": path.name, "name": path.name, "kind": "custom"})
+                    seen.add(path.name)
         if settings.active_frontend_style not in {item["id"] for item in styles}:
             styles.append({"id": settings.active_frontend_style, "name": settings.active_frontend_style, "kind": "missing"})
         return styles
@@ -95,21 +102,27 @@ def create_web_router(
             data["entry_label"] = "全局模块" if data["appearance_mode"] == "global" else "补充拓展"
             return data
 
-        builtin_path = BUILTIN_APPEARANCE_ROOT / "nest-tactical"
-        packages["nest-tactical"] = load_manifest(
-            builtin_path,
-            {
-                "id": "nest-tactical",
-                "name": "小窝战术终端",
-                "type": "appearance",
-                "description": "官方全局外观模块。",
-                "feature_tags": ["webui-appearance", "official-global-appearance"],
-                "appearance_mode": "global",
-                "conflicts_with": [],
-            },
-            "official",
-            builtin_path,
-        )
+        if BUILTIN_APPEARANCE_ROOT.exists():
+            for builtin_path in sorted(BUILTIN_APPEARANCE_ROOT.iterdir()):
+                if not builtin_path.is_dir():
+                    continue
+                if not (builtin_path / "module.json").exists():
+                    continue
+                item = load_manifest(
+                    builtin_path,
+                    {
+                        "id": builtin_path.name,
+                        "name": builtin_path.name,
+                        "type": "appearance",
+                        "description": "官方前端外观模块。",
+                        "feature_tags": ["webui-appearance", "official-global-appearance"],
+                        "appearance_mode": "global",
+                        "conflicts_with": [],
+                    },
+                    "official",
+                    builtin_path,
+                )
+                packages[item["id"]] = item
         for folder_name in ["themes", "appearance", "skins"]:
             root = custom_webui_root(settings) / folder_name
             if not root.exists():
@@ -186,7 +199,7 @@ def create_web_router(
         settings = load_ui_settings()
         css_parts: list[str] = []
         for item in discover_appearance_modules(settings):
-            if item["id"] not in settings.enabled_appearance_modules:
+            if item["id"] not in settings.enabled_appearance_modules and item["id"] != settings.active_frontend_style:
                 continue
             css_path = Path(item.get("frontend_path", "")) / "style.css"
             if css_path.exists():
@@ -518,30 +531,28 @@ def create_web_router(
         if not settings_store:
             return RedirectResponse("/settings?error=settings-store-unavailable", status_code=303)
         current_settings = settings_store.load()
-        settings_store.save(
-            ServiceUiSettings(
-                site_title=site_title.strip() or "小窝",
-                brand_avatar_url=brand_avatar_url.strip(),
-                enable_diary_module=enable_diary_module == "on",
-                search_default_top_k=search_default_top_k,
-                search_snippet_chars=search_snippet_chars,
-                memory_recall_enabled=memory_recall_enabled == "on",
-                memory_recall_policy=memory_recall_policy,
-                diary_archive_granularity=diary_archive_granularity,
-                allow_media_refs=allow_media_refs == "on",
-                media_storage_strategy=media_storage_strategy,
-                show_impression_prompt=show_impression_prompt == "on",
-                active_frontend_style=active_frontend_style.strip() or "default",
-                enabled_official_modules=enabled_official_modules,
-                enabled_custom_modules=enabled_custom_modules,
-                enabled_custom_extensions=enabled_custom_extensions,
-                enabled_appearance_modules=enabled_appearance_modules or current_settings.enabled_appearance_modules,
-                appearance_modules_initialized=True,
-                custom_webui_dir=custom_webui_dir.strip(),
-                backup_custom_before_update=backup_custom_before_update == "on",
-                impression_prompt=impression_prompt.strip(),
-            )
-        )
+        previous_appearance_modules = current_settings.enabled_appearance_modules
+        current_settings.site_title = site_title.strip() or "小窝"
+        current_settings.brand_avatar_url = brand_avatar_url.strip()
+        current_settings.enable_diary_module = enable_diary_module == "on"
+        current_settings.search_default_top_k = search_default_top_k
+        current_settings.search_snippet_chars = search_snippet_chars
+        current_settings.memory_recall_enabled = memory_recall_enabled == "on"
+        current_settings.memory_recall_policy = memory_recall_policy
+        current_settings.diary_archive_granularity = diary_archive_granularity
+        current_settings.allow_media_refs = allow_media_refs == "on"
+        current_settings.media_storage_strategy = media_storage_strategy
+        current_settings.show_impression_prompt = show_impression_prompt == "on"
+        current_settings.active_frontend_style = active_frontend_style.strip() or "default"
+        current_settings.enabled_official_modules = enabled_official_modules
+        current_settings.enabled_custom_modules = enabled_custom_modules
+        current_settings.enabled_custom_extensions = enabled_custom_extensions
+        current_settings.enabled_appearance_modules = enabled_appearance_modules or previous_appearance_modules
+        current_settings.appearance_modules_initialized = True
+        current_settings.custom_webui_dir = custom_webui_dir.strip()
+        current_settings.backup_custom_before_update = backup_custom_before_update == "on"
+        current_settings.impression_prompt = impression_prompt.strip()
+        settings_store.save(current_settings)
         return RedirectResponse("/settings?saved=1", status_code=303)
 
     @router.post("/settings/security")

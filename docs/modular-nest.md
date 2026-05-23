@@ -37,18 +37,20 @@ data/
 - WebUI 监听地址和端口
 - 数据根目录
 - 后台定时任务使用哪个会话作为上下文
-- 日记模块是否启用
 
 小窝 WebUI 设置负责小窝自身：
 
 - 管理员密码
 - 可选外部 API Key
+- 官方模块和日记模块开关
 - 前端主题
 - 自定义模块显示
 - 人物印象模块、自动识别、写入程度和更新策略
 - 外观模块启用状态与冲突提示
 - 导入、导出、备份
 - 版本检测和更新
+- 首次使用引导完成状态
+- 从链接安装模块包
 
 ## 模块规范
 
@@ -112,7 +114,15 @@ framework/user_custom/webui/templates/
 
 官方更新只更新插件默认文件，不覆盖 `framework/user_custom/webui/`。
 
-外观模块可以声明 `type: "appearance"` 和 `appearance_mode`。`appearance_mode: "global"` 表示全局模块，官方默认外观是 `nest-tactical`，首次没有外观选择时自动启用。全局模块建议只启用一个；其他值按补充拓展处理，可以多个同时启用。多个全局模块同时开启时，WebUI 会显示红色冲突提示。
+外观模块可以声明 `type: "appearance"` 和 `appearance_mode`。`appearance_mode: "global"` 表示全局替换小窝前端样式；全局模块建议只启用一个，其他值按补充拓展处理，可以多个同时启用。多个全局模块同时开启时，WebUI 会显示红色冲突提示。
+
+`0.5.14` 内置三套官方全局外观：
+
+- `nest-paper-garden`：纸庭，偏纸感手账和长期阅读。
+- `nest-glass-cabin`：玻璃小屋，偏轻玻璃、清爽管理界面。
+- `nest-night-atelier`：夜间工作室，偏温柔深色和夜间维护。
+
+用户自定义全局外观应放在 `framework/user_custom/webui/themes/<theme-id>/style.css` 或 `framework/user_custom/webui/appearance/<appearance-id>/`。官方更新只替换插件内置文件，不覆盖这些目录。
 
 如果自定义前端或模块对其他人也有价值，建议整理成 PR 提交到项目仓库。PR 应该聚焦，不要一次提交过多无关改动。
 

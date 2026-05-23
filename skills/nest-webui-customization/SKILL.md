@@ -49,6 +49,16 @@ nest_diary_web/web/templates/
 nest_diary_web/web/static/
 ```
 
+## Built-In Appearance Modules
+
+Version 0.5.14 ships three official global appearance modules. They are selectable in WebUI settings under `外观设置`, and they also appear in `模块控制台` as appearance packages:
+
+- `nest-paper-garden`: warm paper reading style for long diary browsing.
+- `nest-glass-cabin`: bright glass interface for a cleaner modern home.
+- `nest-night-atelier`: gentle dark workspace for night maintenance.
+
+Selecting one global style should update `active_frontend_style` and keep only that global appearance enabled. Do not reintroduce retired industrial or tactical official themes. If a user wants a similar sharp style, create a custom theme with a new id under `framework/user_custom/webui/themes/`.
+
 ## Framework vs Module Customization
 
 Use framework-level customization for the shell of 小窝:
@@ -139,6 +149,20 @@ Extension example:
 ```
 
 If two enabled packages share a feature tag, the module console should warn about possible overlap. Do not forcibly disable either package unless the user explicitly asks.
+
+## From-Link Module Installation
+
+The WebUI module console supports installing a module package from a link. The package must be a zip file or a GitHub repository that contains `module.json`.
+
+Expected package locations after install:
+
+```text
+modules/<module-id>/                    # full module with persistent data
+modules/extensions/<extension-id>/      # extension package with persistent data
+framework/user_custom/webui/appearance/<theme-id>/  # appearance package
+```
+
+Do not use an official module id (`diary`, `impressions`, `media`, `webui`) or an official appearance id for a downloadable package. If a package replaces an official module, use a distinct id, set `replaces` and `conflicts_with`, and let the module console warn the user.
 
 ## Module Data Rule
 

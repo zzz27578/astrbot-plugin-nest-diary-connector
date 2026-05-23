@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import io
 import json
 import mimetypes
+import shutil
+import urllib.request
+import zipfile
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -18,13 +24,13 @@ from .diary.diary_service import DiaryService
 from .memory.impression_service import ImpressionService
 from .media.media_service import MediaService
 from .models import DiaryEntry, PersonImpression, ServiceUiSettings
-from .paths import NestPaths
+from .paths import NestPaths, safe_package_id
 from .settings_service import SecuritySettingsStore, ServiceSettingsStore
 from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.13"
+APP_VERSION = "0.5.14"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -136,6 +142,7 @@ def _security_payload() -> dict:
         "bot_api_token": security.bot_api_token,
         "external_api_enabled": security.external_api_enabled,
         "admin_password_set": bool(security.admin_password),
+        "admin_password_is_default": security.admin_password == security_settings.default_admin_password,
     }
 
 
@@ -148,14 +155,28 @@ def _custom_webui_root(ui_settings: ServiceUiSettings | None = None) -> Path:
 
 
 def _frontend_styles(ui_settings: ServiceUiSettings) -> list[dict]:
-    styles = [{"id": "default", "name": "官方默认", "kind": "official"}]
+    styles = [{"id": "default", "name": "官方默认", "kind": "official", "description": "小窝内置基础样式。"}]
+    seen = {"default"}
+    for item in _discover_appearance_modules(ui_settings):
+        if item.get("appearance_mode") != "global" or item["id"] in seen:
+            continue
+        styles.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "kind": item.get("kind", "appearance"),
+                "description": item.get("description", ""),
+            }
+        )
+        seen.add(item["id"])
     themes_dir = _custom_webui_root(ui_settings) / "themes"
     if themes_dir.exists():
         for path in sorted(themes_dir.iterdir()):
-            if path.is_dir():
-                styles.append({"id": path.name, "name": path.name, "kind": "custom"})
+            if path.is_dir() and path.name not in seen:
+                styles.append({"id": path.name, "name": path.name, "kind": "custom", "description": "自定义主题。"})
+                seen.add(path.name)
     if ui_settings.active_frontend_style not in {item["id"] for item in styles}:
-        styles.append({"id": ui_settings.active_frontend_style, "name": ui_settings.active_frontend_style, "kind": "missing"})
+        styles.append({"id": ui_settings.active_frontend_style, "name": ui_settings.active_frontend_style, "kind": "missing", "description": "当前配置指向的样式不存在。"})
     return styles
 
 
@@ -267,23 +288,32 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
 
 
 def _discover_appearance_modules(ui_settings: ServiceUiSettings) -> list[dict]:
-    packages: dict[str, dict] = {
-        "nest-tactical": _load_package_manifest(
-            BUILTIN_APPEARANCE_ROOT / "nest-tactical" / "module.json",
-            {
-                "id": "nest-tactical",
-                "name": "小窝战术终端",
-                "type": "appearance",
-                "description": "官方全局外观模块。以清晰信息层级、工业控制台质感和轻量动效重塑小窝页面。",
-                "feature_tags": ["webui-appearance", "official-global-appearance"],
-                "appearance_scope": "global",
-                "appearance_mode": "global",
-                "conflicts_with": [],
-            },
-            kind="official",
-            frontend_path=str(BUILTIN_APPEARANCE_ROOT / "nest-tactical"),
-        )
-    }
+    packages: dict[str, dict] = {}
+    if BUILTIN_APPEARANCE_ROOT.exists():
+        for path in sorted(BUILTIN_APPEARANCE_ROOT.iterdir()):
+            if not path.is_dir():
+                continue
+            if not (path / "module.json").exists():
+                continue
+            loaded = _load_package_manifest(
+                path / "module.json",
+                {
+                    "id": path.name,
+                    "name": path.name,
+                    "type": "appearance",
+                    "description": "官方前端外观模块。",
+                    "feature_tags": ["webui-appearance", "official-global-appearance"],
+                    "appearance_scope": "global",
+                    "appearance_mode": "global",
+                    "conflicts_with": [],
+                },
+                kind="official",
+                frontend_path=str(path),
+            )
+            loaded["appearance_scope"] = str(loaded.get("appearance_scope") or "global")
+            loaded["appearance_mode"] = str(loaded.get("appearance_mode") or "global")
+            loaded["entry_label"] = "全局样式" if loaded["appearance_mode"] == "global" else "外观拓展"
+            packages[loaded["id"]] = loaded
     frontend_root = _custom_webui_root(ui_settings)
     for folder_name, default_mode in [("themes", "global"), ("appearance", "global"), ("skins", "global")]:
         root = frontend_root / folder_name
@@ -339,6 +369,129 @@ def _load_package_manifest(path: Path, fallback: dict, kind: str, data_path: str
     if frontend_path:
         data["frontend_path"] = frontend_path
     return data
+
+
+def _timestamp_label() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _module_install_candidates(source_url: str) -> list[str]:
+    source_url = source_url.strip()
+    parsed = urlparse(source_url)
+    if parsed.netloc.lower() != "github.com":
+        return [source_url]
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return [source_url]
+    owner, repo = parts[0], parts[1].removesuffix(".git")
+    if len(parts) >= 4 and parts[2] in {"tree", "commits"}:
+        branch = "/".join(parts[3:])
+        return [f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{branch}"]
+    if source_url.endswith(".zip"):
+        return [source_url]
+    return [
+        f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/main",
+        f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/master",
+    ]
+
+
+def _download_module_zip(source_url: str, max_bytes: int = 24 * 1024 * 1024) -> bytes:
+    errors: list[str] = []
+    for candidate in _module_install_candidates(source_url):
+        try:
+            request = urllib.request.Request(candidate, headers={"User-Agent": f"Nest/{APP_VERSION}"})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                content_type = response.headers.get("content-type", "")
+                payload = bytearray()
+                while True:
+                    chunk = response.read(1024 * 256)
+                    if not chunk:
+                        break
+                    payload.extend(chunk)
+                    if len(payload) > max_bytes:
+                        raise ValueError("模块包超过 24MB，请精简后再安装。")
+                data = bytes(payload)
+                if not data.startswith(b"PK") and "zip" not in content_type.lower():
+                    raise ValueError("链接没有返回 zip 模块包。")
+                return data
+        except Exception as exc:
+            errors.append(f"{candidate}: {exc}")
+    raise HTTPException(status_code=400, detail="模块下载失败：" + "；".join(errors[-2:]))
+
+
+def _safe_zip_parts(name: str) -> tuple[str, ...] | None:
+    parts = Path(name).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    return parts
+
+
+def _manifest_from_zip(payload: bytes) -> tuple[dict, tuple[str, ...]]:
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        manifest_names = [
+            item.filename
+            for item in archive.infolist()
+            if not item.is_dir() and item.filename.replace("\\", "/").endswith("module.json")
+        ]
+        if not manifest_names:
+            raise HTTPException(status_code=400, detail="模块包缺少 module.json。")
+        manifest_names.sort(key=lambda value: (value.count("/"), len(value)))
+        manifest_name = manifest_names[0]
+        try:
+            manifest = json.loads(archive.read(manifest_name).decode("utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"module.json 解析失败：{exc}") from exc
+        root_parts = Path(manifest_name).parts[:-1]
+        return manifest, root_parts
+
+
+def _module_install_target(manifest: dict, ui_settings: ServiceUiSettings) -> tuple[str, Path]:
+    module_type = str(manifest.get("type") or "module").strip().lower()
+    module_id = safe_package_id(str(manifest.get("id") or manifest.get("name") or "custom-module"), "custom-module")
+    official_ids = {"diary", "impressions", "media", "webui"}
+    official_appearance_ids = {item["id"] for item in _discover_appearance_modules(ui_settings) if item.get("kind") == "official"}
+    if module_id in official_ids or module_id in official_appearance_ids:
+        raise HTTPException(status_code=409, detail=f"{module_id} 是官方模块 ID，不能通过链接安装覆盖。")
+    if module_type == "extension":
+        return module_id, paths.modules_dir / "extensions" / module_id
+    if module_type == "appearance":
+        return module_id, _custom_webui_root(ui_settings) / "appearance" / module_id
+    return module_id, paths.modules_dir / module_id
+
+
+def _extract_module_zip(payload: bytes, target: Path, root_parts: tuple[str, ...], overwrite: bool) -> dict:
+    backup_dir = ""
+    if target.exists():
+        if not overwrite:
+            raise HTTPException(status_code=409, detail=f"模块 {target.name} 已存在。请先备份后覆盖，或换一个模块 ID。")
+        backup_root = paths.root / "imports" / "module-install-backups" / _timestamp_label()
+        backup_target = backup_root / target.name
+        backup_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(target, backup_target)
+        shutil.rmtree(target)
+        backup_dir = str(backup_target)
+    target.mkdir(parents=True, exist_ok=True)
+    installed = 0
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        for member in archive.infolist():
+            if member.is_dir():
+                continue
+            parts = _safe_zip_parts(member.filename)
+            if not parts:
+                raise HTTPException(status_code=400, detail=f"模块包包含危险路径：{member.filename}")
+            if root_parts:
+                if parts[: len(root_parts)] != root_parts:
+                    continue
+                relative = parts[len(root_parts) :]
+            else:
+                relative = parts
+            if not relative or any(part in {"", ".", ".."} for part in relative):
+                raise HTTPException(status_code=400, detail=f"模块包包含危险路径：{member.filename}")
+            destination = target.joinpath(*relative)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(archive.read(member))
+            installed += 1
+    return {"installed_files": installed, "backup_dir": backup_dir}
 
 
 def _appearance_conflicts(ui_settings: ServiceUiSettings, appearance: list[dict]) -> list[dict]:
@@ -765,6 +918,7 @@ class SettingsUpdateRequest(BaseModel):
     enabled_custom_extensions: list[str] = Field(default_factory=list)
     enabled_appearance_modules: list[str] = Field(default_factory=list)
     appearance_modules_initialized: bool = True
+    onboarding_completed: bool = False
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = ""
@@ -781,6 +935,16 @@ class NotebookUpdateRequest(BaseModel):
     notebooks: list[dict] = Field(default_factory=list)
     delete_ids: list[str] = Field(default_factory=list)
     replace: bool = False
+
+
+class OnboardingUpdateRequest(BaseModel):
+    completed: bool = True
+
+
+class ModuleInstallRequest(BaseModel):
+    source_url: str
+    overwrite: bool = False
+    enable_after_install: bool = False
 
 
 @app.get("/api/v1/impressions")
@@ -862,7 +1026,6 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
         },
         "recent_entries": [_entry_payload(entry) for entry in entries[:6]],
         "archive": diary_service.archive_tree(),
-        "notebooks": diary_service.list_notebooks(),
         "settings": _settings_payload(),
         "security": _security_payload(),
         "notebooks": diary_service.list_notebooks(),
@@ -1117,6 +1280,69 @@ async def ui_get_settings(_session: None = Depends(require_web_session)):
     }
 
 
+@app.post("/api/ui/onboarding")
+async def ui_save_onboarding(payload: OnboardingUpdateRequest, _session: None = Depends(require_web_session)):
+    current = service_settings.load()
+    current.onboarding_completed = bool(payload.completed)
+    saved = service_settings.save(current)
+    return {"status": "ok", "settings": asdict(saved)}
+
+
+@app.post("/api/ui/modules/install")
+async def ui_install_module(payload: ModuleInstallRequest, _session: None = Depends(require_web_session)):
+    source_url = payload.source_url.strip()
+    if not source_url:
+        raise HTTPException(status_code=400, detail="请填写模块链接。")
+    parsed = urlparse(source_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise HTTPException(status_code=400, detail="模块链接必须使用 http 或 https。")
+    ui_settings = service_settings.load()
+    zip_payload = _download_module_zip(source_url)
+    manifest, root_parts = _manifest_from_zip(zip_payload)
+    module_id, target = _module_install_target(manifest, ui_settings)
+    result = _extract_module_zip(zip_payload, target, root_parts, overwrite=payload.overwrite)
+    installed_manifest = _load_package_manifest(
+        target / "module.json",
+        {
+            "id": module_id,
+            "name": module_id,
+            "type": str(manifest.get("type") or "module"),
+            "description": "",
+            "feature_tags": [],
+            "conflicts_with": [],
+        },
+        kind=(
+            "appearance"
+            if str(manifest.get("type") or "module").lower() == "appearance"
+            else "extension"
+            if str(manifest.get("type") or "module").lower() == "extension"
+            else "custom"
+        ),
+        data_path=str(target) if str(manifest.get("type") or "module").lower() != "appearance" else "",
+        frontend_path=str(target) if str(manifest.get("type") or "module").lower() == "appearance" else "",
+    )
+    module_type = installed_manifest.get("type", "module")
+    if payload.enable_after_install:
+        if module_type == "appearance":
+            ui_settings.enabled_appearance_modules = list(dict.fromkeys([*ui_settings.enabled_appearance_modules, module_id]))
+            if installed_manifest.get("appearance_mode", "global") == "global":
+                ui_settings.active_frontend_style = module_id
+        elif module_type == "extension":
+            ui_settings.enabled_custom_extensions = list(dict.fromkeys([*ui_settings.enabled_custom_extensions, module_id]))
+        else:
+            ui_settings.enabled_custom_modules = list(dict.fromkeys([*ui_settings.enabled_custom_modules, module_id]))
+        service_settings.save(ui_settings)
+    fresh_settings = service_settings.load()
+    return {
+        "status": "ok",
+        "module": installed_manifest,
+        "install": result,
+        "enabled": bool(payload.enable_after_install),
+        "module_catalog": _module_catalog(fresh_settings),
+        "frontend_styles": _frontend_styles(fresh_settings),
+    }
+
+
 @app.get("/api/ui/avatar")
 async def ui_avatar(_session: None = Depends(require_web_session)):
     for suffix in AVATAR_EXTENSIONS:
@@ -1197,6 +1423,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             enabled_custom_extensions=payload.enabled_custom_extensions,
             enabled_appearance_modules=payload.enabled_appearance_modules,
             appearance_modules_initialized=True,
+            onboarding_completed=payload.onboarding_completed,
             custom_webui_dir=payload.custom_webui_dir,
             backup_custom_before_update=payload.backup_custom_before_update,
             impression_prompt=payload.impression_prompt,
@@ -1216,6 +1443,33 @@ async def ui_save_security(payload: SecurityUpdateRequest, _session: None = Depe
     web_auth.admin_password = saved.admin_password
     web_auth.session_secret = saved.bot_api_token or "development-session-secret"
     return {"status": "ok", "security": _security_payload()}
+
+
+@app.get("/api/ui/version/check")
+async def ui_check_version(_session: None = Depends(require_web_session)):
+    try:
+        result = version_service.check_latest()
+        return {
+            "status": "ok",
+            "current": result.current,
+            "latest": result.latest,
+            "update_available": result.update_available,
+            "source": result.source,
+            "message": "发现新版本。" if result.update_available else "当前已经是最新版本。",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"版本检测失败：{exc}") from exc
+
+
+@app.post("/api/ui/version/update")
+async def ui_update_version(_session: None = Depends(require_web_session)):
+    result = version_service.update()
+    return {
+        "status": "ok" if result.ok else "blocked",
+        "ok": result.ok,
+        "message": result.message,
+        "output": result.output,
+    }
 
 
 @app.get("/api/ui/export")

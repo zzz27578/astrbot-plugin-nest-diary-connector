@@ -107,6 +107,7 @@ class ServiceUiSettings:
     enabled_custom_extensions: list[str] = field(default_factory=list)
     enabled_appearance_modules: list[str] = field(default_factory=list)
     appearance_modules_initialized: bool = False
+    onboarding_completed: bool = False
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = (

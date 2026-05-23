@@ -58,6 +58,13 @@ class BackupService:
         return buffer.read()
 
     def _normalize_package_types(self, package_type: str) -> list[str]:
+        aliases = {
+            "webui-custom": "webui_custom",
+            "webui": "webui_custom",
+            "custom-module": "custom_module",
+            "module": "custom_module",
+            "extensions": "extension",
+        }
         allowed = {
             "full",
             "diary",
@@ -68,7 +75,7 @@ class BackupService:
             "custom_module",
             "extension",
         }
-        items = [item.strip() for item in (package_type or "full").split(",") if item.strip()]
+        items = [aliases.get(item.strip(), item.strip()) for item in (package_type or "full").split(",") if item.strip()]
         picked = [item for item in items if item in allowed]
         return picked or ["full"]
 
@@ -125,6 +132,8 @@ class BackupService:
         elif package_type == "diary":
             roots = [
                 self.paths.modules_dir / "diary" / "entries",
+                self.paths.modules_dir / "diary" / "notebooks",
+                self.paths.modules_dir / "diary" / "notebooks.json",
                 self.paths.modules_dir / "diary" / "snapshots",
                 self.paths.modules_dir / "diary" / "drafts",
             ]

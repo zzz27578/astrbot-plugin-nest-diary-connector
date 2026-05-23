@@ -1,13 +1,13 @@
 {
-  "id": "nest-tactical",
-  "name": "小窝战术终端",
+  "id": "nest-paper-garden",
+  "name": "纸庭",
   "type": "appearance",
-  "version": "0.5.2",
-  "description": "官方全局外观模块。以清晰信息层级、工业控制台质感和轻量动效重塑小窝页面。",
+  "version": "0.5.14",
+  "description": "温和纸感、低饱和绿与暖白，适合长时间阅读日记和整理记忆。",
   "feature_tags": ["webui-appearance", "official-global-appearance"],
   "appearance_scope": "global",
   "appearance_mode": "global",
-  "entry_label": "全局模块",
+  "entry_label": "全局样式",
   "conflicts_with": [],
   "target_modules": ["webui", "diary", "impressions", "media"],
   "schema_version": 2
