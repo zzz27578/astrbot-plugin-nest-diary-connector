@@ -39,6 +39,14 @@ class BackupService:
         module_id = (module_id or "").strip()
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            files: dict[str, Path] = {}
+            legacy_sources: list[dict[str, str]] = []
+            for item in package_types:
+                for path in self._export_paths(item, module_id, include_security):
+                    files[self._archive_name(path)] = path
+                for source, archive_name in self._legacy_diary_sources(item):
+                    files[archive_name] = source
+                    legacy_sources.append({"archive_name": archive_name, "filename": source.name})
             manifest = {
                 "package_type": package_type,
                 "package_types": package_types,
@@ -46,14 +54,12 @@ class BackupService:
                 "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
                 "nest_version": nest_version,
                 "include_security": include_security,
+                "legacy_sources": legacy_sources,
                 "schema_version": 1,
             }
             archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-            files: set[Path] = set()
-            for item in package_types:
-                files.update(self._export_paths(item, module_id, include_security))
-            for path in sorted(files):
-                archive.write(path, path.relative_to(self.paths.root).as_posix())
+            for archive_name, path in sorted(files.items()):
+                archive.write(path, archive_name)
         buffer.seek(0)
         return buffer.read()
 
@@ -170,6 +176,30 @@ class BackupService:
             security_path = self.paths.settings_dir / "security.json"
             files = [path for path in files if path != security_path]
         return sorted(set(files))
+
+    def _archive_name(self, path: Path) -> str:
+        return path.relative_to(self.paths.root).as_posix()
+
+    def _legacy_diary_sources(self, package_type: str) -> list[tuple[Path, str]]:
+        if package_type not in {"full", "diary"}:
+            return []
+        candidates = [self.paths.root / "daily_diary.txt"]
+        candidates.extend(parent / "daily_diary.txt" for parent in list(self.paths.root.parents)[:3])
+        candidates.append(Path("/AstrBot/data/daily_diary.txt"))
+
+        items: list[tuple[Path, str]] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            try:
+                key = str(candidate.resolve())
+            except OSError:
+                key = str(candidate)
+            if key in seen or not candidate.is_file():
+                continue
+            seen.add(key)
+            suffix = "" if not items else f"-{len(items) + 1}"
+            items.append((candidate, f"imports/legacy-daily-diary/daily_diary{suffix}.txt"))
+        return items
 
     def _timestamp(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

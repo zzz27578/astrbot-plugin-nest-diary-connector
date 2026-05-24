@@ -189,7 +189,6 @@ a {
   margin: 2px 0 2px 12px;
   padding: 4px 0 4px 14px;
   border-left: 2px solid var(--accent);
-  animation: submenu-open 180ms ease both;
 }
 
 .nav-submenu .settings-tab {
@@ -250,7 +249,7 @@ a {
 }
 
 .view-panel {
-  animation: panel-in 180ms ease both;
+  animation: none;
 }
 
 .topbar {
@@ -1757,8 +1756,8 @@ textarea {
 }
 
 .onboarding-dialog {
-  width: min(540px, calc(100vw - 44px));
-  padding: 26px;
+  width: min(680px, calc(100vw - 44px));
+  padding: 28px;
   overflow: hidden;
 }
 
@@ -1777,14 +1776,22 @@ textarea {
   z-index: 1;
 }
 
+.onboarding-stage {
+  min-height: 318px;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
 .onboarding-visual {
   position: relative;
-  width: 74px;
-  height: 74px;
+  width: 88px;
+  height: 88px;
   display: grid;
   place-items: center;
   border: 1px solid var(--line-strong);
-  border-radius: 18px;
+  border-radius: 20px;
   background: var(--accent-soft);
   box-shadow: var(--shadow);
 }
@@ -1797,16 +1804,23 @@ textarea {
 
 .onboarding-visual i {
   position: absolute;
-  width: 24px;
-  height: 24px;
-  right: -8px;
-  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  right: -13px;
+  top: 29px;
   border-right: 4px solid var(--accent);
   border-bottom: 4px solid var(--accent);
   transform: rotate(-45deg);
 }
 
+.onboarding-copy {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
 .onboarding-dialog h2 {
+  margin: 0;
   font-size: 28px;
 }
 
@@ -1827,9 +1841,37 @@ textarea {
   font-weight: 900;
 }
 
+.onboarding-checklist {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-checklist li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.onboarding-checklist li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
 .onboarding-dots {
   display: flex;
   gap: 7px;
+  margin-top: 2px;
 }
 
 .onboarding-dots span {
@@ -2703,6 +2745,23 @@ details[open] > *:not(summary) {
   .main,
   .nav {
     padding: 18px;
+  }
+
+  .onboarding-stage {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-visual {
+    width: 72px;
+    height: 72px;
+  }
+
+  .onboarding-visual i {
+    right: 8px;
+    top: auto;
+    bottom: -10px;
+    transform: rotate(45deg);
   }
 
   .topbar {

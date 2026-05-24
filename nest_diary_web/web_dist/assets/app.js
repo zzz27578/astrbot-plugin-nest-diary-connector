@@ -392,7 +392,11 @@ function t2iPreviewHtml(template) {
 
 function renderNavLinks() {
   return navItems
-    .filter(([key]) => key !== "media" || isMediaEnabled())
+    .filter(([key]) => {
+      if (key === "media") return isMediaEnabled();
+      if (key === "impressions") return isImpressionsEnabled();
+      return true;
+    })
     .map(([key, label]) => {
       const children =
         key === "settings" && state.settingsMenuOpen
@@ -427,6 +431,11 @@ function navIcon(key) {
 function isMediaEnabled() {
   const settings = state.bootstrap?.settings || state.settings?.settings || {};
   return settings.enable_media_module !== false && (settings.enabled_official_modules || []).includes("media");
+}
+
+function isImpressionsEnabled() {
+  const settings = state.bootstrap?.settings || state.settings?.settings || {};
+  return settings.enable_impressions_module !== false && (settings.enabled_official_modules || []).includes("impressions");
 }
 
 function currentSiteTitle() {
@@ -689,12 +698,12 @@ document.addEventListener(
     }
     if (target.dataset.onboardingNext !== undefined) {
       state.onboardingStep = Math.min(onboardingSteps().length - 1, state.onboardingStep + 1);
-      renderGlobalDialogs();
+      updateOnboardingDialog();
       return;
     }
     if (target.dataset.onboardingPrev !== undefined) {
       state.onboardingStep = Math.max(0, state.onboardingStep - 1);
-      renderGlobalDialogs();
+      updateOnboardingDialog();
       return;
     }
     if (target.dataset.onboardingFinish !== undefined || target.dataset.onboardingClose !== undefined) {
@@ -761,7 +770,14 @@ async function loadView() {
   try {
     ensureShell();
     await loadBootstrap();
-    if (state.view === "media" && !isMediaEnabled()) state.view = "dashboard";
+    if (state.view === "media" && !isMediaEnabled()) {
+      state.view = "dashboard";
+      syncRouteForState("dashboard", true);
+    }
+    if (state.view === "impressions" && !isImpressionsEnabled()) {
+      state.view = "dashboard";
+      syncRouteForState("dashboard", true);
+    }
     if (state.view === "dashboard") renderDashboard();
     if (state.view === "diary") await renderDiary();
     if (state.view === "search") await renderSearch();
@@ -1632,21 +1648,66 @@ function renderGlobalDialogs() {
 function onboardingSteps() {
   return [
     {
-      title: "先给小窝安好门牌",
-      body: "这里是私有 WebUI。第一次使用建议先改管理员密码，再确认标题、头像和外观样式。",
-      target: "访问密钥 / 外观设置",
+      title: "先改管理员密码",
+      body: "初始密码用于第一次进入小窝。进入后建议立刻在访问密钥里改成自己的管理员密码，避免公网地址被扫到。",
+      target: "设置 · 访问密钥",
+      checklist: ["确认 WebUI 可以登录", "修改管理员密码", "需要外部接入时再启用接口密钥"],
     },
     {
-      title: "日记是一个模块",
-      body: "bot 写日记、查日记、写人物印象都走工具层；网页负责管理、查看和调整，不需要让 bot 模仿人点页面。",
-      target: "模块控制台 / 日记模块",
+      title: "填写管理员 QQ",
+      body: "管理员 QQ 决定哪些会话能让 bot 直接写入、检索或调整小窝。只填可信账号，后续权限扩展也从这里开始。",
+      target: "模块控制台 · 日记模块",
+      checklist: ["填写小窝管理员 QQ", "确认自然语言管理员权限", "保存后让 bot 调用 nest_status 检查"],
     },
     {
-      title: "数据和个性化分层保存",
-      body: "官方模块用于稳定更新，自定义主题、拓展包和用户数据放在独立目录。更新插件时尽量不碰用户自己的设计。",
-      target: "导入导出 / 自定义目录",
+      title: "建好日记本",
+      body: "日记本绑定具体群聊或私聊。bot 写日记时会按日记本、年月日归档，不需要把旧文本整本读进上下文。",
+      target: "日记模块 · 日记本管理",
+      checklist: ["设置日记本名称", "选择群聊或私聊", "填写 QQ 号或群号"],
+    },
+    {
+      title: "安排定时写日记",
+      body: "定时写日记不是系统提示，而是在固定时间把规范提示交给 bot，让它结合当天经历自主总结、评价和归档。",
+      target: "日记模块 · 写日记时间",
+      checklist: ["启用自动写日记", "设置写日记时间", "选择是否推送完成提醒"],
+    },
+    {
+      title: "检查工具状态",
+      body: "最后让 bot 调用工具层确认小窝在线。日记写入、搜索、媒体和人物印象都应由工具完成，而不是模仿人点击网页。",
+      target: "bot 工具 · nest_status",
+      checklist: ["调用 nest_status", "试写一条日记", "用 search_diary 搜索正文关键词"],
     },
   ];
+}
+
+function onboardingActions(index, total) {
+  return `
+    <button class="button ghost" data-onboarding-prev ${index === 0 ? "disabled" : ""} type="button">上一步</button>
+    ${
+      index >= total - 1
+        ? `<button class="primary" data-onboarding-finish type="button">完成引导</button>`
+        : `<button class="primary" data-onboarding-next type="button">下一步</button>`
+    }
+  `;
+}
+
+function onboardingStepMarkup(step, index, total) {
+  return `
+    <div class="onboarding-visual" aria-hidden="true">
+      <span>${index + 1}</span>
+      <i></i>
+    </div>
+    <div class="onboarding-copy">
+      <p class="eyebrow">首次使用引导</p>
+      <h2>${escapeHtml(step.title)}</h2>
+      <p class="onboarding-body">${escapeHtml(step.body)}</p>
+      <div class="onboarding-target">${escapeHtml(step.target)}</div>
+      <ul class="onboarding-checklist">
+        ${(step.checklist || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+      <div class="onboarding-dots">${Array.from({ length: total }, (_, i) => `<span class="${i === index ? "active" : ""}"></span>`).join("")}</div>
+    </div>
+  `;
 }
 
 function onboardingDialog() {
@@ -1655,28 +1716,32 @@ function onboardingDialog() {
   const step = steps[index];
   return `
     <div class="media-dialog-backdrop onboarding-backdrop" data-onboarding-close>
-      <article class="nest-dialog onboarding-dialog" role="dialog" aria-modal="true" aria-label="小窝首次使用引导" onclick="event.stopPropagation()">
+      <article class="nest-dialog onboarding-dialog" data-onboarding-dialog role="dialog" aria-modal="true" aria-label="小窝首次使用引导" onclick="event.stopPropagation()">
         <button class="media-dialog-close" data-onboarding-close type="button" aria-label="关闭">×</button>
-        <div class="onboarding-visual">
-          <span>${index + 1}</span>
-          <i></i>
+        <div class="onboarding-stage" data-onboarding-stage>
+          ${onboardingStepMarkup(step, index, steps.length)}
         </div>
-        <p class="eyebrow">首次使用引导</p>
-        <h2>${escapeHtml(step.title)}</h2>
-        <p class="onboarding-body">${escapeHtml(step.body)}</p>
-        <div class="onboarding-target">${escapeHtml(step.target)}</div>
-        <div class="onboarding-dots">${steps.map((_, i) => `<span class="${i === index ? "active" : ""}"></span>`).join("")}</div>
-        <div class="actions dialog-actions">
-          <button class="button ghost" data-onboarding-prev ${index === 0 ? "disabled" : ""} type="button">上一步</button>
-          ${
-            index >= steps.length - 1
-              ? `<button class="primary" data-onboarding-finish type="button">完成引导</button>`
-              : `<button class="primary" data-onboarding-next type="button">下一步</button>`
-          }
+        <div class="actions dialog-actions" data-onboarding-actions>
+          ${onboardingActions(index, steps.length)}
         </div>
       </article>
     </div>
   `;
+}
+
+function updateOnboardingDialog() {
+  const steps = onboardingSteps();
+  const index = Math.max(0, Math.min(state.onboardingStep || 0, steps.length - 1));
+  state.onboardingStep = index;
+  const dialog = document.querySelector("[data-onboarding-dialog]");
+  if (!dialog) {
+    renderGlobalDialogs();
+    return;
+  }
+  const stage = dialog.querySelector("[data-onboarding-stage]");
+  const actions = dialog.querySelector("[data-onboarding-actions]");
+  if (stage) stage.innerHTML = onboardingStepMarkup(steps[index], index, steps.length);
+  if (actions) actions.innerHTML = onboardingActions(index, steps.length);
 }
 
 function openOnboarding(step = 0) {

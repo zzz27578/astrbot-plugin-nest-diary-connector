@@ -1,25 +1,25 @@
 :root {
   color-scheme: dark;
-  --ink: #eef2eb;
-  --muted: #a8b8b2;
-  --line: rgba(184, 202, 193, 0.2);
-  --line-strong: rgba(229, 235, 226, 0.44);
-  --paper: #17201d;
-  --panel: rgba(25, 34, 31, 0.92);
-  --wash: #101715;
-  --accent: #80c7b2;
-  --accent-soft: rgba(128, 199, 178, 0.16);
-  --accent-warm: #e4b45f;
-  --danger: #e16b61;
-  --ok: #81c99d;
-  --shadow: 0 24px 64px rgba(0, 0, 0, 0.34);
+  --ink: #edf2f7;
+  --muted: #9aa7b8;
+  --line: rgba(154, 167, 184, 0.18);
+  --line-strong: rgba(174, 188, 206, 0.3);
+  --paper: #111720;
+  --panel: rgba(22, 29, 40, 0.94);
+  --wash: #0b0f15;
+  --accent: #68a6a0;
+  --accent-soft: rgba(104, 166, 160, 0.16);
+  --accent-warm: #c89c5d;
+  --danger: #e06d6d;
+  --ok: #78c893;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
 }
 
 body {
   background:
-    linear-gradient(135deg, rgba(128, 199, 178, 0.08), transparent 34%),
-    linear-gradient(315deg, rgba(228, 180, 95, 0.1), transparent 30%),
-    #101715;
+    linear-gradient(180deg, rgba(104, 166, 160, 0.07), transparent 32%),
+    linear-gradient(90deg, rgba(200, 156, 93, 0.05), transparent 42%),
+    #0b0f15;
   font-family: "Aptos", "Microsoft YaHei", "PingFang SC", sans-serif;
 }
 
@@ -32,13 +32,14 @@ body {
 .media-dialog,
 .nest-dialog,
 .row {
-  background: rgba(25, 34, 31, 0.9);
+  background: rgba(22, 29, 40, 0.92);
+  border-color: rgba(174, 188, 206, 0.18);
 }
 
 .home-hero {
   background:
-    linear-gradient(135deg, rgba(31, 45, 40, 0.96), rgba(18, 27, 25, 0.96)),
-    repeating-linear-gradient(90deg, transparent 0 25px, rgba(228, 180, 95, 0.06) 25px 26px);
+    linear-gradient(135deg, rgba(24, 34, 47, 0.96), rgba(13, 18, 25, 0.96)),
+    repeating-linear-gradient(90deg, transparent 0 28px, rgba(104, 166, 160, 0.06) 28px 29px);
 }
 
 input,
@@ -53,22 +54,36 @@ details,
 .button.ghost,
 button.ghost {
   color: var(--ink);
-  background-color: rgba(238, 242, 235, 0.07);
-  border-color: rgba(184, 202, 193, 0.22);
+  background-color: rgba(237, 242, 247, 0.055);
+  border-color: rgba(174, 188, 206, 0.22);
 }
 
 select {
   background:
     linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 18px) 50% / 7px 7px no-repeat,
     linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 13px) 50% / 7px 7px no-repeat,
-    rgba(238, 242, 235, 0.07);
+    rgba(237, 242, 247, 0.055);
+}
+
+option {
+  color: var(--ink);
+  background: #151d29;
 }
 
 .button,
 button,
 .primary {
-  color: #101715;
-  background: var(--accent);
+  color: #f4f7fb;
+  background: #24324a;
+  border-color: rgba(174, 188, 206, 0.28);
+}
+
+.button.primary,
+button.primary,
+.primary {
+  color: #071113;
+  background: #75b5ad;
+  border-color: #75b5ad;
 }
 
 .brand-mark,
@@ -84,5 +99,24 @@ button,
 .nav-link.active,
 .settings-tab:hover,
 .settings-tab.active {
-  background: rgba(128, 199, 178, 0.16);
+  color: var(--ink);
+  background: rgba(104, 166, 160, 0.16);
+  border-color: rgba(104, 166, 160, 0.28);
+}
+
+.nav-submenu .settings-tab {
+  background: rgba(237, 242, 247, 0.04);
+}
+
+.onboarding-target,
+.notice.soft,
+.toast {
+  background: rgba(104, 166, 160, 0.12);
+}
+
+.danger,
+button.danger,
+.button.danger {
+  color: #fff;
+  background: #8f3434;
 }
