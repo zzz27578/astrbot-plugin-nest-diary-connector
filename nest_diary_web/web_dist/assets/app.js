@@ -83,6 +83,7 @@ const state = {
   notice: "",
   toast: "",
   error: "",
+  noticeTimer: null,
   rendered: new Set(),
   settingsMenuOpen: initialViewFromLocation() === "settings",
   settingsSection: initialSettingsSectionFromLocation(),
@@ -351,10 +352,20 @@ function updateShell() {
   });
   const notice = document.getElementById("notice-slot");
   notice.innerHTML = `
-    ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
-    ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
-    ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
+    <div class="notification-stack" aria-live="polite">
+      ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+      ${state.error ? `<div class="notice error">${escapeHtml(state.error)}</div>` : ""}
+      ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
+    </div>
   `;
+  if ((state.notice || state.toast) && !state.noticeTimer) {
+    state.noticeTimer = window.setTimeout(() => {
+      state.notice = "";
+      state.toast = "";
+      state.noticeTimer = null;
+      updateShell();
+    }, 2600);
+  }
 }
 
 function refreshThemeStylesheet() {
@@ -1501,10 +1512,9 @@ async function renderMemos() {
       <header class="topbar memos-topbar">
         <div class="page-title">
           <p>纸条板</p>
-          <h1>${showEditor ? escapeHtml(selected?.title || "新建纸条") : "备忘录"}</h1>
+          <h1>备忘录</h1>
         </div>
         <div class="actions">
-          ${showEditor ? `<button class="button ghost" data-memo-detail-back type="button">返回板面</button>` : ""}
           <button class="button ghost" data-memo-reveal type="button">${state.memoRevealSensitive ? "隐藏敏感" : "显示敏感"}</button>
           <button class="button ghost" data-memo-archived-toggle type="button">${state.memoIncludeArchived ? "隐藏归档" : "显示归档"}</button>
           <button class="button primary" data-memo-new type="button">新纸条</button>
@@ -1532,8 +1542,8 @@ function memoNoteCard(item) {
       </button>
       <div class="memo-note-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
       <div class="memo-note-actions">
-        <button class="icon-button" data-memo-pin="${escapeHtml(item.id)}" data-memo-pin-value="${item.pinned ? "true" : "false"}" title="${item.pinned ? "取消置顶" : "置顶"}" type="button">${item.pinned ? "●" : "○"}</button>
-        <button class="icon-button" data-memo-archive="${escapeHtml(item.id)}" data-memo-archive-value="${item.archived ? "true" : "false"}" title="${item.archived ? "取消归档" : "归档"}" type="button">${item.archived ? "↺" : "⌄"}</button>
+        <button class="icon-button memo-action-button ${item.pinned ? "active" : ""}" data-memo-pin="${escapeHtml(item.id)}" data-memo-pin-value="${item.pinned ? "true" : "false"}" title="${item.pinned ? "取消置顶" : "置顶"}" type="button"><span class="memo-action-icon memo-action-pin" aria-hidden="true"></span></button>
+        <button class="icon-button memo-action-button ${item.archived ? "active" : ""}" data-memo-archive="${escapeHtml(item.id)}" data-memo-archive-value="${item.archived ? "true" : "false"}" title="${item.archived ? "取消归档" : "归档"}" type="button"><span class="memo-action-icon memo-action-archive" aria-hidden="true"></span></button>
       </div>
     </article>
   `;
@@ -1589,7 +1599,10 @@ function memoEditorPage(selected) {
             ${check("pinned", "置顶", Boolean(editing.pinned))}
             ${check("archived", "归档", Boolean(editing.archived))}
           </div>
-          <div class="actions"><button class="primary">保存纸条</button></div>
+          <div class="actions memo-detail-actions">
+            <button class="button ghost" data-memo-detail-back type="button">返回板面</button>
+            <button class="primary">保存纸条并退出</button>
+          </div>
         </form>
       </section>
     </article>
@@ -1738,8 +1751,8 @@ async function saveMemo(event) {
   const payload = id
     ? await api("/api/ui/memos/update", { method: "POST", body: JSON.stringify({ id, ...body }) })
     : await api("/api/ui/memos", { method: "POST", body: JSON.stringify(body) });
-  state.selectedMemoId = payload.item?.id || id;
-  state.memoEditorOpen = true;
+  state.selectedMemoId = "";
+  state.memoEditorOpen = false;
   state.notice = "备忘录已保存。";
   state.bootstrap = null;
   syncRouteForState("memos", true);
@@ -3359,6 +3372,10 @@ function appearanceSettingsPage(payload) {
           <button class="primary">保存外观</button>
         </div>
       </form>
+      <aside class="appearance-easter-egg" aria-label="外观设置彩蛋">
+        <img src="/app-assets/easter-egg-memo.jpg" alt="彩蛋贴纸">
+        <p>这是彩蛋，但是我还没有想好。</p>
+      </aside>
     </section>
   `;
 }

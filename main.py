@@ -674,6 +674,14 @@ class NestDiaryTools:
 
 if FunctionTool is not None:
 
+    def _tool_parameters(properties: dict, required: list[str] | None = None) -> dict:
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": required or [],
+        }
+
+
     def _tool_text(value: str) -> ToolExecResult:
         return ToolExecResult(value)
 
@@ -689,6 +697,21 @@ if FunctionTool is not None:
     class NestWriteDiaryTool(FunctionTool[AstrAgentContext]):
         """写入或更新小窝日记。"""
 
+        name: str = "nest_write_diary"
+        description: str = "写入或更新小窝日记。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "date": {"type": "string", "description": "日记日期，格式 YYYY-MM-DD。"},
+                "title": {"type": "string", "description": "一句话标题，不要直接使用日期。"},
+                "body": {"type": "string", "description": "日记正文。"},
+                "mood": {"type": "string", "description": "情绪词，多个用逗号分隔。"},
+                "tags": {"type": "string", "description": "检索标签，多个用逗号分隔。"},
+                "people": {"type": "string", "description": "相关人物，多个用逗号分隔。"},
+                "media_refs": {"type": "string", "description": "媒体引用，每行一个。"},
+                "reason": {"type": "string", "description": "写入原因。"},
+            },
+            ["date", "title", "body"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -730,6 +753,15 @@ if FunctionTool is not None:
     class NestSearchDiaryTool(FunctionTool[AstrAgentContext]):
         """按关键词搜索小窝日记，避免一次性读取全部日记。"""
 
+        name: str = "nest_search_diary"
+        description: str = "按关键词搜索小窝日记，避免一次性读取全部日记。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "query": {"type": "string", "description": "搜索关键词、日期、人物、事件或情绪线索。"},
+                "top_k": {"type": "integer", "description": "最多返回多少条。"},
+            },
+            ["query"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -764,6 +796,12 @@ if FunctionTool is not None:
     class NestReadDiaryTool(FunctionTool[AstrAgentContext]):
         """读取指定日期的小窝日记。"""
 
+        name: str = "nest_read_diary"
+        description: str = "读取指定日期的小窝日记。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {"date": {"type": "string", "description": "要读取的日期，格式 YYYY-MM-DD。"}},
+            ["date"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -788,6 +826,17 @@ if FunctionTool is not None:
     class NestAttachMediaTool(FunctionTool[AstrAgentContext]):
         """把图片、语音或附件归档到指定日期的媒体库。备注请写清保存位置、保存情景、bot 自己的评价、已知用户评价。"""
 
+        name: str = "nest_attach_media"
+        description: str = "把图片、语音或附件归档到指定日期的媒体库。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "source_path": {"type": "string", "description": "AstrBot 容器内可访问的文件绝对路径。"},
+                "date": {"type": "string", "description": "归档日期，格式 YYYY-MM-DD。"},
+                "original_name": {"type": "string", "description": "原始文件名。"},
+                "note": {"type": "string", "description": "隐藏备注。"},
+            },
+            ["source_path", "date"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -823,6 +872,15 @@ if FunctionTool is not None:
     class NestSendMediaTool(FunctionTool[AstrAgentContext]):
         """按用户要求发送小窝媒体库中的原图，不压缩画质。"""
 
+        name: str = "nest_send_media"
+        description: str = "按用户要求发送小窝媒体库中的原图，不压缩画质。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "media_ref": {"type": "string", "description": "媒体 URL、sha256 或已知引用。"},
+                "date": {"type": "string", "description": "可选日期，格式 YYYY-MM-DD。"},
+                "original_name": {"type": "string", "description": "可选文件名。"},
+            }
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -847,6 +905,17 @@ if FunctionTool is not None:
     class NestPushDiaryTool(FunctionTool[AstrAgentContext]):
         """把指定日记推送到当前会话、管理员私聊或两者，可按设置生成文字或图片。"""
 
+        name: str = "nest_push_diary"
+        description: str = "把指定日记推送到当前会话、管理员私聊或两者。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "date": {"type": "string", "description": "要推送的日记日期，格式 YYYY-MM-DD。"},
+                "notebook_id": {"type": "string", "description": "可选日记本 ID。"},
+                "target": {"type": "string", "description": "推送目标：none、source、admin_private、both。"},
+                "push_format": {"type": "string", "description": "推送格式：text 或 image。"},
+            },
+            ["date"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -873,6 +942,9 @@ if FunctionTool is not None:
     class NestListImpressionsTool(FunctionTool[AstrAgentContext]):
         """列出已经记录的人物印象摘要。"""
 
+        name: str = "nest_list_impressions"
+        description: str = "列出已经记录的人物印象摘要。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters({}))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(self, ctx: ContextWrapper) -> ToolExecResult:
@@ -892,6 +964,12 @@ if FunctionTool is not None:
     class NestReadImpressionTool(FunctionTool[AstrAgentContext]):
         """读取指定人物的长期印象。"""
 
+        name: str = "nest_read_impression"
+        description: str = "读取指定人物的长期印象。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {"name": {"type": "string", "description": "人物名称。"}},
+            ["name"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -923,6 +1001,26 @@ if FunctionTool is not None:
     class NestWriteImpressionTool(FunctionTool[AstrAgentContext]):
         """写入或更新一个人物的长期印象。"""
 
+        name: str = "nest_write_impression"
+        description: str = "写入或更新一个人物的长期印象。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "name": {"type": "string", "description": "人物名称。"},
+                "summary": {"type": "string", "description": "详细、证据化的人物总结。"},
+                "identity": {"type": "string", "description": "身份、关系或长期定位。"},
+                "traits": {"type": "string", "description": "稳定性格特征，多个用逗号分隔。"},
+                "hobbies": {"type": "string", "description": "爱好，多个用逗号分隔。"},
+                "interests": {"type": "string", "description": "兴趣，多个用逗号分隔。"},
+                "preferences": {"type": "string", "description": "偏好，多个用逗号分隔。"},
+                "relationship": {"type": "string", "description": "关系变化或关系定位。"},
+                "affinity": {"type": "integer", "description": "喜爱程度 1-5。"},
+                "special_comment": {"type": "string", "description": "带主观语气的特殊点评。"},
+                "evidence_dates": {"type": "string", "description": "证据日期，多个用逗号分隔。"},
+                "confidence": {"type": "integer", "description": "置信度 1-5。"},
+                "notes": {"type": "string", "description": "内部备注。"},
+            },
+            ["name", "summary"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -969,6 +1067,19 @@ if FunctionTool is not None:
     class NestWriteMemoTool(FunctionTool[AstrAgentContext]):
         """把琐碎但值得记住的信息写入小窝备忘录。"""
 
+        name: str = "nest_write_memo"
+        description: str = "把琐碎但值得记住的信息写入小窝备忘录。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "content": {"type": "string", "description": "备忘录正文。"},
+                "title": {"type": "string", "description": "备忘录标题。"},
+                "tags": {"type": "string", "description": "检索标签，多个用逗号分隔。"},
+                "sensitive": {"type": "boolean", "description": "是否为敏感信息。"},
+                "pinned": {"type": "boolean", "description": "是否置顶。"},
+                "source": {"type": "string", "description": "写入来源。"},
+            },
+            ["content"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -1016,6 +1127,14 @@ if FunctionTool is not None:
     class NestSearchMemosTool(FunctionTool[AstrAgentContext]):
         """按关键词搜索小窝备忘录。"""
 
+        name: str = "nest_search_memos"
+        description: str = "按关键词搜索小窝备忘录。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {
+                "query": {"type": "string", "description": "搜索关键词。"},
+                "include_archived": {"type": "boolean", "description": "是否包含已归档备忘录。"},
+            }
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -1049,6 +1168,12 @@ if FunctionTool is not None:
     class NestReadMemoTool(FunctionTool[AstrAgentContext]):
         """读取指定小窝备忘录。"""
 
+        name: str = "nest_read_memo"
+        description: str = "读取指定小窝备忘录。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {"memo_id": {"type": "string", "description": "备忘录 ID。"}},
+            ["memo_id"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
@@ -1078,6 +1203,12 @@ if FunctionTool is not None:
     class NestDeleteMemoTool(FunctionTool[AstrAgentContext]):
         """删除指定小窝备忘录。"""
 
+        name: str = "nest_delete_memo"
+        description: str = "删除指定小窝备忘录。"
+        parameters: dict = Field(default_factory=lambda: _tool_parameters(
+            {"memo_id": {"type": "string", "description": "备忘录 ID。"}},
+            ["memo_id"],
+        ))
         plugin: object = Field(default=None, repr=False, exclude=True)
 
         async def run(
