@@ -51,13 +51,15 @@ nest_diary_web/web/static/
 
 ## Built-In Appearance Modules
 
-Version 0.5.14 ships three official global appearance modules. They are selectable in WebUI settings under `外观设置`, and they also appear in `模块控制台` as appearance packages:
+Version 0.5.14 ships three official global appearance modules. They are selectable in WebUI settings under `外观设置`; do not show these official global styles as ordinary module cards in `模块控制台`.
 
 - `nest-paper-garden`: warm paper reading style for long diary browsing.
 - `nest-glass-cabin`: bright glass interface for a cleaner modern home.
 - `nest-night-atelier`: gentle dark workspace for night maintenance.
 
 Selecting one global style should update `active_frontend_style` and keep only that global appearance enabled. Do not reintroduce retired industrial or tactical official themes. If a user wants a similar sharp style, create a custom theme with a new id under `framework/user_custom/webui/themes/`.
+
+New WebUI pages should use shared shell variables and common classes (`--paper`, `--panel`, `--wash`, `--ink`, `--muted`, `.card`, `.topbar`, `.settings-collapse`, `.choice-card`, `.module-card`, etc.) so official appearances can theme them globally. Do not build four separate frontends for default, paper, glass, and night; add a narrow theme override only when a new component has a genuinely unique visual surface.
 
 ## Framework vs Module Customization
 
@@ -162,7 +164,7 @@ modules/extensions/<extension-id>/      # extension package with persistent data
 framework/user_custom/webui/appearance/<theme-id>/  # appearance package
 ```
 
-Do not use an official module id (`diary`, `impressions`, `media`, `webui`) or an official appearance id for a downloadable package. If a package replaces an official module, use a distinct id, set `replaces` and `conflicts_with`, and let the module console warn the user.
+Do not use an official module id (`diary`, `impressions`, `media`, `memos`, `webui`) or an official appearance id for a downloadable package. If a package replaces an official module, use a distinct id, set `replaces` and `conflicts_with`, and let the module console warn the user.
 
 ## Module Data Rule
 
@@ -191,6 +193,7 @@ For existing official modules:
 modules/diary/
 modules/impressions/
 modules/media/
+modules/memos/
 ```
 
 Frontend files describe the room. Module data stores the memory.

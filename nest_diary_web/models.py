@@ -45,6 +45,27 @@ class PersonImpression:
 
 
 @dataclass
+class MemoEntry:
+    id: str
+    title: str
+    content: str
+    tags: list[str] = field(default_factory=list)
+    source_chat: str = ""
+    origin_umo: str = ""
+    platform_id: str = ""
+    message_type: str = ""
+    session_id: str = ""
+    recorder: str = "human"
+    source: str = "manual"
+    sensitive: bool = False
+    pinned: bool = False
+    archived: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+    deleted_at: str = ""
+
+
+@dataclass
 class ServiceUiSettings:
     site_title: str = "小窝"
     site_subtitle: str = "把今天安放好，旧事也能被轻轻找回来"
@@ -101,8 +122,12 @@ class ServiceUiSettings:
     impression_allow_new_people: bool = False
     impression_min_confidence: int = 3
     show_impression_prompt: bool = True
+    enable_memos_module: bool = True
+    memos_write_policy: str = "admin_only"
+    memos_auto_write_limit_12h: int = 12
+    memos_sensitive_default_hidden: bool = True
     active_frontend_style: str = "default"
-    enabled_official_modules: list[str] = field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
+    enabled_official_modules: list[str] = field(default_factory=lambda: ["diary", "impressions", "media", "memos", "webui"])
     enabled_custom_modules: list[str] = field(default_factory=list)
     enabled_custom_extensions: list[str] = field(default_factory=list)
     enabled_appearance_modules: list[str] = field(default_factory=list)

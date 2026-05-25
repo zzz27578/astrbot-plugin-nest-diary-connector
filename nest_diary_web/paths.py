@@ -76,6 +76,10 @@ class NestPaths:
         return self.modules_dir / "media"
 
     @property
+    def memos_dir(self) -> Path:
+        return self.modules_dir / "memos"
+
+    @property
     def revisions_dir(self) -> Path:
         return self.modules_dir / "diary" / "snapshots"
 
@@ -120,6 +124,7 @@ class NestPaths:
             self.media_dir / "blobs" / "sha256",
             self.media_dir / "variants",
             self.media_dir / "by-date",
+            self.memos_dir,
             self.modules_dir / "diary" / "drafts",
             self.revisions_dir,
             self.root / "imports",

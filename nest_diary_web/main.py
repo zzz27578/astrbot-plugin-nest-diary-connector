@@ -23,7 +23,8 @@ from .config import load_settings
 from .diary.diary_service import DiaryService
 from .memory.impression_service import ImpressionService
 from .media.media_service import MediaService
-from .models import DiaryEntry, PersonImpression, ServiceUiSettings
+from .memos.memo_service import MemoService
+from .models import DiaryEntry, MemoEntry, PersonImpression, ServiceUiSettings
 from .paths import NestPaths, safe_package_id
 from .settings_service import SecuritySettingsStore, ServiceSettingsStore
 from .version_service import VersionService
@@ -40,6 +41,7 @@ paths = NestPaths(settings.data_dir)
 diary_service = DiaryService(paths)
 media_service = MediaService(paths)
 impression_service = ImpressionService(paths)
+memo_service = MemoService(paths)
 service_settings = ServiceSettingsStore(paths)
 backup_service = BackupService(paths)
 version_service = VersionService(
@@ -88,6 +90,7 @@ for spa_route in [
     "/search",
     "/impressions",
     "/media",
+    "/memos",
     "/settings",
 ]:
     app.add_api_route(spa_route, spa_index, methods=["GET"], include_in_schema=False)
@@ -129,6 +132,32 @@ def _entry_payload(entry: DiaryEntry) -> dict:
         "source": entry.source,
         "revision": entry.revision,
         "body": entry.body,
+    }
+
+
+def _memo_payload(entry: MemoEntry, *, reveal_sensitive: bool = True) -> dict:
+    content = entry.content
+    if entry.sensitive and not reveal_sensitive:
+        content = ""
+    return {
+        "id": entry.id,
+        "title": entry.title,
+        "content": content,
+        "content_hidden": bool(entry.sensitive and not reveal_sensitive),
+        "tags": entry.tags,
+        "source_chat": entry.source_chat,
+        "origin_umo": entry.origin_umo,
+        "platform_id": entry.platform_id,
+        "message_type": entry.message_type,
+        "session_id": entry.session_id,
+        "recorder": entry.recorder,
+        "source": entry.source,
+        "sensitive": entry.sensitive,
+        "pinned": entry.pinned,
+        "archived": entry.archived,
+        "created_at": entry.created_at,
+        "updated_at": entry.updated_at,
+        "deleted_at": entry.deleted_at,
     }
 
 
@@ -198,7 +227,7 @@ def _module_catalog(ui_settings: ServiceUiSettings) -> dict:
 def _discover_official_modules() -> list[dict]:
     modules_root = Path(__file__).resolve().parents[1] / "modules"
     modules: list[dict] = []
-    for module_id in ["diary", "impressions", "media", "webui"]:
+    for module_id in ["diary", "impressions", "media", "memos", "webui"]:
         item = _load_package_manifest(
             modules_root / module_id / "module.json",
             {
@@ -223,7 +252,7 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
     if package_type == "module":
         module_paths = sorted(paths.modules_dir.iterdir()) if paths.modules_dir.exists() else []
         for path in module_paths:
-            if path.is_dir() and path.name not in {"diary", "impressions", "media", "extensions", "archive"}:
+            if path.is_dir() and path.name not in {"diary", "impressions", "media", "memos", "extensions", "archive"}:
                 packages[path.name] = _load_package_manifest(
                     path / "module.json",
                     {
@@ -448,7 +477,7 @@ def _manifest_from_zip(payload: bytes) -> tuple[dict, tuple[str, ...]]:
 def _module_install_target(manifest: dict, ui_settings: ServiceUiSettings) -> tuple[str, Path]:
     module_type = str(manifest.get("type") or "module").strip().lower()
     module_id = safe_package_id(str(manifest.get("id") or manifest.get("name") or "custom-module"), "custom-module")
-    official_ids = {"diary", "impressions", "media", "webui"}
+    official_ids = {"diary", "impressions", "media", "memos", "webui"}
     official_appearance_ids = {item["id"] for item in _discover_appearance_modules(ui_settings) if item.get("kind") == "official"}
     if module_id in official_ids or module_id in official_appearance_ids:
         raise HTTPException(status_code=409, detail=f"{module_id} 是官方模块 ID，不能通过链接安装覆盖。")
@@ -619,6 +648,11 @@ def require_impressions_module_enabled() -> None:
 def require_media_module_enabled() -> None:
     if not service_settings.load().enable_media_module:
         raise HTTPException(status_code=403, detail="Media module is disabled")
+
+
+def require_memos_module_enabled() -> None:
+    if not service_settings.load().enable_memos_module:
+        raise HTTPException(status_code=403, detail="Memos module is disabled")
 
 
 def _touch_impressions_from_diary(entry: DiaryEntry) -> list[PersonImpression]:
@@ -792,6 +826,35 @@ class MediaNoteUpdateRequest(BaseModel):
     note: str = ""
 
 
+class MemoWriteRequest(BaseModel):
+    title: str = ""
+    content: str
+    tags: list[str] = Field(default_factory=list)
+    source_chat: str = ""
+    origin_umo: str = ""
+    platform_id: str = ""
+    message_type: str = ""
+    session_id: str = ""
+    recorder: str = "human"
+    source: str = "manual"
+    sensitive: bool = False
+    pinned: bool = False
+    archived: bool = False
+    actor_is_admin: bool = False
+    autonomous: bool = False
+
+
+class MemoUpdateRequest(BaseModel):
+    id: str
+    title: str | None = None
+    content: str | None = None
+    tags: list[str] | None = None
+    source_chat: str | None = None
+    sensitive: bool | None = None
+    pinned: bool | None = None
+    archived: bool | None = None
+
+
 @app.post("/api/v1/media/attach")
 async def attach_media(
     payload: MediaAttachRequest,
@@ -912,8 +975,12 @@ class SettingsUpdateRequest(BaseModel):
     impression_allow_new_people: bool = False
     impression_min_confidence: int = 3
     show_impression_prompt: bool = True
+    enable_memos_module: bool = True
+    memos_write_policy: str = "admin_only"
+    memos_auto_write_limit_12h: int = 12
+    memos_sensitive_default_hidden: bool = True
     active_frontend_style: str = "default"
-    enabled_official_modules: list[str] = Field(default_factory=lambda: ["diary", "impressions", "media", "webui"])
+    enabled_official_modules: list[str] = Field(default_factory=lambda: ["diary", "impressions", "media", "memos", "webui"])
     enabled_custom_modules: list[str] = Field(default_factory=list)
     enabled_custom_extensions: list[str] = Field(default_factory=list)
     enabled_appearance_modules: list[str] = Field(default_factory=list)
@@ -1010,12 +1077,88 @@ async def delete_impression(
     return {"status": "ok"}
 
 
+@app.get("/api/v1/memos")
+async def list_memos(
+    q: str = "",
+    include_archived: bool = False,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_memos_module_enabled),
+):
+    return {
+        "items": [
+            _memo_payload(item, reveal_sensitive=True)
+            for item in memo_service.list_memos(query=q, include_archived=include_archived)
+        ],
+        "summary": memo_service.summary(),
+    }
+
+
+@app.get("/api/v1/memos/{memo_id}")
+async def read_memo(
+    memo_id: str,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_memos_module_enabled),
+):
+    memo = memo_service.get(memo_id)
+    if not memo:
+        raise HTTPException(status_code=404, detail="Memo not found")
+    return _memo_payload(memo, reveal_sensitive=True)
+
+
+@app.post("/api/v1/memos/write")
+async def write_memo(
+    payload: MemoWriteRequest,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_memos_module_enabled),
+):
+    ui_settings = service_settings.load()
+    policy = ui_settings.memos_write_policy
+    if policy in {"admin_only", "admin_allowed"} and not payload.actor_is_admin:
+        raise HTTPException(status_code=403, detail="Only the small-nest administrator can save memos")
+    if payload.autonomous and policy not in {"bot_curated", "review"} and not payload.actor_is_admin:
+        raise HTTPException(status_code=403, detail="Bot memo writing is disabled")
+    if payload.autonomous and ui_settings.memos_auto_write_limit_12h:
+        if memo_service.count_saved_since(12, recorder="bot") >= ui_settings.memos_auto_write_limit_12h:
+            raise HTTPException(status_code=400, detail="Memo 12-hour limit reached")
+    try:
+        saved = memo_service.create(
+            title=payload.title,
+            content=payload.content,
+            tags=[*payload.tags, *(["待复核"] if payload.autonomous and policy == "review" else [])],
+            source_chat=payload.source_chat,
+            origin_umo=payload.origin_umo,
+            platform_id=payload.platform_id,
+            message_type=payload.message_type,
+            session_id=payload.session_id,
+            recorder=payload.recorder or ("bot" if payload.autonomous else "human"),
+            source=payload.source or ("bot_autonomous" if payload.autonomous else "manual"),
+            sensitive=payload.sensitive,
+            pinned=payload.pinned,
+            archived=payload.archived,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "item": _memo_payload(saved, reveal_sensitive=True)}
+
+
+@app.delete("/api/v1/memos/{memo_id}")
+async def delete_memo(
+    memo_id: str,
+    _auth: None = Depends(require_bot_token),
+    _module: None = Depends(require_memos_module_enabled),
+):
+    if not memo_service.delete(memo_id):
+        raise HTTPException(status_code=404, detail="Memo not found")
+    return {"status": "ok"}
+
+
 @app.get("/api/ui/bootstrap")
 async def ui_bootstrap(_session: None = Depends(require_web_session)):
     ui_settings = service_settings.load()
     entries = diary_service.list_entries()
     media = media_service.list_manifests()
     people = impression_service.list_people()
+    memos = memo_service.summary()
     return {
         "version": APP_VERSION,
         "service": "nest",
@@ -1023,6 +1166,7 @@ async def ui_bootstrap(_session: None = Depends(require_web_session)):
             "entries": len(entries),
             "media": sum(len(item.get("assets", [])) for item in media),
             "people": len(people),
+            "memos": memos.get("count", 0),
         },
         "recent_entries": [_entry_payload(entry) for entry in entries[:6]],
         "archive": diary_service.archive_tree(),
@@ -1259,6 +1403,85 @@ async def ui_delete_media(payload: MediaTrashRequest, _session: None = Depends(r
     return {"status": "ok", "organization": organization}
 
 
+@app.get("/api/ui/memos")
+async def ui_list_memos(
+    q: str = "",
+    include_archived: bool = False,
+    reveal_sensitive: bool = False,
+    _session: None = Depends(require_web_session),
+):
+    ui_settings = service_settings.load()
+    if not ui_settings.enable_memos_module:
+        return {"items": [], "summary": memo_service.summary()}
+    reveal = reveal_sensitive or not ui_settings.memos_sensitive_default_hidden
+    return {
+        "items": [
+            _memo_payload(item, reveal_sensitive=reveal)
+            for item in memo_service.list_memos(query=q, include_archived=include_archived)
+        ],
+        "summary": memo_service.summary(),
+    }
+
+
+@app.post("/api/ui/memos")
+async def ui_write_memo(payload: MemoWriteRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_memos_module:
+        raise HTTPException(status_code=403, detail="Memos module is disabled")
+    try:
+        saved = memo_service.create(
+            title=payload.title,
+            content=payload.content,
+            tags=payload.tags,
+            source_chat=payload.source_chat,
+            origin_umo=payload.origin_umo,
+            platform_id=payload.platform_id,
+            message_type=payload.message_type,
+            session_id=payload.session_id,
+            recorder=payload.recorder or "human",
+            source=payload.source or "web",
+            sensitive=payload.sensitive,
+            pinned=payload.pinned,
+            archived=payload.archived,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "item": _memo_payload(saved, reveal_sensitive=True), "summary": memo_service.summary()}
+
+
+@app.post("/api/ui/memos/update")
+async def ui_update_memo(payload: MemoUpdateRequest, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_memos_module:
+        raise HTTPException(status_code=403, detail="Memos module is disabled")
+    try:
+        saved = memo_service.update(
+            payload.id,
+            title=payload.title,
+            content=payload.content,
+            tags=payload.tags,
+            source_chat=payload.source_chat,
+            sensitive=payload.sensitive,
+            pinned=payload.pinned,
+            archived=payload.archived,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "ok", "item": _memo_payload(saved, reveal_sensitive=True), "summary": memo_service.summary()}
+
+
+@app.delete("/api/ui/memos/{memo_id}")
+async def ui_delete_memo(memo_id: str, _session: None = Depends(require_web_session)):
+    if not service_settings.load().enable_memos_module:
+        raise HTTPException(status_code=403, detail="Memos module is disabled")
+    if not memo_service.delete(memo_id):
+        raise HTTPException(status_code=404, detail="Memo not found")
+    return {"status": "ok", "summary": memo_service.summary()}
+
+
+@app.get("/api/ui/health")
+async def ui_data_health(_session: None = Depends(require_web_session)):
+    return {"status": "ok", "health": backup_service.data_health_summary()}
+
+
 @app.get("/api/ui/settings")
 async def ui_get_settings(_session: None = Depends(require_web_session)):
     ui_settings = service_settings.load()
@@ -1269,6 +1492,7 @@ async def ui_get_settings(_session: None = Depends(require_web_session)):
         "notebooks": diary_service.list_notebooks(),
         "frontend_styles": _frontend_styles(ui_settings),
         "module_catalog": _module_catalog(ui_settings),
+        "health": backup_service.data_health_summary(),
         "runtime": {
             "data_dir": str(settings.data_dir),
             "framework_dir": str(paths.framework_dir),
@@ -1417,6 +1641,10 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             impression_allow_new_people=payload.impression_allow_new_people,
             impression_min_confidence=payload.impression_min_confidence,
             show_impression_prompt=payload.show_impression_prompt,
+            enable_memos_module=payload.enable_memos_module,
+            memos_write_policy=payload.memos_write_policy,
+            memos_auto_write_limit_12h=payload.memos_auto_write_limit_12h,
+            memos_sensitive_default_hidden=payload.memos_sensitive_default_hidden,
             active_frontend_style=payload.active_frontend_style,
             enabled_official_modules=payload.enabled_official_modules,
             enabled_custom_modules=payload.enabled_custom_modules,
@@ -1493,6 +1721,20 @@ async def ui_export_backup(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.post("/api/ui/import/preview")
+async def ui_preview_import_backup(
+    backup_file: UploadFile = File(...),
+    _session: None = Depends(require_web_session),
+):
+    payload = await backup_file.read()
+    try:
+        preview = backup_service.preview_zip(payload)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="Invalid zip backup file") from exc
+    preview["current_health"] = backup_service.data_health_summary()
+    return {"status": "ok", "preview": preview}
 
 
 @app.post("/api/ui/import")

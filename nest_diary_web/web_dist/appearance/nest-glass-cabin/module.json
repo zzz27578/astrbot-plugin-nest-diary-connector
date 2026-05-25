@@ -9,6 +9,6 @@
   "appearance_mode": "global",
   "entry_label": "全局样式",
   "conflicts_with": [],
-  "target_modules": ["webui", "diary", "impressions", "media"],
+  "target_modules": ["webui", "diary", "impressions", "media", "memos"],
   "schema_version": 2
 }

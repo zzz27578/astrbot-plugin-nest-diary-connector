@@ -71,6 +71,12 @@ const state = {
   mediaFolderModalOpen: false,
   mediaFolderEditingId: "",
   mediaNoteEditing: false,
+  memos: [],
+  memoSummary: { count: 0, pinned: 0, archived: 0, sensitive: 0 },
+  selectedMemoId: initialMemoFromLocation(),
+  memoSearch: "",
+  memoIncludeArchived: false,
+  memoRevealSensitive: false,
   settings: null,
   notice: "",
   toast: "",
@@ -98,6 +104,7 @@ const navItems = [
   ["search", "查找"],
   ["impressions", "印象"],
   ["media", "媒体"],
+  ["memos", "备忘录"],
   ["settings", "设置"],
 ];
 
@@ -108,6 +115,7 @@ function initialViewFromLocation() {
   if (path === "/search") return "search";
   if (path === "/impressions") return "impressions";
   if (path === "/media") return "media";
+  if (path === "/memos") return "memos";
   if (path === "/settings") return "settings";
   return "dashboard";
 }
@@ -159,6 +167,16 @@ function initialImpressionFromLocation() {
   return new URLSearchParams(window.location.search).get("name") || "";
 }
 
+function initialMemoFromLocation() {
+  if (window.location.pathname !== "/memos") return "";
+  return new URLSearchParams(window.location.search).get("memo") || "";
+}
+
+function initialMemoSearchFromLocation() {
+  if (window.location.pathname !== "/memos") return "";
+  return new URLSearchParams(window.location.search).get("q") || "";
+}
+
 function initialSettingsSectionFromLocation() {
   if (window.location.pathname !== "/settings") return "appearance";
   const section = new URLSearchParams(window.location.search).get("section") || "appearance";
@@ -175,6 +193,10 @@ function applyRouteStateFromLocation() {
   state.selectedDate = initialDateFromLocation();
   state.editingDate = initialEditDateFromLocation();
   state.selectedImpressionName = initialImpressionFromLocation();
+  state.selectedMemoId = initialMemoFromLocation();
+  state.memoSearch = initialMemoSearchFromLocation();
+  state.memoIncludeArchived = new URLSearchParams(window.location.search).get("archived") === "1";
+  state.memoRevealSensitive = new URLSearchParams(window.location.search).get("reveal") === "1";
   state.diary.composerOpen = initialComposerFromLocation();
   state.diary.composerDate = initialComposeDateFromLocation();
   state.diary.filters = initialDiaryFilters();
@@ -194,6 +216,13 @@ function routeForState(view = state.view) {
   const params = new URLSearchParams();
   if (view === "dashboard") return "/";
   if (view === "media") return "/media";
+  if (view === "memos") {
+    if (state.memoSearch) params.set("q", state.memoSearch);
+    if (state.selectedMemoId) params.set("memo", state.selectedMemoId);
+    if (state.memoIncludeArchived) params.set("archived", "1");
+    if (state.memoRevealSensitive) params.set("reveal", "1");
+    return `/memos${queryString(params)}`;
+  }
   if (view === "settings") {
     params.set("section", state.settingsSection || "appearance");
     if (state.settingsModuleDetail) params.set("module", state.settingsModuleDetail);
@@ -289,6 +318,7 @@ function ensureShell() {
         <section class="view-panel" id="view-search" data-panel="search"></section>
         <section class="view-panel" id="view-impressions" data-panel="impressions"></section>
         <section class="view-panel" id="view-media" data-panel="media"></section>
+        <section class="view-panel" id="view-memos" data-panel="memos"></section>
         <section class="view-panel" id="view-settings" data-panel="settings"></section>
       </main>
       <div id="global-dialog-root"></div>
@@ -395,6 +425,7 @@ function renderNavLinks() {
     .filter(([key]) => {
       if (key === "media") return isMediaEnabled();
       if (key === "impressions") return isImpressionsEnabled();
+      if (key === "memos") return isMemosEnabled();
       return true;
     })
     .map(([key, label]) => {
@@ -408,7 +439,7 @@ function renderNavLinks() {
             </div>`
           : "";
       const attrs = key === "settings" ? `data-settings-toggle aria-expanded="${state.settingsMenuOpen}"` : "";
-      return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" ${attrs} type="button">${iconImg(navIcon(key), label)}<span>${label}</span></button>${children}</div>`;
+      return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" data-tour-target="nav-${key}" ${attrs} type="button">${iconImg(navIcon(key), label)}<span>${label}</span></button>${children}</div>`;
     })
     .join("");
 }
@@ -424,6 +455,7 @@ function navIcon(key) {
     search: "search",
     impressions: "impressions",
     media: "media",
+    memos: "memos",
     settings: "settings",
   }[key] || "settings";
 }
@@ -436,6 +468,11 @@ function isMediaEnabled() {
 function isImpressionsEnabled() {
   const settings = state.bootstrap?.settings || state.settings?.settings || {};
   return settings.enable_impressions_module !== false && (settings.enabled_official_modules || []).includes("impressions");
+}
+
+function isMemosEnabled() {
+  const settings = state.bootstrap?.settings || state.settings?.settings || {};
+  return settings.enable_memos_module !== false && (settings.enabled_official_modules || []).includes("memos");
 }
 
 function currentSiteTitle() {
@@ -496,6 +533,8 @@ async function setView(view, options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
   if (Object.prototype.hasOwnProperty.call(options, "compose")) state.diary.composerOpen = Boolean(options.compose);
   if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
+  if (Object.prototype.hasOwnProperty.call(options, "memoSearch")) state.memoSearch = options.memoSearch || "";
+  if (Object.prototype.hasOwnProperty.call(options, "memoId")) state.selectedMemoId = options.memoId || "";
   if (view !== "diary") {
     state.diary.composerOpen = false;
     state.editingDate = "";
@@ -507,7 +546,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-memo-new], [data-memo-select], [data-memo-pin], [data-memo-archive], [data-memo-delete], [data-memo-reveal], [data-memo-archived-toggle], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
@@ -660,6 +699,39 @@ document.addEventListener(
       closeMediaFolder();
       return;
     }
+    if (target.dataset.memoNew !== undefined) {
+      newMemo();
+      return;
+    }
+    if (target.dataset.memoSelect) {
+      selectMemo(target.dataset.memoSelect);
+      return;
+    }
+    if (target.dataset.memoPin) {
+      updateMemoFlag(target.dataset.memoPin, "pinned", target.dataset.memoPinValue !== "true");
+      return;
+    }
+    if (target.dataset.memoArchive) {
+      updateMemoFlag(target.dataset.memoArchive, "archived", target.dataset.memoArchiveValue !== "true");
+      return;
+    }
+    if (target.dataset.memoDelete) {
+      deleteMemo(target.dataset.memoDelete);
+      return;
+    }
+    if (target.dataset.memoReveal !== undefined) {
+      state.memoRevealSensitive = !state.memoRevealSensitive;
+      syncRouteForState("memos", true);
+      renderMemos();
+      return;
+    }
+    if (target.dataset.memoArchivedToggle !== undefined) {
+      state.memoIncludeArchived = !state.memoIncludeArchived;
+      state.selectedMemoId = "";
+      syncRouteForState("memos", true);
+      renderMemos();
+      return;
+    }
     if (target.dataset.settingsSection) {
       switchSettingsSection(target.dataset.settingsSection);
       return;
@@ -693,17 +765,17 @@ document.addEventListener(
       return;
     }
     if (target.dataset.onboardingReplay !== undefined) {
-      openOnboarding(0);
+      void openOnboarding(0);
       return;
     }
     if (target.dataset.onboardingNext !== undefined) {
       state.onboardingStep = Math.min(onboardingSteps().length - 1, state.onboardingStep + 1);
-      updateOnboardingDialog();
+      void updateOnboardingDialog();
       return;
     }
     if (target.dataset.onboardingPrev !== undefined) {
       state.onboardingStep = Math.max(0, state.onboardingStep - 1);
-      updateOnboardingDialog();
+      void updateOnboardingDialog();
       return;
     }
     if (target.dataset.onboardingFinish !== undefined || target.dataset.onboardingClose !== undefined) {
@@ -759,11 +831,13 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
-  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"], [data-action="install-module-from-link"]');
+  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"], [data-action="install-module-from-link"], [data-action="memo-search"], [data-action="save-memo"]');
   if (!form) return;
   if (form.dataset.action === "create-media-folder") createMediaFolder(event);
   if (form.dataset.action === "save-media-note") saveMediaNote(event);
   if (form.dataset.action === "install-module-from-link") installModuleFromLink(event);
+  if (form.dataset.action === "memo-search") searchMemos(event);
+  if (form.dataset.action === "save-memo") saveMemo(event);
 });
 
 async function loadView() {
@@ -778,11 +852,16 @@ async function loadView() {
       state.view = "dashboard";
       syncRouteForState("dashboard", true);
     }
+    if (state.view === "memos" && !isMemosEnabled()) {
+      state.view = "dashboard";
+      syncRouteForState("dashboard", true);
+    }
     if (state.view === "dashboard") renderDashboard();
     if (state.view === "diary") await renderDiary();
     if (state.view === "search") await renderSearch();
     if (state.view === "impressions") await renderImpressions();
     if (state.view === "media") await renderMedia();
+    if (state.view === "memos") await renderMemos();
     if (state.view === "settings") await renderSettings();
     updateShell();
     renderGlobalDialogs();
@@ -1393,6 +1472,178 @@ async function deleteImpression(event) {
   updateShell();
 }
 
+async function loadMemos() {
+  const params = new URLSearchParams({
+    q: state.memoSearch || "",
+    include_archived: state.memoIncludeArchived ? "true" : "false",
+    reveal_sensitive: state.memoRevealSensitive ? "true" : "false",
+  });
+  const payload = await api(`/api/ui/memos?${params.toString()}`);
+  state.memos = payload.items || [];
+  state.memoSummary = payload.summary || { count: 0, pinned: 0, archived: 0, sensitive: 0 };
+  if (state.selectedMemoId && !state.memos.some((item) => item.id === state.selectedMemoId)) {
+    state.selectedMemoId = "";
+  }
+}
+
+async function renderMemos() {
+  await loadMemos();
+  const selected = state.memos.find((item) => item.id === state.selectedMemoId) || null;
+  const editing = selected || {};
+  const created = editing.created_at ? formatDateTime(editing.created_at) : "";
+  const updated = editing.updated_at && editing.updated_at !== editing.created_at ? formatDateTime(editing.updated_at) : "";
+  panel("memos").innerHTML = `
+    <section class="memos-page">
+      <header class="topbar memos-topbar">
+        <div class="page-title">
+          <p>纸条板</p>
+          <h1>备忘录</h1>
+        </div>
+        <div class="actions">
+          <button class="button ghost" data-memo-reveal type="button">${state.memoRevealSensitive ? "隐藏敏感" : "显示敏感"}</button>
+          <button class="button ghost" data-memo-archived-toggle type="button">${state.memoIncludeArchived ? "隐藏归档" : "显示归档"}</button>
+          <button class="button primary" data-memo-new type="button">新纸条</button>
+        </div>
+      </header>
+      <section class="memo-stats">
+        ${memoStat("全部", state.memoSummary.count || 0)}
+        ${memoStat("置顶", state.memoSummary.pinned || 0)}
+        ${memoStat("归档", state.memoSummary.archived || 0)}
+        ${memoStat("敏感", state.memoSummary.sensitive || 0)}
+      </section>
+      <section class="memos-layout">
+        <aside class="memo-board" aria-label="备忘录纸条列表">
+          <form class="memo-searchbar" data-action="memo-search">
+            <input name="q" value="${escapeHtml(state.memoSearch || "")}" placeholder="搜索账号、名言、聊天片段或标签">
+            <button class="button" type="submit">搜索</button>
+          </form>
+          <div class="memo-note-grid">
+            ${state.memos.length ? state.memos.map(memoNoteCard).join("") : `<div class="memo-empty">还没有纸条。</div>`}
+          </div>
+        </aside>
+        <article class="memo-editor card">
+          <div class="card-head compact-head">
+            <div>
+              <p class="eyebrow">${selected ? "编辑纸条" : "新纸条"}</p>
+              <h2>${escapeHtml(selected?.title || "把要记的事钉住")}</h2>
+            </div>
+            ${selected ? `<button class="button danger" data-memo-delete="${escapeHtml(selected.id)}" type="button">删除</button>` : ""}
+          </div>
+          <form class="card-body form memo-form" data-action="save-memo">
+            <input name="id" value="${escapeHtml(selected?.id || "")}" type="hidden">
+            <div class="form-grid compact">
+              <label>标题<input name="title" value="${escapeHtml(editing.title || "")}" placeholder="留空会自动取正文前几个字"></label>
+              <label>来源聊天<input name="source_chat" value="${escapeHtml(editing.source_chat || "")}" placeholder="例如：主群 / 私聊 / 某个频道"></label>
+              <label>标签<input name="tags" value="${escapeHtml((editing.tags || []).join(","))}" placeholder="账号, 名言, 待办"></label>
+              <label>记录者<select name="recorder"><option value="human" ${(editing.recorder || "human") === "human" ? "selected" : ""}>人</option><option value="bot" ${editing.recorder === "bot" ? "selected" : ""}>bot</option></select></label>
+            </div>
+            <label>内容<textarea name="content" required placeholder="账号提示、聊天片段、名人名言、待办或你想让 bot 记住的话。">${escapeHtml(editing.content || "")}</textarea></label>
+            <div class="memo-meta-line">
+              ${check("sensitive", "敏感内容", Boolean(editing.sensitive))}
+              ${check("pinned", "置顶", Boolean(editing.pinned))}
+              ${check("archived", "归档", Boolean(editing.archived))}
+            </div>
+            <p class="muted">${created ? `创建：${escapeHtml(created)}` : "保存后会记录时间戳。"}${updated ? ` · 更新：${escapeHtml(updated)}` : ""}</p>
+            <div class="actions"><button class="primary">保存纸条</button></div>
+          </form>
+        </article>
+      </section>
+    </section>
+  `;
+}
+
+function memoStat(label, value) {
+  return `<div class="memo-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+}
+
+function memoNoteCard(item) {
+  const content = item.content_hidden ? "敏感内容已隐藏" : (item.content || "");
+  const tags = (item.tags || []).slice(0, 5);
+  return `
+    <article class="memo-note ${item.pinned ? "pinned" : ""} ${item.archived ? "archived" : ""} ${item.sensitive ? "sensitive" : ""}" data-memo-select="${escapeHtml(item.id)}">
+      <button class="memo-note-open ${state.selectedMemoId === item.id ? "active" : ""}" data-memo-select="${escapeHtml(item.id)}" type="button">
+        <span class="memo-pin" aria-hidden="true"></span>
+        <strong>${escapeHtml(item.title || "无标题纸条")}</strong>
+        <em>${escapeHtml(content).slice(0, 120)}</em>
+        <small>${escapeHtml(item.source_chat || item.recorder || "小窝")} · ${escapeHtml((item.updated_at || item.created_at || "").slice(0, 10))}</small>
+      </button>
+      <div class="memo-note-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      <div class="memo-note-actions">
+        <button class="icon-button" data-memo-pin="${escapeHtml(item.id)}" data-memo-pin-value="${item.pinned ? "true" : "false"}" title="${item.pinned ? "取消置顶" : "置顶"}" type="button">${item.pinned ? "●" : "○"}</button>
+        <button class="icon-button" data-memo-archive="${escapeHtml(item.id)}" data-memo-archive-value="${item.archived ? "true" : "false"}" title="${item.archived ? "取消归档" : "归档"}" type="button">${item.archived ? "↺" : "⌄"}</button>
+      </div>
+    </article>
+  `;
+}
+
+async function searchMemos(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  state.memoSearch = String(form.get("q") || "").trim();
+  state.selectedMemoId = "";
+  syncRouteForState("memos");
+  await renderMemos();
+  updateShell();
+}
+
+async function selectMemo(id) {
+  state.selectedMemoId = id || "";
+  syncRouteForState("memos");
+  await renderMemos();
+  updateShell();
+}
+
+async function newMemo() {
+  state.selectedMemoId = "";
+  syncRouteForState("memos");
+  await renderMemos();
+  updateShell();
+}
+
+async function saveMemo(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const id = String(form.get("id") || "").trim();
+  const body = {
+    title: form.get("title") || "",
+    content: form.get("content") || "",
+    tags: splitWords(form.get("tags")),
+    source_chat: form.get("source_chat") || "",
+    recorder: form.get("recorder") || "human",
+    source: "web",
+    sensitive: form.has("sensitive"),
+    pinned: form.has("pinned"),
+    archived: form.has("archived"),
+  };
+  const payload = id
+    ? await api("/api/ui/memos/update", { method: "POST", body: JSON.stringify({ id, ...body }) })
+    : await api("/api/ui/memos", { method: "POST", body: JSON.stringify(body) });
+  state.selectedMemoId = payload.item?.id || id;
+  state.notice = "备忘录已保存。";
+  state.bootstrap = null;
+  syncRouteForState("memos", true);
+  await renderMemos();
+  updateShell();
+}
+
+async function updateMemoFlag(id, field, value) {
+  await api("/api/ui/memos/update", { method: "POST", body: JSON.stringify({ id, [field]: value }) });
+  state.notice = field === "pinned" ? (value ? "纸条已置顶。" : "纸条已取消置顶。") : (value ? "纸条已归档。" : "纸条已取消归档。");
+  await renderMemos();
+  updateShell();
+}
+
+async function deleteMemo(id) {
+  if (!id || !confirm("删除这条备忘录？")) return;
+  await api(`/api/ui/memos/${encodeURIComponent(id)}`, { method: "DELETE" });
+  state.selectedMemoId = "";
+  state.notice = "备忘录已删除。";
+  state.bootstrap = null;
+  syncRouteForState("memos", true);
+  await renderMemos();
+  updateShell();
+}
+
 async function renderMedia() {
   const payload = await api("/api/ui/media");
   state.media = payload.items || [];
@@ -1648,36 +1899,100 @@ function renderGlobalDialogs() {
 function onboardingSteps() {
   return [
     {
-      title: "先改管理员密码",
-      body: "初始密码用于第一次进入小窝。进入后建议立刻在访问密钥里改成自己的管理员密码，避免公网地址被扫到。",
-      target: "设置 · 访问密钥",
-      checklist: ["确认 WebUI 可以登录", "修改管理员密码", "需要外部接入时再启用接口密钥"],
+      title: "先从这里进入设置",
+      body: "设置里放着外观、模块、访问密钥和导入导出。第一次进小窝，先把这些位置认清楚就够了。",
+      target: "左侧 · 设置",
+      selector: '[data-tour-target="nav-settings"]',
+      view: "dashboard",
+      checklist: ["点左侧设置", "看到外观设置、模块控制台、访问密钥、导入导出四个入口"],
     },
     {
-      title: "填写管理员 QQ",
-      body: "管理员 QQ 决定哪些会话能让 bot 直接写入、检索或调整小窝。只填可信账号，后续权限扩展也从这里开始。",
-      target: "模块控制台 · 日记模块",
-      checklist: ["填写小窝管理员 QQ", "确认自然语言管理员权限", "保存后让 bot 调用 nest_status 检查"],
+      title: "先把外观放在这里调",
+      body: "标题、头像、玻璃小屋、纸庭、夜间工作室都收束在外观设置里。以后官方全局外观不会再散落到模块控制台。",
+      target: "设置 · 外观设置",
+      selector: '[data-tour-target="settings-appearance"]',
+      view: "settings",
+      section: "appearance",
+      checklist: ["修改小窝标题和副标题", "选择喜欢的外观", "保存后刷新全局样式"],
     },
     {
-      title: "建好日记本",
-      body: "日记本绑定具体群聊或私聊。bot 写日记时会按日记本、年月日归档，不需要把旧文本整本读进上下文。",
-      target: "日记模块 · 日记本管理",
-      checklist: ["设置日记本名称", "选择群聊或私聊", "填写 QQ 号或群号"],
+      title: "模块控制台只管功能",
+      body: "这里控制日记、媒体、印象、备忘录和拓展包。模块关闭后，对应左侧入口也会一起消失。",
+      target: "设置 · 模块控制台",
+      selector: '[data-tour-target="settings-modules"]',
+      view: "settings",
+      section: "modules",
+      checklist: ["进入某个模块的设置", "打开或关闭模块", "新增拓展包时也从这里安装"],
     },
     {
-      title: "安排定时写日记",
-      body: "定时写日记不是系统提示，而是在固定时间把规范提示交给 bot，让它结合当天经历自主总结、评价和归档。",
-      target: "日记模块 · 写日记时间",
-      checklist: ["启用自动写日记", "设置写日记时间", "选择是否推送完成提醒"],
+      title: "日记从这里整理",
+      body: "日记页负责按日记本和日期归档。bot 写入、搜索和图片推送都依赖这里的日记模块设置。",
+      target: "左侧 · 日记",
+      selector: '[data-tour-target="nav-diary"]',
+      view: "diary",
+      checklist: ["检查日记本", "确认写日记规范", "需要图片推送时选择模板"],
     },
     {
-      title: "检查工具状态",
-      body: "最后让 bot 调用工具层确认小窝在线。日记写入、搜索、媒体和人物印象都应由工具完成，而不是模仿人点击网页。",
-      target: "bot 工具 · nest_status",
-      checklist: ["调用 nest_status", "试写一条日记", "用 search_diary 搜索正文关键词"],
+      title: "媒体和备忘录是辅助记忆",
+      body: "媒体放图片和附件，备忘录放账号提示、聊天片段、名言或待办。备忘录的敏感内容默认隐藏，bot 自主写入也可以在模块设置里控制。",
+      target: "左侧 · 媒体 / 备忘录",
+      selector: '[data-tour-target="nav-memos"], [data-tour-target="nav-media"]',
+      view: "memos",
+      checklist: ["媒体用于文件归档", "备忘录用于短纸条", "导入导出会一起覆盖这些数据"],
     },
   ];
+}
+
+function onboardingStepRect(step) {
+  const selector = step.selector || "";
+  const target = selector ? document.querySelector(selector) : null;
+  if (!target) {
+    return {
+      found: false,
+      top: Math.max(18, window.innerHeight * 0.22),
+      left: Math.max(18, window.innerWidth * 0.5 - 120),
+      width: 240,
+      height: 72,
+    };
+  }
+  target.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+  const rect = target.getBoundingClientRect();
+  const pad = 8;
+  return {
+    found: true,
+    top: Math.max(10, rect.top - pad),
+    left: Math.max(10, rect.left - pad),
+    width: Math.min(window.innerWidth - 20, rect.width + pad * 2),
+    height: Math.min(window.innerHeight - 20, rect.height + pad * 2),
+  };
+}
+
+function onboardingTooltipStyle(rect) {
+  const width = Math.min(380, Math.max(288, window.innerWidth - 36));
+  const gap = 18;
+  const fitsRight = rect.left + rect.width + gap + width < window.innerWidth;
+  const fitsLeft = rect.left - gap - width > 0;
+  const fitsBelow = rect.top + rect.height + gap + 270 < window.innerHeight;
+  let left = rect.left + rect.width + gap;
+  let top = Math.max(18, rect.top + rect.height / 2 - 150);
+  let placement = "right";
+  if (!fitsRight && fitsLeft) {
+    left = rect.left - gap - width;
+    placement = "left";
+  } else if (!fitsRight && fitsBelow) {
+    left = Math.min(window.innerWidth - width - 18, Math.max(18, rect.left));
+    top = rect.top + rect.height + gap;
+    placement = "bottom";
+  } else if (!fitsRight) {
+    left = Math.min(window.innerWidth - width - 18, Math.max(18, rect.left));
+    top = Math.max(18, rect.top - 292);
+    placement = "top";
+  }
+  top = Math.min(window.innerHeight - 260, Math.max(18, top));
+  return {
+    style: `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${Math.round(width)}px;`,
+    placement,
+  };
 }
 
 function onboardingActions(index, total) {
@@ -1693,10 +2008,6 @@ function onboardingActions(index, total) {
 
 function onboardingStepMarkup(step, index, total) {
   return `
-    <div class="onboarding-visual" aria-hidden="true">
-      <span>${index + 1}</span>
-      <i></i>
-    </div>
     <div class="onboarding-copy">
       <p class="eyebrow">首次使用引导</p>
       <h2>${escapeHtml(step.title)}</h2>
@@ -1714,10 +2025,14 @@ function onboardingDialog() {
   const steps = onboardingSteps();
   const index = Math.max(0, Math.min(state.onboardingStep || 0, steps.length - 1));
   const step = steps[index];
+  const rect = onboardingStepRect(step);
+  const tooltip = onboardingTooltipStyle(rect);
   return `
-    <div class="media-dialog-backdrop onboarding-backdrop" data-onboarding-close>
-      <article class="nest-dialog onboarding-dialog" data-onboarding-dialog role="dialog" aria-modal="true" aria-label="小窝首次使用引导" onclick="event.stopPropagation()">
+    <div class="onboarding-backdrop" data-onboarding-close>
+      <div class="onboarding-spotlight ${rect.found ? "" : "soft"}" style="left:${Math.round(rect.left)}px;top:${Math.round(rect.top)}px;width:${Math.round(rect.width)}px;height:${Math.round(rect.height)}px;"></div>
+      <article class="nest-dialog onboarding-dialog placement-${tooltip.placement}" data-onboarding-dialog role="dialog" aria-modal="true" aria-label="小窝首次使用引导" style="${tooltip.style}" onclick="event.stopPropagation()">
         <button class="media-dialog-close" data-onboarding-close type="button" aria-label="关闭">×</button>
+        <div class="onboarding-arrow" aria-hidden="true"></div>
         <div class="onboarding-stage" data-onboarding-stage>
           ${onboardingStepMarkup(step, index, steps.length)}
         </div>
@@ -1729,24 +2044,36 @@ function onboardingDialog() {
   `;
 }
 
-function updateOnboardingDialog() {
-  const steps = onboardingSteps();
-  const index = Math.max(0, Math.min(state.onboardingStep || 0, steps.length - 1));
-  state.onboardingStep = index;
-  const dialog = document.querySelector("[data-onboarding-dialog]");
-  if (!dialog) {
-    renderGlobalDialogs();
-    return;
-  }
-  const stage = dialog.querySelector("[data-onboarding-stage]");
-  const actions = dialog.querySelector("[data-onboarding-actions]");
-  if (stage) stage.innerHTML = onboardingStepMarkup(steps[index], index, steps.length);
-  if (actions) actions.innerHTML = onboardingActions(index, steps.length);
+async function updateOnboardingDialog() {
+  state.onboardingStep = Math.max(0, Math.min(state.onboardingStep || 0, onboardingSteps().length - 1));
+  await applyOnboardingStepRoute(onboardingSteps()[state.onboardingStep]);
+  renderGlobalDialogs();
 }
 
-function openOnboarding(step = 0) {
+async function applyOnboardingStepRoute(step) {
+  if (!step) return;
+  if (step.view === "settings") {
+    state.view = "settings";
+    state.settingsMenuOpen = true;
+    state.settingsSection = step.section || "appearance";
+    state.settingsModuleDetail = "";
+    syncRouteForState("settings", true);
+    await renderSettings();
+    updateShell();
+    return;
+  }
+  if (step.view === "memos" && !isMemosEnabled()) {
+    step = { ...step, view: isMediaEnabled() ? "media" : "dashboard" };
+  }
+  if (step.view && state.view !== step.view) {
+    await setView(step.view, { replaceRoute: true });
+  }
+}
+
+async function openOnboarding(step = 0) {
   state.onboardingOpen = true;
   state.onboardingStep = step;
+  await applyOnboardingStepRoute(onboardingSteps()[state.onboardingStep]);
   renderGlobalDialogs();
 }
 
@@ -2830,7 +3157,7 @@ async function renderSettings() {
 
 function settingsTab(id, label) {
   return `
-    <button class="settings-tab ${state.settingsSection === id ? "active" : ""}" data-settings-section="${id}" type="button">
+    <button class="settings-tab ${state.settingsSection === id ? "active" : ""}" data-settings-section="${id}" data-tour-target="settings-${id}" type="button">
       <span>${escapeHtml(label)}</span>
     </button>
   `;
@@ -2851,6 +3178,14 @@ async function switchSettingsSection(id) {
 }
 
 async function openModuleSettings(id) {
+  if (id === "webui") {
+    state.settingsSection = "appearance";
+    state.settingsModuleDetail = "";
+    syncRouteForState("settings");
+    await renderSettings();
+    updateShell();
+    return;
+  }
   state.settingsSection = "modules";
   state.settingsModuleDetail = id || "";
   syncRouteForState("settings");
@@ -2931,14 +3266,12 @@ function moduleManagerPage(payload) {
 
 function moduleCatalogItems(payload, settings) {
   const official = payload.module_catalog.official || [];
-  const officialCore = official.filter((module) => module.id !== "webui");
-  const officialAppearance = official.filter((module) => module.id === "webui");
+  const supplementalAppearance = (payload.module_catalog.appearance || []).filter((module) => module.appearance_mode !== "global");
   return [
-    ...decorateModules(officialCore, settings.enabled_official_modules, "enabled_official_modules", "official", "core"),
+    ...decorateModules(official, settings.enabled_official_modules, "enabled_official_modules", "official", "core"),
     ...decorateModules(payload.module_catalog.custom || [], settings.enabled_custom_modules, "enabled_custom_modules", "custom", "core"),
     ...decorateModules(payload.module_catalog.extensions || [], settings.enabled_custom_extensions, "enabled_custom_extensions", "extension", "extension"),
-    ...decorateModules(officialAppearance, settings.enabled_official_modules, "enabled_official_modules", "official", "appearance"),
-    ...decorateModules(payload.module_catalog.appearance || [], settings.enabled_appearance_modules || [], "enabled_appearance_modules", "appearance", "appearance"),
+    ...decorateModules(supplementalAppearance, settings.enabled_appearance_modules || [], "enabled_appearance_modules", "appearance", "appearance"),
   ];
 }
 
@@ -3068,6 +3401,9 @@ function permissionSettings(settings) {
         ${item("media_send", "发送媒体")}
         ${item("impression_read", "查看人物印象")}
         ${item("impression_write", "修改人物印象")}
+        ${item("memo_read", "查看备忘录")}
+        ${item("memo_write", "写入备忘录")}
+        ${item("memo_delete", "删除备忘录")}
       </div>
     </details>
   `;
@@ -3185,6 +3521,23 @@ function moduleSettingsBody(payload, detailKey) {
       </div>
     `;
   }
+  if (detailKey === "memos") {
+    return `
+      <div class="setting-line"><div><strong>备忘录模块</strong><p class="muted">开启后左侧会出现备忘录入口，bot 和人都可以把琐碎但重要的内容记成纸条。</p></div>${switchControl("enable_memos_module", settings.enable_memos_module)}</div>
+      <div class="setting-line"><div><strong>敏感内容默认隐藏</strong><p class="muted">账号、密码提示、私人片段等敏感纸条在页面和接口里默认遮住，需要主动显示。</p></div>${switchControl("memos_sensitive_default_hidden", settings.memos_sensitive_default_hidden ?? true)}</div>
+      <div class="form-grid compact">
+        <label>写入策略<select name="memos_write_policy">
+          <option value="admin_only" ${settings.memos_write_policy === "admin_only" ? "selected" : ""}>只允许管理员写入</option>
+          <option value="admin_allowed" ${settings.memos_write_policy === "admin_allowed" ? "selected" : ""}>管理员和授权用户写入</option>
+          <option value="bot_curated" ${settings.memos_write_policy === "bot_curated" ? "selected" : ""}>允许 bot 自主挑选记录</option>
+          <option value="review" ${settings.memos_write_policy === "review" ? "selected" : ""}>允许 bot 记录但标记待复核</option>
+        </select></label>
+        <label>12小时 bot 写入上限<input name="memos_auto_write_limit_12h" type="number" min="0" max="200" value="${Number(settings.memos_auto_write_limit_12h ?? 12)}"></label>
+      </div>
+      <div class="notice soft">备忘录适合保存账号提示、聊天片段、名言、待办和 bot 觉得值得留下的短记忆。真正的账号密码建议仍放在专业密码管理器里，小窝只做个人使用场景下的基础保护。</div>
+      ${permissionSettings(settings)}
+    `;
+  }
   return `<div class="notice soft">这个模块暂时没有可调整的选项。</div>`;
 }
 
@@ -3192,12 +3545,14 @@ function moduleDetailTitle(detailKey) {
   if (detailKey === "diary") return "日记模块";
   if (detailKey === "impressions") return "人物印象模块";
   if (detailKey === "media") return "媒体模块";
+  if (detailKey === "memos") return "备忘录模块";
   if (detailKey === "webui") return "小窝 WebUI";
   return detailKey;
 }
 
 function moduleDetailDescription(detailKey) {
   if (detailKey === "webui") return "管理标题、头像和页面样式。";
+  if (detailKey === "memos") return "管理纸条、敏感隐藏和 bot 自主记录策略。";
   return "";
 }
 
@@ -3253,6 +3608,7 @@ function moduleIcon(module, groupKind = "") {
   if (module.id === "diary") return "diary";
   if (module.id === "impressions") return "impressions";
   if (module.id === "media") return "media";
+  if (module.id === "memos") return "memos";
   if (module.id === "webui") return "webui";
   if (groupKind === "appearance") return "appearance";
   if (groupKind === "extension") return "modules";
@@ -3261,10 +3617,11 @@ function moduleIcon(module, groupKind = "") {
 
 function moduleBadges(module, groupKind = "") {
   const conflicts = module.conflicts_with || [];
-  const isAppearance = groupKind === "appearance" || module.id === "webui";
+  const isAppearance = groupKind === "appearance";
   const appearanceLabel = isAppearance ? (module.entry_label || (module.appearance_mode === "global" ? "全局模块" : "外观模块")) : "";
   const badges = [
     `<span class="chip">${escapeHtml(moduleSourceLabel(module, groupKind))}</span>`,
+    module.id === "webui" ? `<span class="chip">外观设置入口</span>` : "",
     appearanceLabel ? `<span class="chip ${module.appearance_mode === "global" ? "danger-chip" : ""}">${escapeHtml(appearanceLabel)}</span>` : "",
     groupKind === "extension" ? `<span class="chip">拓展包</span>` : "",
     conflicts.length ? `<span class="chip danger-chip">有冲突</span>` : "",
@@ -3351,6 +3708,7 @@ function exportOptions(catalog) {
     ["diary", "日记模块"],
     ["impressions", "人物印象"],
     ["media", "媒体归档"],
+    ["memos", "备忘录"],
     ["webui_custom", "个性化前端"],
     ["security", "安全配置"],
     ["custom_module", "指定自定义模块"],
@@ -3363,6 +3721,7 @@ function exportOptions(catalog) {
         diary: "日记正文、快照和草稿",
         impressions: "人物印象资料",
         media: "图片、附件和相册",
+        memos: "纸条、标签和敏感标记",
         webui_custom: "标题、头像和自定义页面",
         security: "管理员密码和接口密钥",
         custom_module: "填写模块 ID 后导出",
@@ -3441,7 +3800,7 @@ async function saveSettings(event) {
     diary_image_send_max_retries: Math.max(0, Math.min(10, numberField("diary_image_send_max_retries", current.diary_image_send_max_retries ?? 3))),
     diary_image_send_failure_notice: boolField("diary_image_send_failure_notice", current.diary_image_send_failure_notice ?? true),
     permissions_allow_admin_natural_language: boolField("permissions_allow_admin_natural_language", current.permissions_allow_admin_natural_language ?? true),
-    non_admin_permissions: form.getAll("non_admin_permissions"),
+    non_admin_permissions: hasField("non_admin_permissions") ? form.getAll("non_admin_permissions") : (current.non_admin_permissions || []),
     nest_admin_ids: valueField("nest_admin_ids", current.nest_admin_ids || ""),
     diary_write_prompt: valueField("diary_write_prompt", current.diary_write_prompt || ""),
     diary_t2i_template: valueField("diary_t2i_template", current.diary_t2i_template || ""),
@@ -3461,6 +3820,10 @@ async function saveSettings(event) {
     impression_allow_new_people: boolField("impression_allow_new_people", current.impression_allow_new_people),
     impression_min_confidence: numberField("impression_min_confidence", current.impression_min_confidence || 3),
     show_impression_prompt: boolField("show_impression_prompt", current.show_impression_prompt),
+    enable_memos_module: boolField("enable_memos_module", current.enable_memos_module),
+    memos_write_policy: valueField("memos_write_policy", current.memos_write_policy || "admin_only"),
+    memos_auto_write_limit_12h: numberField("memos_auto_write_limit_12h", current.memos_auto_write_limit_12h ?? 12),
+    memos_sensitive_default_hidden: boolField("memos_sensitive_default_hidden", current.memos_sensitive_default_hidden ?? true),
     active_frontend_style: valueField("active_frontend_style", current.active_frontend_style || "default"),
     enabled_official_modules: listField("enabled_official_modules", current.enabled_official_modules || []),
     enabled_custom_modules: listField("enabled_custom_modules", current.enabled_custom_modules || []),
@@ -3491,6 +3854,7 @@ async function saveSettings(event) {
       payload.enable_diary_module = payload.enabled_official_modules.includes("diary");
       payload.enable_media_module = payload.enabled_official_modules.includes("media");
       payload.enable_impressions_module = payload.enabled_official_modules.includes("impressions");
+      payload.enable_memos_module = payload.enabled_official_modules.includes("memos");
     } else if (moduleInput === "enabled_custom_modules") {
       payload.enabled_custom_modules = syncEnabledModule(payload.enabled_custom_modules, moduleId, event.submitter.checked);
     } else if (moduleInput === "enabled_custom_extensions") {
@@ -3504,6 +3868,7 @@ async function saveSettings(event) {
     payload.enable_diary_module = payload.enabled_official_modules.includes("diary");
     payload.enable_media_module = payload.enabled_official_modules.includes("media");
     payload.enable_impressions_module = payload.enabled_official_modules.includes("impressions");
+    payload.enable_memos_module = payload.enabled_official_modules.includes("memos");
   } else {
     if (hasField("enable_diary_module")) {
       payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "diary", payload.enable_diary_module);
@@ -3513,6 +3878,9 @@ async function saveSettings(event) {
     }
     if (hasField("enable_impressions_module")) {
       payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "impressions", payload.enable_impressions_module);
+    }
+    if (hasField("enable_memos_module")) {
+      payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "memos", payload.enable_memos_module);
     }
   }
   await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
@@ -3635,11 +4003,54 @@ function syncExportChoices(target) {
   }
 }
 
+function backupHealthLine(label, health = {}) {
+  const latest = health.latest_diary_date || "无";
+  const recent = (health.latest_diary_dates || []).slice(-3).join("、") || "无";
+  return `${label}：日记 ${health.diary_count || 0} 篇，最近 ${latest}；近三篇 ${recent}；备忘录 ${health.memo_count || 0} 条，媒体 ${health.media_count || 0} 个。`;
+}
+
+function importWarningsText(warnings = []) {
+  if (!warnings.length) return "";
+  return warnings.map((item) => `${item.title || "导入警告"}：${item.message || ""}`).join("；");
+}
+
 async function importBackup(event) {
   event.preventDefault();
   const form = new FormData(event.currentTarget);
+  const file = form.get("backup_file");
+  if (!file || !file.size) throw new Error("请选择备份 zip 文件");
+  const previewPayload = new FormData();
+  previewPayload.append("backup_file", file);
+  const previewResponse = await fetch("/api/ui/import/preview", {
+    method: "POST",
+    credentials: "same-origin",
+    body: previewPayload,
+  });
+  if (!previewResponse.ok) {
+    let detail = previewResponse.statusText;
+    try {
+      const data = await previewResponse.json();
+      detail = data.detail || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  const previewData = await previewResponse.json();
+  const preview = previewData.preview || {};
+  if ((preview.importable || 0) <= 0) {
+    throw new Error("这个备份包里没有可导入的小窝数据。");
+  }
+  const manifestHealth = preview.manifest?.data_summary || {};
+  const currentHealth = preview.current_health || {};
+  if (
+    manifestHealth.latest_diary_date &&
+    currentHealth.latest_diary_date &&
+    manifestHealth.latest_diary_date < currentHealth.latest_diary_date &&
+    !confirm(`备份包里的最近日记是 ${manifestHealth.latest_diary_date}，当前小窝最近日记是 ${currentHealth.latest_diary_date}。继续导入前请确认你已经导出了最新数据。`)
+  ) {
+    return;
+  }
   const payload = new FormData();
-  payload.append("backup_file", form.get("backup_file"));
+  payload.append("backup_file", file);
   payload.append("strategy", form.get("strategy") || "safe");
   const response = await fetch("/api/ui/import", {
     method: "POST",
@@ -3656,7 +4067,16 @@ async function importBackup(event) {
   }
   const data = await response.json();
   const result = data.result || {};
-  state.notice = `导入完成：${result.imported || 0} 个文件，跳过 ${result.skipped || 0} 个，覆盖 ${result.overwritten || 0} 个。`;
+  const warnings = importWarningsText(result.warnings || []);
+  const backupPath = result.backup_path ? `导入前快照：${result.backup_path}。` : "";
+  state.notice = [
+    `导入完成：${result.imported || 0} 个文件，跳过 ${result.skipped || 0} 个，覆盖 ${result.overwritten || 0} 个，重建索引 ${result.reindexed_diaries || 0} 篇。`,
+    backupHealthLine("导入前", result.before || {}),
+    backupHealthLine("导入后", result.after || {}),
+    backupPath,
+    warnings ? `需要注意：${warnings}` : "",
+  ].filter(Boolean).join(" ");
+  state.error = warnings ? "导入完成但健康检查发现风险，请核对最近日记和备忘录。" : "";
   state.bootstrap = null;
   await renderSettings();
   updateShell();

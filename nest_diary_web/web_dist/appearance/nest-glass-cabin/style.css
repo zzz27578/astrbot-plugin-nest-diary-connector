@@ -27,10 +27,18 @@ body {
 .home-hero,
 .diary-article,
 .settings-collapse,
+.settings-page,
 .module-card,
+.module-detail-body,
+.module-stat,
+.memo-stat,
+.memo-editor,
 .media-dialog,
 .nest-dialog,
 .row,
+.media-card,
+.folder-card,
+.trash-card,
 input,
 textarea,
 select {
@@ -69,7 +77,10 @@ select,
 .button.ghost,
 button.ghost,
 .module-filter,
-.nav-submenu .settings-tab {
+.nav-submenu .settings-tab,
+.media-folder-create-button,
+.media-float-toggle,
+.media-trash-drop {
   background: rgba(255, 255, 255, 0.62);
 }
 
@@ -78,6 +89,47 @@ button.ghost,
 .nav-link:hover,
 .nav-link.active,
 .settings-tab:hover,
-.settings-tab.active {
+.settings-tab.active,
+.module-filter.active,
+.choice-card:has(input:checked) {
   background: rgba(201, 235, 232, 0.8);
+}
+
+.topbar,
+.media-topbar {
+  background: linear-gradient(180deg, rgba(234, 242, 239, 0.88) 0%, rgba(234, 242, 239, 0.74) 72%, rgba(234, 242, 239, 0) 100%);
+}
+
+.memo-board {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px),
+    rgba(87, 132, 137, 0.62);
+  box-shadow: inset 0 0 0 8px rgba(255, 255, 255, 0.18), var(--shadow);
+}
+
+.memo-searchbar input {
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.memo-note {
+  background: rgba(255, 252, 178, 0.86);
+  backdrop-filter: blur(10px);
+}
+
+.memo-note:nth-child(2n) {
+  background: rgba(223, 241, 214, 0.88);
+}
+
+.memo-note:nth-child(3n) {
+  background: rgba(220, 239, 235, 0.88);
+}
+
+.onboarding-dialog {
+  background: rgba(250, 253, 252, 0.9);
+  backdrop-filter: blur(18px);
+}
+
+.onboarding-arrow {
+  background: rgba(250, 253, 252, 0.9);
 }

@@ -64,6 +64,9 @@ class ServiceSettingsStore:
             "media_send",
             "impression_read",
             "impression_write",
+            "memo_read",
+            "memo_write",
+            "memo_delete",
         }
         if not isinstance(settings.non_admin_permissions, list):
             settings.non_admin_permissions = []
@@ -113,9 +116,18 @@ class ServiceSettingsStore:
         if settings.impression_update_strategy in {"manual", "existing_only"}:
             settings.impression_allow_new_people = False
         settings.show_impression_prompt = bool(settings.show_impression_prompt)
+        settings.enable_memos_module = bool(getattr(settings, "enable_memos_module", True))
+        settings.memos_write_policy = {"manual": "admin_allowed", "bot_pick": "bot_curated"}.get(
+            getattr(settings, "memos_write_policy", "admin_only"),
+            getattr(settings, "memos_write_policy", "admin_only"),
+        )
+        if settings.memos_write_policy not in {"admin_only", "admin_allowed", "bot_curated", "review"}:
+            settings.memos_write_policy = "admin_only"
+        settings.memos_auto_write_limit_12h = max(0, min(int(getattr(settings, "memos_auto_write_limit_12h", 12)), 200))
+        settings.memos_sensitive_default_hidden = bool(getattr(settings, "memos_sensitive_default_hidden", True))
         settings.active_frontend_style = (settings.active_frontend_style or "").strip() or "default"
         if not isinstance(settings.enabled_official_modules, list):
-            settings.enabled_official_modules = ["diary", "impressions", "media", "webui"]
+            settings.enabled_official_modules = ["diary", "impressions", "media", "memos", "webui"]
         if not isinstance(settings.enabled_custom_modules, list):
             settings.enabled_custom_modules = []
         if not isinstance(settings.enabled_custom_extensions, list):
@@ -127,19 +139,34 @@ class ServiceSettingsStore:
         if not settings.appearance_modules_initialized:
             settings.appearance_modules_initialized = True
         settings.enabled_official_modules = [
-            item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "webui"}
+            item for item in settings.enabled_official_modules if item in {"diary", "impressions", "media", "memos", "webui"}
         ]
         settings.enabled_official_modules = [
             item
             for item in settings.enabled_official_modules
-            if item != "media" or settings.enable_media_module
+            if (
+                item not in {"diary", "impressions", "media", "memos"}
+                or (item == "diary" and settings.enable_diary_module)
+                or (item == "impressions" and settings.enable_impressions_module)
+                or (item == "media" and settings.enable_media_module)
+                or (item == "memos" and settings.enable_memos_module)
+            )
         ]
+        if settings.enable_diary_module and "diary" not in settings.enabled_official_modules:
+            settings.enabled_official_modules.append("diary")
+        if settings.enable_impressions_module and "impressions" not in settings.enabled_official_modules:
+            settings.enabled_official_modules.append("impressions")
         if settings.enable_media_module and "media" not in settings.enabled_official_modules:
             settings.enabled_official_modules.append("media")
+        if settings.enable_memos_module and "memos" not in settings.enabled_official_modules:
+            settings.enabled_official_modules.append("memos")
         if not settings.enable_media_module:
             settings.allow_media_refs = False
             settings.media_allow_bot_import = False
             settings.media_auto_album = False
+        if not settings.enable_memos_module:
+            settings.memos_write_policy = "admin_only"
+            settings.memos_auto_write_limit_12h = 0
         settings.enabled_custom_modules = [
             item.strip() for item in settings.enabled_custom_modules if self._safe_package_id(item.strip())
         ]

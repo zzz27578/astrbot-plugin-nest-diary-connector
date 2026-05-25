@@ -1103,6 +1103,236 @@ textarea {
   backdrop-filter: blur(10px);
 }
 
+.memos-page {
+  display: grid;
+  gap: 16px;
+}
+
+.memos-topbar {
+  align-items: center;
+}
+
+.memo-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.memo-stat {
+  min-height: 78px;
+  display: grid;
+  gap: 6px;
+  align-content: center;
+  padding: 13px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 18px rgba(47, 51, 64, 0.08);
+}
+
+.memo-stat span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.memo-stat strong {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.memos-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1.1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.memo-board {
+  display: grid;
+  gap: 12px;
+  min-height: 560px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(32, 36, 42, 0.05) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(32, 36, 42, 0.04) 1px, transparent 1px),
+    #b98958;
+  background-size: 28px 28px;
+  box-shadow: inset 0 0 0 8px rgba(255, 253, 248, 0.2), var(--shadow);
+}
+
+.memo-searchbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.memo-searchbar input {
+  background: rgba(255, 253, 248, 0.92);
+}
+
+.memo-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.memo-note {
+  position: relative;
+  min-height: 176px;
+  display: grid;
+  gap: 8px;
+  padding: 16px 13px 12px;
+  color: #2b2a25;
+  background: #fff5a8;
+  border: 1px solid rgba(93, 72, 28, 0.25);
+  border-radius: 6px;
+  box-shadow: 0 14px 22px rgba(71, 45, 22, 0.2);
+  transform: rotate(-0.8deg);
+}
+
+.memo-note:nth-child(2n) {
+  background: #dff1d6;
+  transform: rotate(0.7deg);
+}
+
+.memo-note:nth-child(3n) {
+  background: #dcefeb;
+  transform: rotate(-0.2deg);
+}
+
+.memo-note.pinned {
+  box-shadow: 0 16px 26px rgba(71, 45, 22, 0.26);
+}
+
+.memo-note.archived {
+  opacity: 0.72;
+  filter: saturate(0.72);
+}
+
+.memo-note.sensitive {
+  background-image: repeating-linear-gradient(-45deg, transparent 0 9px, rgba(179, 38, 30, 0.08) 9px 18px);
+}
+
+.memo-note-open {
+  min-height: 0;
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.memo-note-open:hover,
+.memo-note-open.active {
+  background: transparent;
+  color: inherit;
+}
+
+.memo-note-open.active strong {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.memo-pin {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(86, 40, 30, 0.4);
+  border-radius: 999px;
+  background: #d25f45;
+  box-shadow: 0 3px 0 rgba(60, 28, 18, 0.18);
+  transform: translateX(-50%);
+}
+
+.memo-note strong {
+  font-size: 15px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.memo-note em {
+  min-height: 56px;
+  color: rgba(43, 42, 37, 0.78);
+  font-style: normal;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.memo-note small {
+  color: rgba(43, 42, 37, 0.64);
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.memo-note-tags,
+.memo-note-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.memo-note-tags span {
+  padding: 3px 7px;
+  border: 1px solid rgba(43, 42, 37, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+  color: rgba(43, 42, 37, 0.72);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.memo-note-actions {
+  justify-content: flex-end;
+}
+
+.memo-note-actions .icon-button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  color: rgba(43, 42, 37, 0.78);
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.memo-empty {
+  padding: 18px;
+  color: #fffdf8;
+  border: 1px dashed rgba(255, 253, 248, 0.58);
+  border-radius: 8px;
+  font-weight: 900;
+}
+
+.memo-editor {
+  position: sticky;
+  top: 18px;
+}
+
+.memo-form {
+  display: grid;
+  gap: 14px;
+}
+
+.memo-form textarea[name="content"] {
+  min-height: 240px;
+}
+
+.memo-meta-line {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .media-title {
   display: flex;
   align-items: baseline;
@@ -1752,65 +1982,77 @@ textarea {
 }
 
 .onboarding-backdrop {
+  position: fixed;
+  inset: 0;
   z-index: 70;
+  background: rgba(9, 14, 18, 0.68);
+  backdrop-filter: blur(3px);
+  animation: panel-in 160ms ease both;
+}
+
+.onboarding-spotlight {
+  position: fixed;
+  z-index: 71;
+  border: 2px solid var(--accent-warm);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 9999px rgba(9, 14, 18, 0.66),
+    0 0 0 7px rgba(246, 198, 103, 0.18),
+    0 18px 44px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease;
+}
+
+.onboarding-spotlight.soft {
+  opacity: 0.58;
 }
 
 .onboarding-dialog {
-  width: min(680px, calc(100vw - 44px));
-  padding: 28px;
-  overflow: hidden;
+  position: fixed;
+  z-index: 72;
+  max-height: calc(100vh - 36px);
+  padding: 22px;
+  overflow: visible;
 }
 
-.onboarding-dialog::before {
-  content: "";
+.onboarding-arrow {
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(135deg, rgba(23, 111, 102, 0.12), transparent 34%),
-    linear-gradient(315deg, rgba(246, 198, 103, 0.14), transparent 32%);
+  width: 18px;
+  height: 18px;
+  border-left: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--paper);
+  transform: rotate(45deg);
 }
 
-.onboarding-dialog > * {
-  position: relative;
-  z-index: 1;
+.onboarding-dialog.placement-right .onboarding-arrow {
+  left: -10px;
+  top: 42px;
+}
+
+.onboarding-dialog.placement-left .onboarding-arrow {
+  right: -10px;
+  top: 42px;
+  transform: rotate(225deg);
+}
+
+.onboarding-dialog.placement-bottom .onboarding-arrow {
+  left: 34px;
+  top: -10px;
+  transform: rotate(135deg);
+}
+
+.onboarding-dialog.placement-top .onboarding-arrow {
+  left: 34px;
+  bottom: -10px;
+  transform: rotate(-45deg);
 }
 
 .onboarding-stage {
-  min-height: 318px;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 22px;
+  gap: 14px;
   align-items: start;
-}
-
-.onboarding-visual {
-  position: relative;
-  width: 88px;
-  height: 88px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: 20px;
-  background: var(--accent-soft);
-  box-shadow: var(--shadow);
-}
-
-.onboarding-visual span {
-  color: var(--accent);
-  font-size: 32px;
-  font-weight: 900;
-}
-
-.onboarding-visual i {
-  position: absolute;
-  width: 30px;
-  height: 30px;
-  right: -13px;
-  top: 29px;
-  border-right: 4px solid var(--accent);
-  border-bottom: 4px solid var(--accent);
-  transform: rotate(-45deg);
 }
 
 .onboarding-copy {
@@ -1821,7 +2063,8 @@ textarea {
 
 .onboarding-dialog h2 {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
+  line-height: 1.18;
 }
 
 .onboarding-body {
@@ -2699,6 +2942,15 @@ details[open] > *:not(summary) {
     grid-template-columns: 1fr;
   }
 
+  .memos-layout,
+  .memo-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .memo-editor {
+    position: static;
+  }
+
   .notebook-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2747,21 +2999,18 @@ details[open] > *:not(summary) {
     padding: 18px;
   }
 
-  .onboarding-stage {
-    min-height: 0;
-    grid-template-columns: 1fr;
+  .onboarding-dialog {
+    left: 14px !important;
+    right: 14px;
+    top: auto !important;
+    bottom: 14px;
+    width: auto !important;
+    max-height: min(76vh, 560px);
+    overflow: auto;
   }
 
-  .onboarding-visual {
-    width: 72px;
-    height: 72px;
-  }
-
-  .onboarding-visual i {
-    right: 8px;
-    top: auto;
-    bottom: -10px;
-    transform: rotate(45deg);
+  .onboarding-arrow {
+    display: none;
   }
 
   .topbar {
@@ -2811,7 +3060,17 @@ details[open] > *:not(summary) {
 
   .module-card-grid,
   .media-gallery,
-  .module-stats {
+  .module-stats,
+  .memo-note-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .memo-board {
+    min-height: 360px;
+    padding: 12px;
+  }
+
+  .memo-searchbar {
     grid-template-columns: 1fr;
   }
 

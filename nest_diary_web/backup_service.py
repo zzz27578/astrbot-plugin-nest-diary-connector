@@ -2,6 +2,7 @@
 
 import io
 import json
+import shutil
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +56,8 @@ class BackupService:
                 "nest_version": nest_version,
                 "include_security": include_security,
                 "legacy_sources": legacy_sources,
+                "file_count": len(files),
+                "data_summary": self.data_health_summary(),
                 "schema_version": 1,
             }
             archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -76,6 +79,7 @@ class BackupService:
             "diary",
             "impressions",
             "media",
+            "memos",
             "webui_custom",
             "security",
             "custom_module",
@@ -85,6 +89,37 @@ class BackupService:
         picked = [item for item in items if item in allowed]
         return picked or ["full"]
 
+    def preview_zip(self, payload: bytes) -> dict:
+        importable = 0
+        skipped = 0
+        manifest: dict = {}
+        package_summary = {"file_count": 0, "roots": {}, "unsafe": []}
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            if "manifest.json" in archive.namelist():
+                try:
+                    manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+                except Exception:
+                    manifest = {}
+            for member in archive.infolist():
+                if member.is_dir() or member.filename == "manifest.json":
+                    continue
+                parts = Path(member.filename).parts
+                root = parts[0] if parts else ""
+                package_summary["file_count"] += 1
+                package_summary["roots"][root] = package_summary["roots"].get(root, 0) + 1
+                if not parts or root not in self.allowed_roots or self._is_unsafe(parts) or self._is_import_backup(parts):
+                    skipped += 1
+                    if len(package_summary["unsafe"]) < 20:
+                        package_summary["unsafe"].append(member.filename)
+                    continue
+                importable += 1
+        return {
+            "manifest": manifest,
+            "package_summary": package_summary,
+            "importable": importable,
+            "skipped": skipped,
+        }
+
     def import_zip(self, payload: bytes, strategy: str = "safe") -> dict:
         strategy = strategy if strategy in {"safe", "overwrite"} else "safe"
         imported = 0
@@ -92,6 +127,8 @@ class BackupService:
         overwritten = 0
         backed_up = 0
         manifest: dict = {}
+        before = self.data_health_summary()
+        snapshot_path = ""
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             if "manifest.json" in archive.namelist():
                 try:
@@ -99,11 +136,13 @@ class BackupService:
                 except Exception:
                     manifest = {}
             backup_root = self.paths.root / "imports" / "import-backups" / self._timestamp()
+            if self._has_importable_members(archive):
+                snapshot_path = str(self._snapshot_before_import(backup_root))
             for member in archive.infolist():
                 if member.is_dir() or member.filename == "manifest.json":
                     continue
                 parts = Path(member.filename).parts
-                if not parts or parts[0] not in self.allowed_roots or self._is_unsafe(parts):
+                if not parts or parts[0] not in self.allowed_roots or self._is_unsafe(parts) or self._is_import_backup(parts):
                     skipped += 1
                     continue
                 target = self.paths.root / Path(*parts)
@@ -120,6 +159,7 @@ class BackupService:
                 target.write_bytes(archive.read(member))
                 imported += 1
         self.paths.migrate_legacy_layout()
+        after = self.data_health_summary()
         return {
             "imported": imported,
             "skipped": skipped,
@@ -127,6 +167,52 @@ class BackupService:
             "backed_up": backed_up,
             "strategy": strategy,
             "manifest": manifest,
+            "backup_path": snapshot_path,
+            "before": before,
+            "after": after,
+            "warnings": self._health_warnings(before, after),
+        }
+
+    def data_health_summary(self) -> dict:
+        diary_files = self._files_under(self.paths.modules_dir / "diary" / "notebooks", "*.md")
+        legacy_diary_files = self._files_under(self.paths.diary_dir, "*.md")
+        all_diary_files = sorted(set(diary_files + legacy_diary_files))
+        diary_dates = sorted(
+            {
+                path.stem
+                for path in all_diary_files
+                if self._looks_like_date(path.stem)
+            }
+        )
+        media_manifests = self._files_under(self.paths.media_dir / "by-date", "manifest.json")
+        media_assets = 0
+        for manifest_path in media_manifests:
+            try:
+                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            assets = data.get("assets")
+            if isinstance(assets, list):
+                media_assets += len(assets)
+        memo_items = 0
+        memo_path = self.paths.modules_dir / "memos" / "items.json"
+        if memo_path.exists():
+            try:
+                data = json.loads(memo_path.read_text(encoding="utf-8"))
+                items = data.get("items") if isinstance(data, dict) else data
+                memo_items = len([item for item in (items or []) if isinstance(item, dict) and not item.get("deleted_at")])
+            except Exception:
+                memo_items = 0
+        return {
+            "diary_count": len(all_diary_files),
+            "latest_diary_date": diary_dates[-1] if diary_dates else "",
+            "latest_diary_dates": diary_dates[-7:],
+            "notebook_count": self._json_item_count(self.paths.diary_notebook_registry_file),
+            "impression_count": len(self._files_under(self.paths.memory_dir / "people", "*.json")),
+            "media_count": media_assets,
+            "memo_count": memo_items,
+            "module_file_count": len(self._files_under(self.paths.modules_dir)),
+            "framework_file_count": len(self._files_under(self.paths.framework_dir)),
         }
 
     def _export_paths(self, package_type: str, module_id: str, include_security: bool) -> list[Path]:
@@ -134,7 +220,7 @@ class BackupService:
             return []
         roots: list[Path] = []
         if package_type == "full":
-            roots = [self.paths.root / "framework", self.paths.root / "modules", self.paths.root / "imports"]
+            roots = [self.paths.root / "framework", self.paths.root / "modules"]
         elif package_type == "diary":
             roots = [
                 self.paths.modules_dir / "diary" / "entries",
@@ -147,6 +233,8 @@ class BackupService:
             roots = [self.paths.modules_dir / "impressions"]
         elif package_type == "media":
             roots = [self.paths.modules_dir / "media"]
+        elif package_type == "memos":
+            roots = [self.paths.modules_dir / "memos"]
         elif package_type == "webui_custom":
             roots = [
                 self.paths.framework_dir / "assets",
@@ -210,3 +298,80 @@ class BackupService:
 
     def _is_unsafe(self, parts: tuple[str, ...]) -> bool:
         return any(part in {"", ".", ".."} for part in parts)
+
+    def _is_import_backup(self, parts: tuple[str, ...]) -> bool:
+        return len(parts) >= 2 and parts[0] == "imports" and parts[1] in {"import-backups", "module-install-backups"}
+
+    def _has_importable_members(self, archive: zipfile.ZipFile) -> bool:
+        for member in archive.infolist():
+            if member.is_dir() or member.filename == "manifest.json":
+                continue
+            parts = Path(member.filename).parts
+            if parts and parts[0] in self.allowed_roots and not self._is_unsafe(parts) and not self._is_import_backup(parts):
+                return True
+        return False
+
+    def _snapshot_before_import(self, backup_root: Path) -> Path:
+        snapshot_root = backup_root / "before-import"
+        for source_name in ["framework", "modules"]:
+            source = self.paths.root / source_name
+            target = snapshot_root / source_name
+            if source.is_dir():
+                shutil.copytree(source, target, dirs_exist_ok=True)
+            elif source.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        return snapshot_root
+
+    def _health_warnings(self, before: dict, after: dict) -> list[dict]:
+        warnings: list[dict] = []
+        if int(after.get("diary_count", 0)) < int(before.get("diary_count", 0)):
+            warnings.append(
+                {
+                    "level": "danger",
+                    "title": "Diary count decreased",
+                    "message": f"Diary files changed from {before.get('diary_count', 0)} to {after.get('diary_count', 0)}.",
+                }
+            )
+        before_latest = str(before.get("latest_diary_date") or "")
+        after_latest = str(after.get("latest_diary_date") or "")
+        if before_latest and after_latest and after_latest < before_latest:
+            warnings.append(
+                {
+                    "level": "danger",
+                    "title": "Latest diary date moved backward",
+                    "message": f"Latest diary date changed from {before_latest} to {after_latest}.",
+                }
+            )
+        return warnings
+
+    def _files_under(self, root: Path, pattern: str = "*") -> list[Path]:
+        if root.is_file():
+            return [root]
+        if not root.exists():
+            return []
+        return [path for path in root.rglob(pattern) if path.is_file()]
+
+    def _looks_like_date(self, value: str) -> bool:
+        if len(value) != 10:
+            return False
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
+
+    def _json_item_count(self, path: Path) -> int:
+        if not path.exists():
+            return 0
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return 0
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, dict):
+            if isinstance(data.get("items"), list):
+                return len(data["items"])
+            return len(data)
+        return 0

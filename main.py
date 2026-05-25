@@ -53,7 +53,8 @@ except Exception:
 from nest_diary_web.diary.diary_service import DiaryService
 from nest_diary_web.media.media_service import MediaService
 from nest_diary_web.memory.impression_service import ImpressionService
-from nest_diary_web.models import DiaryEntry, PersonImpression, ServiceUiSettings
+from nest_diary_web.memos.memo_service import MemoService
+from nest_diary_web.models import DiaryEntry, MemoEntry, PersonImpression, ServiceUiSettings
 from nest_diary_web.paths import NestPaths, safe_package_id
 from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettingsStore
 
@@ -200,6 +201,46 @@ class NestDiaryHttpClient:
                 response.raise_for_status()
                 return await response.json()
 
+    async def list_memos(self, query: str = "", include_archived: bool = False) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                f"{self.service_url}/api/v1/memos",
+                params={"q": query, "include_archived": include_archived},
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def read_memo(self, memo_id: str) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.get(
+                f"{self.service_url}/api/v1/memos/{quote(memo_id, safe='')}",
+                headers=self._headers(),
+            ) as response:
+                if response.status == 404:
+                    raise FileNotFoundError(f"Memo not found: {memo_id}")
+                response.raise_for_status()
+                return await response.json()
+
+    async def write_memo(self, payload: dict) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.post(
+                f"{self.service_url}/api/v1/memos/write",
+                json=payload,
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
+    async def delete_memo(self, memo_id: str) -> dict:
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.delete(
+                f"{self.service_url}/api/v1/memos/{quote(memo_id, safe='')}",
+                headers=self._headers(),
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+
 
 class EmbeddedNestClient:
     """Embedded 小窝核心。插件工具默认直接调用这里，不经过 HTTP。"""
@@ -210,6 +251,7 @@ class EmbeddedNestClient:
         self.diary_service.notebooks.audit_protocols()
         self.media_service = MediaService(self.paths)
         self.impression_service = ImpressionService(self.paths)
+        self.memo_service = MemoService(self.paths)
         self.service_settings = ServiceSettingsStore(self.paths)
         self.security_settings = SecuritySettingsStore(
             self.paths,
@@ -395,6 +437,63 @@ class EmbeddedNestClient:
             raise FileNotFoundError(f"Person impression not found: {name}")
         return {"status": "ok"}
 
+    async def list_memos(self, query: str = "", include_archived: bool = False) -> dict:
+        if not self.service_settings.load().enable_memos_module:
+            raise RuntimeError("Memos module is disabled")
+        return {
+            "items": [item.__dict__ for item in self.memo_service.list_memos(query=query, include_archived=include_archived)],
+            "summary": self.memo_service.summary(),
+        }
+
+    async def read_memo(self, memo_id: str) -> dict:
+        if not self.service_settings.load().enable_memos_module:
+            raise RuntimeError("Memos module is disabled")
+        memo = self.memo_service.get(memo_id)
+        if not memo:
+            raise FileNotFoundError(f"Memo not found: {memo_id}")
+        return memo.__dict__
+
+    async def write_memo(self, payload: dict) -> dict:
+        ui_settings = self.service_settings.load()
+        if not ui_settings.enable_memos_module:
+            raise RuntimeError("Memos module is disabled")
+        policy = ui_settings.memos_write_policy
+        is_admin = bool(payload.get("actor_is_admin", False))
+        autonomous = bool(payload.get("autonomous", False))
+        if policy in {"admin_only", "admin_allowed"} and not is_admin:
+            raise RuntimeError("Only the small-nest administrator can save memos")
+        if autonomous and policy not in {"bot_curated", "review"} and not is_admin:
+            raise RuntimeError("Bot memo writing is disabled")
+        if autonomous and ui_settings.memos_auto_write_limit_12h:
+            if self.memo_service.count_saved_since(12, recorder="bot") >= ui_settings.memos_auto_write_limit_12h:
+                raise RuntimeError("Memo 12-hour limit reached")
+        tags = list(payload.get("tags") or [])
+        if autonomous and policy == "review":
+            tags.append("待复核")
+        saved = self.memo_service.create(
+            title=payload.get("title", ""),
+            content=payload["content"],
+            tags=tags,
+            source_chat=payload.get("source_chat", ""),
+            origin_umo=payload.get("origin_umo", ""),
+            platform_id=payload.get("platform_id", ""),
+            message_type=payload.get("message_type", ""),
+            session_id=payload.get("session_id", ""),
+            recorder=payload.get("recorder") or ("bot" if autonomous else "human"),
+            source=payload.get("source") or ("bot_autonomous" if autonomous else "manual"),
+            sensitive=bool(payload.get("sensitive", False)),
+            pinned=bool(payload.get("pinned", False)),
+            archived=bool(payload.get("archived", False)),
+        )
+        return {"status": "ok", "item": saved.__dict__, "summary": self.memo_service.summary()}
+
+    async def delete_memo(self, memo_id: str) -> dict:
+        if not self.service_settings.load().enable_memos_module:
+            raise RuntimeError("Memos module is disabled")
+        if not self.memo_service.delete(memo_id):
+            raise FileNotFoundError(f"Memo not found: {memo_id}")
+        return {"status": "ok", "summary": self.memo_service.summary()}
+
 
 class NestDiaryTools:
     """Bot-native operations. These call embedded 小窝 first unless compatibility mode is selected."""
@@ -524,6 +623,53 @@ class NestDiaryTools:
 
     async def delete_impression(self, name: str) -> dict:
         return await self.client.delete_impression(name)
+
+    async def write_memo(
+        self,
+        content: str,
+        title: str = "",
+        tags: list[str] | None = None,
+        source_chat: str = "",
+        origin_umo: str = "",
+        platform_id: str = "",
+        message_type: str = "",
+        session_id: str = "",
+        recorder: str = "bot",
+        source: str = "bot_autonomous",
+        sensitive: bool = False,
+        pinned: bool = False,
+        archived: bool = False,
+        actor_is_admin: bool = False,
+        autonomous: bool = True,
+    ) -> dict:
+        return await self.client.write_memo(
+            {
+                "title": title,
+                "content": content,
+                "tags": tags or [],
+                "source_chat": source_chat,
+                "origin_umo": origin_umo,
+                "platform_id": platform_id,
+                "message_type": message_type,
+                "session_id": session_id,
+                "recorder": recorder,
+                "source": source,
+                "sensitive": sensitive,
+                "pinned": pinned,
+                "archived": archived,
+                "actor_is_admin": actor_is_admin,
+                "autonomous": autonomous,
+            }
+        )
+
+    async def search_memos(self, query: str = "", include_archived: bool = False) -> dict:
+        return await self.client.list_memos(query=query, include_archived=include_archived)
+
+    async def read_memo(self, memo_id: str) -> dict:
+        return await self.client.read_memo(memo_id)
+
+    async def delete_memo(self, memo_id: str) -> dict:
+        return await self.client.delete_memo(memo_id)
 
 
 if FunctionTool is not None:
@@ -817,6 +963,136 @@ if FunctionTool is not None:
             )
             item = result.get("item") or {}
             return _tool_text(f"已更新 {item.get('name', name)} 的人物印象。")
+
+
+    @pydantic_dataclass
+    class NestWriteMemoTool(FunctionTool[AstrAgentContext]):
+        """把琐碎但值得记住的信息写入小窝备忘录。"""
+
+        plugin: object = Field(default=None, repr=False, exclude=True)
+
+        async def run(
+            self,
+            ctx: ContextWrapper,
+            content: str = Field(description="备忘录正文。可以是账号提示、聊天片段、名言、待办或一段需要长期留存的话。"),
+            title: str = Field(default="", description="备忘录标题。留空时自动从正文生成。"),
+            tags: str = Field(default="", description="检索标签，多个用逗号分隔。"),
+            sensitive: bool = Field(default=False, description="是否含账号、密码、密钥、隐私内容等敏感信息。"),
+            pinned: bool = Field(default=False, description="是否钉在备忘录顶部。"),
+            source: str = Field(default="bot_autonomous", description="写入来源，例如 manual、bot_autonomous、quote、chat_excerpt。"),
+        ) -> ToolExecResult:
+            owner = _tool_owner(self)
+            if not owner._memos_module_enabled():
+                return _tool_text(owner._module_disabled_message("备忘录"))
+            denial = await owner._guard_permission(ctx, "memo_write", "写备忘录")
+            if denial:
+                return _tool_text(denial)
+            ui_settings = owner._ui_settings()
+            policy_denial = owner._memo_policy_denial(ctx, ui_settings)
+            if policy_denial:
+                return _tool_text(policy_denial)
+            notebook = await owner._notebook_context_for_event(ctx)
+            result = await owner.tools.write_memo(
+                content=content,
+                title=title,
+                tags=_split_words(tags),
+                source_chat=notebook.get("notebook_name") or notebook.get("session_id") or notebook.get("origin_umo", ""),
+                origin_umo=notebook.get("origin_umo", ""),
+                platform_id=notebook.get("platform_id", ""),
+                message_type=notebook.get("message_type", ""),
+                session_id=notebook.get("session_id", ""),
+                recorder="human" if owner._is_nest_admin(ctx) else "bot",
+                source=source or ("manual" if owner._is_nest_admin(ctx) else "bot_autonomous"),
+                sensitive=bool(sensitive),
+                pinned=bool(pinned),
+                actor_is_admin=owner._is_nest_admin(ctx),
+                autonomous=not owner._is_nest_admin(ctx),
+            )
+            item = result.get("item") or {}
+            return _tool_text(f"已写入备忘录：{item.get('title') or title or item.get('id', '')}（{item.get('id', '')}）。")
+
+
+    @pydantic_dataclass
+    class NestSearchMemosTool(FunctionTool[AstrAgentContext]):
+        """按关键词搜索小窝备忘录。"""
+
+        plugin: object = Field(default=None, repr=False, exclude=True)
+
+        async def run(
+            self,
+            ctx: ContextWrapper,
+            query: str = Field(default="", description="搜索关键词。留空时返回最近备忘录摘要。"),
+            include_archived: bool = Field(default=False, description="是否包含已归档备忘录。"),
+        ) -> ToolExecResult:
+            owner = _tool_owner(self)
+            if not owner._memos_module_enabled():
+                return _tool_text(owner._module_disabled_message("备忘录"))
+            denial = await owner._guard_permission(ctx, "memo_read", "搜索备忘录")
+            if denial:
+                return _tool_text(denial)
+            result = await owner.tools.search_memos(query=query, include_archived=include_archived)
+            items = result.get("items") or []
+            if not items:
+                return _tool_text(f"没有找到和“{query}”相关的备忘录。")
+            lines = [f"找到 {len(items)} 条备忘录："]
+            for item in items[:10]:
+                tags_text = "、".join(item.get("tags") or [])
+                content = " ".join(str(item.get("content") or "").split())
+                if bool(item.get("sensitive")):
+                    content = "这条备忘录标记为敏感，请按需读取。"
+                meta = "；".join(part for part in [item.get("created_at", "")[:10], item.get("source_chat", ""), tags_text] if part)
+                lines.append(f"- {item.get('id')}｜{item.get('title') or '无标题'}：{content[:120]}" + (f"（{meta}）" if meta else ""))
+            return _tool_text("\n".join(lines))
+
+
+    @pydantic_dataclass
+    class NestReadMemoTool(FunctionTool[AstrAgentContext]):
+        """读取指定小窝备忘录。"""
+
+        plugin: object = Field(default=None, repr=False, exclude=True)
+
+        async def run(
+            self,
+            ctx: ContextWrapper,
+            memo_id: str = Field(description="备忘录 ID。"),
+        ) -> ToolExecResult:
+            owner = _tool_owner(self)
+            if not owner._memos_module_enabled():
+                return _tool_text(owner._module_disabled_message("备忘录"))
+            denial = await owner._guard_permission(ctx, "memo_read", "查看备忘录")
+            if denial:
+                return _tool_text(denial)
+            item = await owner.tools.read_memo(memo_id)
+            tags_text = "、".join(item.get("tags") or [])
+            parts = [
+                f"{item.get('title') or memo_id}（{item.get('id', memo_id)}）",
+                item.get("content", ""),
+                f"标签：{tags_text}" if tags_text else "",
+                f"来源：{item.get('source_chat') or item.get('origin_umo')}" if item.get("source_chat") or item.get("origin_umo") else "",
+                f"记录者：{item.get('recorder', '')}；时间：{item.get('created_at', '')}",
+            ]
+            return _tool_text("\n".join(part for part in parts if part))
+
+
+    @pydantic_dataclass
+    class NestDeleteMemoTool(FunctionTool[AstrAgentContext]):
+        """删除指定小窝备忘录。"""
+
+        plugin: object = Field(default=None, repr=False, exclude=True)
+
+        async def run(
+            self,
+            ctx: ContextWrapper,
+            memo_id: str = Field(description="备忘录 ID。"),
+        ) -> ToolExecResult:
+            owner = _tool_owner(self)
+            if not owner._memos_module_enabled():
+                return _tool_text(owner._module_disabled_message("备忘录"))
+            denial = await owner._guard_permission(ctx, "memo_delete", "删除备忘录")
+            if denial:
+                return _tool_text(denial)
+            await owner.tools.delete_memo(memo_id)
+            return _tool_text(f"已删除备忘录：{memo_id}。")
 
 
 class _ScheduledNestEvent:
@@ -1164,6 +1440,12 @@ class NestDiaryConnectorPlugin(Star):
         except Exception:
             return True
 
+    def _memos_module_enabled(self) -> bool:
+        try:
+            return bool(self._ui_settings().enable_memos_module)
+        except Exception:
+            return True
+
     def _should_inject_nest_policy(self, text: str) -> bool:
         text = (text or "").lower()
         triggers = (
@@ -1180,10 +1462,20 @@ class NestDiaryConnectorPlugin(Star):
             "相册",
             "印象",
             "人物",
+            "备忘录",
+            "备忘",
+            "纸条",
+            "账号",
+            "密码",
+            "密钥",
+            "名言",
             "昨天",
             "今天",
             "以前",
             "记住",
+            "note",
+            "memo",
+            "quote",
             "remember",
             "diary",
             "memory",
@@ -1229,6 +1521,23 @@ class NestDiaryConnectorPlugin(Star):
                 parts.extend(["<人物印象规范>", impression_prompt, "</人物印象规范>"])
         else:
             parts.append("人物印象自动更新当前未启用；不得因为写日记而顺手建档或更新人物印象。")
+        if bool(getattr(ui_settings, "enable_memos_module", True)):
+            memo_policy = str(getattr(ui_settings, "memos_write_policy", "admin_only") or "admin_only")
+            memo_limit = int(getattr(ui_settings, "memos_auto_write_limit_12h", 12) or 0)
+            memo_policy_label = {
+                "admin_only": "仅管理员可写入",
+                "admin_allowed": "管理员手动写入",
+                "bot_curated": "允许 bot 自主挑选",
+                "review": "允许 bot 写入但标记待复核",
+            }.get(memo_policy, memo_policy)
+            parts.append(
+                "备忘录用于保存更碎片但值得长期检索的信息，例如账号提示、聊天片段、名言、待办和用户明确要求记住的话。"
+                "不要把普通寒暄、短暂情绪或未经确认的隐私猜测写入备忘录。"
+                f"当前备忘录写入策略：{memo_policy_label}；12 小时 bot 写入上限：{memo_limit}。"
+                "涉及账号、密码、密钥、私人联系方式或敏感隐私时，调用 write_memo 必须把 sensitive 设为 true。"
+            )
+        else:
+            parts.append("备忘录模块当前关闭，不得调用 write_memo、search_memos、read_memo 或 delete_memo。")
         parts.append("</小窝工具隐藏规范>")
         return "\n".join(parts)
 
@@ -1382,6 +1691,28 @@ class NestDiaryConnectorPlugin(Star):
             limit = int(getattr(ui_settings, "media_auto_save_limit_12h", 0) or self.config.get("media_auto_save_limit_12h", 10) or 10)
             if limit > 0 and self._media_saved_count_last_12h() >= limit:
                 return f"过去 12 小时媒体保存数量已达到上限 {limit}，本次不再保存。"
+        return ""
+
+    def _memo_saved_count_last_12h(self) -> int:
+        if hasattr(self.client, "memo_service"):
+            return self.client.memo_service.count_saved_since(12, recorder="bot")
+        return 0
+
+    def _memo_policy_denial(self, event, ui_settings) -> str:
+        if not bool(getattr(ui_settings, "enable_memos_module", True)):
+            return self._module_disabled_message("备忘录")
+        policy = str(getattr(ui_settings, "memos_write_policy", "admin_only") or "admin_only")
+        policy = {"manual": "admin_allowed", "bot_pick": "bot_curated"}.get(policy, policy)
+        is_admin = self._is_nest_admin(event)
+        has_admin_config = bool(self._configured_admin_ids())
+        if policy in {"admin_only", "admin_allowed"} and has_admin_config and not is_admin:
+            return "当前备忘录写入策略只允许小窝管理员保存。"
+        if not is_admin and policy not in {"bot_curated", "review"}:
+            return "当前备忘录策略没有允许 bot 自主写入。"
+        if policy in {"bot_curated", "review"} and not is_admin:
+            limit = int(getattr(ui_settings, "memos_auto_write_limit_12h", 12) or 0)
+            if limit > 0 and self._memo_saved_count_last_12h() >= limit:
+                return f"过去 12 小时 bot 备忘录写入数量已达到上限 {limit}，本次不再保存。"
         return ""
 
     def _module_disabled_message(self, module_name: str) -> str:
@@ -2195,6 +2526,133 @@ class NestDiaryConnectorPlugin(Star):
         except Exception as exc:
             return f"推送日记失败：{_brief_error(exc)}"
 
+    @filter.llm_tool(name="write_memo")
+    async def write_memo_tool(
+        self,
+        event: AstrMessageEvent,
+        content: str,
+        title: str = "",
+        tags: str = "",
+        sensitive: bool = False,
+        pinned: bool = False,
+        source: str = "",
+    ):
+        """写入一条小窝备忘录，适合保存账号提示、聊天片段、名言、待办或明确要求记住的话。
+
+        Args:
+            content(string): 备忘录正文。
+            title(string): 可选标题，留空会自动生成。
+            tags(string): 标签，多个用逗号分隔。
+            sensitive(boolean): 是否包含账号、密码、密钥、隐私等敏感内容。
+            pinned(boolean): 是否钉在备忘录顶部。
+            source(string): 来源说明，例如 manual、bot_autonomous、quote、chat_excerpt。
+        """
+        if not self._memos_module_enabled():
+            return self._module_disabled_message("备忘录")
+        try:
+            denial = await self._guard_permission(event, "memo_write", "写备忘录")
+            if denial:
+                return denial
+            ui_settings = self._ui_settings()
+            policy_denial = self._memo_policy_denial(event, ui_settings)
+            if policy_denial:
+                return policy_denial
+            notebook = await self._notebook_context_for_event(event)
+            result = await self.tools.write_memo(
+                content=content,
+                title=title,
+                tags=_split_words(tags),
+                source_chat=notebook.get("notebook_name") or notebook.get("session_id") or notebook.get("origin_umo", ""),
+                origin_umo=notebook.get("origin_umo", ""),
+                platform_id=notebook.get("platform_id", ""),
+                message_type=notebook.get("message_type", ""),
+                session_id=notebook.get("session_id", ""),
+                recorder="human" if self._is_nest_admin(event) else "bot",
+                source=source or ("manual" if self._is_nest_admin(event) else "bot_autonomous"),
+                sensitive=bool(sensitive),
+                pinned=bool(pinned),
+                actor_is_admin=self._is_nest_admin(event),
+                autonomous=not self._is_nest_admin(event),
+            )
+            item = result.get("item") or {}
+            return f"已写入备忘录：{item.get('title') or title or item.get('id', '')}（{item.get('id', '')}）。"
+        except Exception as exc:
+            return f"写入备忘录失败：{_brief_error(exc)}"
+
+    @filter.llm_tool(name="search_memos")
+    async def search_memos_tool(self, event: AstrMessageEvent, query: str = "", include_archived: bool = False):
+        """搜索小窝备忘录。
+
+        Args:
+            query(string): 搜索关键词。留空返回最近备忘录摘要。
+            include_archived(boolean): 是否包含已归档备忘录。
+        """
+        if not self._memos_module_enabled():
+            return self._module_disabled_message("备忘录")
+        try:
+            denial = await self._guard_permission(event, "memo_read", "搜索备忘录")
+            if denial:
+                return denial
+            result = await self.tools.search_memos(query=query, include_archived=include_archived)
+            items = result.get("items") or []
+            if not items:
+                return f"没有找到和“{query}”相关的备忘录。"
+            lines = [f"找到 {len(items)} 条备忘录："]
+            for item in items[:10]:
+                tags_text = "、".join(item.get("tags") or [])
+                content = " ".join(str(item.get("content") or "").split())
+                if bool(item.get("sensitive")):
+                    content = "这条备忘录标记为敏感，请按需读取。"
+                meta = "；".join(part for part in [item.get("created_at", "")[:10], item.get("source_chat", ""), tags_text] if part)
+                lines.append(f"- {item.get('id')}｜{item.get('title') or '无标题'}：{content[:120]}" + (f"（{meta}）" if meta else ""))
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"搜索备忘录失败：{_brief_error(exc)}"
+
+    @filter.llm_tool(name="read_memo")
+    async def read_memo_tool(self, event: AstrMessageEvent, memo_id: str):
+        """读取指定小窝备忘录。
+
+        Args:
+            memo_id(string): 备忘录 ID。
+        """
+        if not self._memos_module_enabled():
+            return self._module_disabled_message("备忘录")
+        try:
+            denial = await self._guard_permission(event, "memo_read", "查看备忘录")
+            if denial:
+                return denial
+            item = await self.tools.read_memo(memo_id)
+            tags_text = "、".join(item.get("tags") or [])
+            parts = [
+                f"{item.get('title') or memo_id}（{item.get('id', memo_id)}）",
+                item.get("content", ""),
+                f"标签：{tags_text}" if tags_text else "",
+                f"来源：{item.get('source_chat') or item.get('origin_umo')}" if item.get("source_chat") or item.get("origin_umo") else "",
+                f"记录者：{item.get('recorder', '')}；时间：{item.get('created_at', '')}",
+            ]
+            return "\n".join(part for part in parts if part)
+        except Exception as exc:
+            return f"读取备忘录失败：{_brief_error(exc)}"
+
+    @filter.llm_tool(name="delete_memo")
+    async def delete_memo_tool(self, event: AstrMessageEvent, memo_id: str):
+        """删除指定小窝备忘录。只有确认备忘录明显错误、重复或不再需要时才调用。
+
+        Args:
+            memo_id(string): 备忘录 ID。
+        """
+        if not self._memos_module_enabled():
+            return self._module_disabled_message("备忘录")
+        try:
+            denial = await self._guard_permission(event, "memo_delete", "删除备忘录")
+            if denial:
+                return denial
+            await self.tools.delete_memo(memo_id)
+            return f"已删除备忘录：{memo_id}。"
+        except Exception as exc:
+            return f"删除备忘录失败：{_brief_error(exc)}"
+
     async def _scheduled_prompt_loop(self):
         while True:
             try:
@@ -2284,6 +2742,15 @@ class NestDiaryConnectorPlugin(Star):
         ]
         try:
             ui_settings = self.client.service_settings.load() if hasattr(self.client, "service_settings") else ServiceUiSettings()
+            if bool(getattr(ui_settings, "enable_memos_module", True)):
+                tools.extend(
+                    [
+                        NestSearchMemosTool(plugin=self),
+                        NestReadMemoTool(plugin=self),
+                    ]
+                )
+                if getattr(ui_settings, "memos_write_policy", "admin_only") in {"bot_curated", "review"}:
+                    tools.append(NestWriteMemoTool(plugin=self))
             if (
                 bool(getattr(ui_settings, "enable_impressions_module", True))
                 and bool(getattr(ui_settings, "auto_impression_from_diary", False))
