@@ -1485,8 +1485,8 @@ textarea {
   min-height: auto;
   display: grid;
   place-items: center;
-  padding: 14px;
-  border: 7px solid #7b4b2a;
+  padding: 10px 14px;
+  border: 6px solid #7b4b2a;
   border-radius: 8px;
   background:
     radial-gradient(circle at 18px 18px, rgba(88, 52, 25, 0.14) 0 1px, transparent 1.4px),
@@ -1497,10 +1497,10 @@ textarea {
 
 .memo-detail-paper {
   position: relative;
-  width: min(600px, 100%);
+  width: min(860px, 100%);
   display: grid;
-  gap: 10px;
-  padding: 24px 22px 18px;
+  gap: 8px;
+  padding: 20px 22px 16px;
   color: #2b2a25;
   border: 1px solid rgba(93, 72, 28, 0.22);
   border-radius: 5px 5px 16px 6px;
@@ -1529,7 +1529,7 @@ textarea {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
 .memo-detail-head h2 {
@@ -1540,14 +1540,14 @@ textarea {
 
 .memo-detail-note {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 2px;
+  padding: 7px 10px;
   border: 1px dashed rgba(43, 42, 37, 0.24);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.28);
   color: rgba(43, 42, 37, 0.72);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
 .memo-detail-note strong,
@@ -1557,16 +1557,32 @@ textarea {
 
 .memo-form {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+}
+
+.memo-form .form-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.memo-form label {
+  gap: 4px;
+}
+
+.memo-form input,
+.memo-form select {
+  min-height: 36px;
+  padding: 8px 10px;
 }
 
 .memo-form textarea[name="content"] {
-  min-height: 96px;
+  min-height: 78px;
+  padding: 8px 10px;
 }
 
 .memo-meta-line {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -2436,21 +2452,13 @@ textarea {
 
 .appearance-page {
   position: relative;
-  width: 100%;
-  min-width: 1320px;
-  grid-template-columns: minmax(0, 920px);
-  align-items: start;
-}
-
-.appearance-page .settings-page-head,
-.appearance-page .settings-collapse {
-  grid-column: 1;
+  overflow: visible;
 }
 
 .appearance-easter-egg {
   position: absolute;
-  left: 1080px;
-  top: 48%;
+  left: max(1900px, calc(100% + 1100px));
+  top: 50%;
   transform: translateY(-50%);
   display: grid;
   gap: 10px;
@@ -2464,8 +2472,8 @@ textarea {
 }
 
 .appearance-easter-egg img {
-  width: 132px;
-  height: 132px;
+  width: 128px;
+  height: 128px;
   object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 12px 24px rgba(47, 51, 64, 0.12);
