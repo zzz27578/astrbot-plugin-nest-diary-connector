@@ -1159,6 +1159,12 @@ textarea {
     0 18px 46px rgba(68, 42, 24, 0.24);
 }
 
+.memo-board.editor-open .memo-note-grid {
+  opacity: 0.26;
+  filter: saturate(0.82);
+  pointer-events: none;
+}
+
 .memo-board::before {
   content: "";
   position: absolute;
@@ -1482,17 +1488,16 @@ textarea {
 }
 
 .memo-editor-page {
+  position: absolute;
+  inset: 76px 24px 24px;
+  z-index: 4;
   min-height: auto;
   display: grid;
   place-items: center;
-  padding: 10px 14px;
-  border: 6px solid #7b4b2a;
-  border-radius: 8px;
-  background:
-    radial-gradient(circle at 18px 18px, rgba(88, 52, 25, 0.14) 0 1px, transparent 1.4px),
-    linear-gradient(135deg, #b97a45, #c99259 44%, #a96a3b);
-  background-size: 24px 24px, auto;
-  box-shadow: inset 0 0 0 4px rgba(255, 230, 184, 0.14), 0 18px 46px rgba(68, 42, 24, 0.24);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .memo-detail-paper {
@@ -2457,7 +2462,7 @@ textarea {
 
 .appearance-easter-egg {
   position: absolute;
-  left: max(1900px, calc(100% + 1100px));
+  left: max(calc(1900px - 40vw), calc(100% + 1100px - 40vw));
   top: 50%;
   transform: translateY(-50%);
   display: grid;

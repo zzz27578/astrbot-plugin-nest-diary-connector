@@ -1520,7 +1520,7 @@ async function renderMemos() {
           <button class="button primary" data-memo-new type="button">新纸条</button>
         </div>
       </header>
-      ${showEditor ? memoEditorPage(selected) : memoBoardPage()}
+      ${memoBoardPage(showEditor, selected)}
     </section>
   `;
 }
@@ -1549,9 +1549,9 @@ function memoNoteCard(item) {
   `;
 }
 
-function memoBoardPage() {
+function memoBoardPage(showEditor = false, selected = null) {
   return `
-    <section class="memo-board" aria-label="备忘录图钉板">
+    <section class="memo-board ${showEditor ? "editor-open" : ""}" aria-label="备忘录图钉板">
       <div class="memo-board-rail" aria-hidden="true">
         ${memoStat("全部", state.memoSummary.count || 0)}
         ${memoStat("置顶", state.memoSummary.pinned || 0)}
@@ -1561,6 +1561,7 @@ function memoBoardPage() {
       <div class="memo-note-grid">
         ${state.memos.length ? state.memos.map(memoNoteCard).join("") : `<div class="memo-empty">还没有纸条，点右上角新纸条钉第一张。</div>`}
       </div>
+      ${showEditor ? memoEditorPage(selected) : ""}
     </section>
   `;
 }
