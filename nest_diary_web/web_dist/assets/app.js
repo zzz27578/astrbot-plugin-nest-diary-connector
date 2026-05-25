@@ -74,7 +74,9 @@ const state = {
   memos: [],
   memoSummary: { count: 0, pinned: 0, archived: 0, sensitive: 0 },
   selectedMemoId: initialMemoFromLocation(),
-  memoSearch: "",
+  memoEditorOpen: false,
+  memoDrag: null,
+  memoSuppressClickUntil: 0,
   memoIncludeArchived: false,
   memoRevealSensitive: false,
   settings: null,
@@ -172,11 +174,6 @@ function initialMemoFromLocation() {
   return new URLSearchParams(window.location.search).get("memo") || "";
 }
 
-function initialMemoSearchFromLocation() {
-  if (window.location.pathname !== "/memos") return "";
-  return new URLSearchParams(window.location.search).get("q") || "";
-}
-
 function initialSettingsSectionFromLocation() {
   if (window.location.pathname !== "/settings") return "appearance";
   const section = new URLSearchParams(window.location.search).get("section") || "appearance";
@@ -194,7 +191,7 @@ function applyRouteStateFromLocation() {
   state.editingDate = initialEditDateFromLocation();
   state.selectedImpressionName = initialImpressionFromLocation();
   state.selectedMemoId = initialMemoFromLocation();
-  state.memoSearch = initialMemoSearchFromLocation();
+  state.memoEditorOpen = Boolean(state.selectedMemoId);
   state.memoIncludeArchived = new URLSearchParams(window.location.search).get("archived") === "1";
   state.memoRevealSensitive = new URLSearchParams(window.location.search).get("reveal") === "1";
   state.diary.composerOpen = initialComposerFromLocation();
@@ -217,7 +214,6 @@ function routeForState(view = state.view) {
   if (view === "dashboard") return "/";
   if (view === "media") return "/media";
   if (view === "memos") {
-    if (state.memoSearch) params.set("q", state.memoSearch);
     if (state.selectedMemoId) params.set("memo", state.selectedMemoId);
     if (state.memoIncludeArchived) params.set("archived", "1");
     if (state.memoRevealSensitive) params.set("reveal", "1");
@@ -533,7 +529,6 @@ async function setView(view, options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
   if (Object.prototype.hasOwnProperty.call(options, "compose")) state.diary.composerOpen = Boolean(options.compose);
   if (Object.prototype.hasOwnProperty.call(options, "query")) state.search.query = options.query || "";
-  if (Object.prototype.hasOwnProperty.call(options, "memoSearch")) state.memoSearch = options.memoSearch || "";
   if (Object.prototype.hasOwnProperty.call(options, "memoId")) state.selectedMemoId = options.memoId || "";
   if (view !== "diary") {
     state.diary.composerOpen = false;
@@ -546,7 +541,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-memo-new], [data-memo-select], [data-memo-pin], [data-memo-archive], [data-memo-delete], [data-memo-reveal], [data-memo-archived-toggle], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-memo-new], [data-memo-select], [data-memo-detail-back], [data-memo-pin], [data-memo-archive], [data-memo-delete], [data-memo-reveal], [data-memo-archived-toggle], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-advance], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
@@ -556,7 +551,6 @@ document.addEventListener(
         target.dataset.mediaClose !== undefined ||
         target.dataset.mediaFolderModalClose !== undefined ||
         target.dataset.moduleInstallClose !== undefined ||
-        target.dataset.onboardingClose !== undefined ||
         target.dataset.t2iClose !== undefined
       )
     ) {
@@ -704,7 +698,12 @@ document.addEventListener(
       return;
     }
     if (target.dataset.memoSelect) {
+      if (Date.now() < state.memoSuppressClickUntil) return;
       selectMemo(target.dataset.memoSelect);
+      return;
+    }
+    if (target.dataset.memoDetailBack !== undefined) {
+      closeMemoDetail();
       return;
     }
     if (target.dataset.memoPin) {
@@ -769,8 +768,7 @@ document.addEventListener(
       return;
     }
     if (target.dataset.onboardingNext !== undefined) {
-      state.onboardingStep = Math.min(onboardingSteps().length - 1, state.onboardingStep + 1);
-      void updateOnboardingDialog();
+      void advanceOnboarding();
       return;
     }
     if (target.dataset.onboardingPrev !== undefined) {
@@ -780,6 +778,10 @@ document.addEventListener(
     }
     if (target.dataset.onboardingFinish !== undefined || target.dataset.onboardingClose !== undefined) {
       finishOnboarding();
+      return;
+    }
+    if (target.dataset.onboardingAdvance !== undefined) {
+      void advanceOnboarding();
       return;
     }
     if (target.dataset.notebookAdd !== undefined) {
@@ -818,6 +820,11 @@ document.addEventListener(
   true
 );
 
+document.addEventListener("pointerdown", startMemoDrag, true);
+document.addEventListener("pointermove", moveMemoDrag, true);
+document.addEventListener("pointerup", endMemoDrag, true);
+document.addEventListener("pointercancel", endMemoDrag, true);
+
 document.addEventListener("change", (event) => {
   const moduleTarget = event.target.closest("[data-module-toggle]");
   if (moduleTarget) {
@@ -831,12 +838,11 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
-  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"], [data-action="install-module-from-link"], [data-action="memo-search"], [data-action="save-memo"]');
+  const form = event.target.closest('[data-action="create-media-folder"], [data-action="save-media-note"], [data-action="install-module-from-link"], [data-action="save-memo"]');
   if (!form) return;
   if (form.dataset.action === "create-media-folder") createMediaFolder(event);
   if (form.dataset.action === "save-media-note") saveMediaNote(event);
   if (form.dataset.action === "install-module-from-link") installModuleFromLink(event);
-  if (form.dataset.action === "memo-search") searchMemos(event);
   if (form.dataset.action === "save-memo") saveMemo(event);
 });
 
@@ -1474,7 +1480,7 @@ async function deleteImpression(event) {
 
 async function loadMemos() {
   const params = new URLSearchParams({
-    q: state.memoSearch || "",
+    q: "",
     include_archived: state.memoIncludeArchived ? "true" : "false",
     reveal_sensitive: state.memoRevealSensitive ? "true" : "false",
   });
@@ -1489,65 +1495,22 @@ async function loadMemos() {
 async function renderMemos() {
   await loadMemos();
   const selected = state.memos.find((item) => item.id === state.selectedMemoId) || null;
-  const editing = selected || {};
-  const created = editing.created_at ? formatDateTime(editing.created_at) : "";
-  const updated = editing.updated_at && editing.updated_at !== editing.created_at ? formatDateTime(editing.updated_at) : "";
+  const showEditor = state.memoEditorOpen || Boolean(selected);
   panel("memos").innerHTML = `
-    <section class="memos-page">
+    <section class="memos-page ${showEditor ? "detail-mode" : "board-mode"}">
       <header class="topbar memos-topbar">
         <div class="page-title">
           <p>纸条板</p>
-          <h1>备忘录</h1>
+          <h1>${showEditor ? escapeHtml(selected?.title || "新建纸条") : "备忘录"}</h1>
         </div>
         <div class="actions">
+          ${showEditor ? `<button class="button ghost" data-memo-detail-back type="button">返回板面</button>` : ""}
           <button class="button ghost" data-memo-reveal type="button">${state.memoRevealSensitive ? "隐藏敏感" : "显示敏感"}</button>
           <button class="button ghost" data-memo-archived-toggle type="button">${state.memoIncludeArchived ? "隐藏归档" : "显示归档"}</button>
           <button class="button primary" data-memo-new type="button">新纸条</button>
         </div>
       </header>
-      <section class="memo-stats">
-        ${memoStat("全部", state.memoSummary.count || 0)}
-        ${memoStat("置顶", state.memoSummary.pinned || 0)}
-        ${memoStat("归档", state.memoSummary.archived || 0)}
-        ${memoStat("敏感", state.memoSummary.sensitive || 0)}
-      </section>
-      <section class="memos-layout">
-        <aside class="memo-board" aria-label="备忘录纸条列表">
-          <form class="memo-searchbar" data-action="memo-search">
-            <input name="q" value="${escapeHtml(state.memoSearch || "")}" placeholder="搜索账号、名言、聊天片段或标签">
-            <button class="button" type="submit">搜索</button>
-          </form>
-          <div class="memo-note-grid">
-            ${state.memos.length ? state.memos.map(memoNoteCard).join("") : `<div class="memo-empty">还没有纸条。</div>`}
-          </div>
-        </aside>
-        <article class="memo-editor card">
-          <div class="card-head compact-head">
-            <div>
-              <p class="eyebrow">${selected ? "编辑纸条" : "新纸条"}</p>
-              <h2>${escapeHtml(selected?.title || "把要记的事钉住")}</h2>
-            </div>
-            ${selected ? `<button class="button danger" data-memo-delete="${escapeHtml(selected.id)}" type="button">删除</button>` : ""}
-          </div>
-          <form class="card-body form memo-form" data-action="save-memo">
-            <input name="id" value="${escapeHtml(selected?.id || "")}" type="hidden">
-            <div class="form-grid compact">
-              <label>标题<input name="title" value="${escapeHtml(editing.title || "")}" placeholder="留空会自动取正文前几个字"></label>
-              <label>来源聊天<input name="source_chat" value="${escapeHtml(editing.source_chat || "")}" placeholder="例如：主群 / 私聊 / 某个频道"></label>
-              <label>标签<input name="tags" value="${escapeHtml((editing.tags || []).join(","))}" placeholder="账号, 名言, 待办"></label>
-              <label>记录者<select name="recorder"><option value="human" ${(editing.recorder || "human") === "human" ? "selected" : ""}>人</option><option value="bot" ${editing.recorder === "bot" ? "selected" : ""}>bot</option></select></label>
-            </div>
-            <label>内容<textarea name="content" required placeholder="账号提示、聊天片段、名人名言、待办或你想让 bot 记住的话。">${escapeHtml(editing.content || "")}</textarea></label>
-            <div class="memo-meta-line">
-              ${check("sensitive", "敏感内容", Boolean(editing.sensitive))}
-              ${check("pinned", "置顶", Boolean(editing.pinned))}
-              ${check("archived", "归档", Boolean(editing.archived))}
-            </div>
-            <p class="muted">${created ? `创建：${escapeHtml(created)}` : "保存后会记录时间戳。"}${updated ? ` · 更新：${escapeHtml(updated)}` : ""}</p>
-            <div class="actions"><button class="primary">保存纸条</button></div>
-          </form>
-        </article>
-      </section>
+      ${showEditor ? memoEditorPage(selected) : memoBoardPage()}
     </section>
   `;
 }
@@ -1559,13 +1522,13 @@ function memoStat(label, value) {
 function memoNoteCard(item) {
   const content = item.content_hidden ? "敏感内容已隐藏" : (item.content || "");
   const tags = (item.tags || []).slice(0, 5);
+  const preview = memoPreviewText(content);
   return `
-    <article class="memo-note ${item.pinned ? "pinned" : ""} ${item.archived ? "archived" : ""} ${item.sensitive ? "sensitive" : ""}" data-memo-select="${escapeHtml(item.id)}">
+    <article class="memo-note ${item.pinned ? "pinned" : ""} ${item.archived ? "archived" : ""} ${item.sensitive ? "sensitive" : ""}" data-memo-id="${escapeHtml(item.id)}" data-memo-select="${escapeHtml(item.id)}" style="${memoPlacementStyle(item.id)}">
+      <span class="memo-pin" aria-hidden="true"></span>
       <button class="memo-note-open ${state.selectedMemoId === item.id ? "active" : ""}" data-memo-select="${escapeHtml(item.id)}" type="button">
-        <span class="memo-pin" aria-hidden="true"></span>
         <strong>${escapeHtml(item.title || "无标题纸条")}</strong>
-        <em>${escapeHtml(content).slice(0, 120)}</em>
-        <small>${escapeHtml(item.source_chat || item.recorder || "小窝")} · ${escapeHtml((item.updated_at || item.created_at || "").slice(0, 10))}</small>
+        <em>${escapeHtml(preview)}</em>
       </button>
       <div class="memo-note-tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
       <div class="memo-note-actions">
@@ -1576,18 +1539,164 @@ function memoNoteCard(item) {
   `;
 }
 
-async function searchMemos(event) {
+function memoBoardPage() {
+  return `
+    <section class="memo-board" aria-label="备忘录图钉板">
+      <div class="memo-board-rail" aria-hidden="true">
+        ${memoStat("全部", state.memoSummary.count || 0)}
+        ${memoStat("置顶", state.memoSummary.pinned || 0)}
+        ${memoStat("归档", state.memoSummary.archived || 0)}
+        ${memoStat("敏感", state.memoSummary.sensitive || 0)}
+      </div>
+      <div class="memo-note-grid">
+        ${state.memos.length ? state.memos.map(memoNoteCard).join("") : `<div class="memo-empty">还没有纸条，点右上角新纸条钉第一张。</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function memoEditorPage(selected) {
+  const editing = selected || {};
+  const created = editing.created_at ? formatDateTime(editing.created_at) : "";
+  const updated = editing.updated_at && editing.updated_at !== editing.created_at ? formatDateTime(editing.updated_at) : "";
+  return `
+    <article class="memo-editor-page">
+      <section class="memo-detail-paper">
+        <div class="memo-detail-pin" aria-hidden="true"></div>
+        <div class="memo-detail-head">
+          <div>
+            <p class="eyebrow">${selected ? "纸条详情" : "新建纸条"}</p>
+            <h2>${escapeHtml(selected?.title || "把要记的事钉住")}</h2>
+          </div>
+          ${selected ? `<button class="button danger" data-memo-delete="${escapeHtml(selected.id)}" type="button">删除</button>` : ""}
+        </div>
+        <form class="form memo-form" data-action="save-memo">
+          <input name="id" value="${escapeHtml(selected?.id || "")}" type="hidden">
+          <div class="form-grid compact">
+            <label>标题<input name="title" value="${escapeHtml(editing.title || "")}" placeholder="留空会自动取正文前几个字"></label>
+            <label>来源聊天<input name="source_chat" value="${escapeHtml(editing.source_chat || "")}" placeholder="例如：主群 / 私聊 / 某个频道"></label>
+            <label>标签<input name="tags" value="${escapeHtml((editing.tags || []).join(","))}" placeholder="账号, 名言, 待办"></label>
+            <label>记录者<select name="recorder"><option value="human" ${(editing.recorder || "human") === "human" ? "selected" : ""}>人</option><option value="bot" ${editing.recorder === "bot" ? "selected" : ""}>bot</option></select></label>
+          </div>
+          <label>内容<textarea name="content" required placeholder="账号提示、聊天片段、名人名言、待办或你想让 bot 记住的话。">${escapeHtml(editing.content || "")}</textarea></label>
+          <div class="memo-detail-note">
+            <strong>备注</strong>
+            <p>${escapeHtml(editing.source_chat || editing.recorder || "保存后会在这里显示来源、标签和时间。")}</p>
+            <p>${created ? `创建：${escapeHtml(created)}` : "保存后会记录时间戳。"}${updated ? ` · 更新：${escapeHtml(updated)}` : ""}</p>
+          </div>
+          <div class="memo-meta-line">
+            ${check("sensitive", "敏感内容", Boolean(editing.sensitive))}
+            ${check("pinned", "置顶", Boolean(editing.pinned))}
+            ${check("archived", "归档", Boolean(editing.archived))}
+          </div>
+          <div class="actions"><button class="primary">保存纸条</button></div>
+        </form>
+      </section>
+    </article>
+  `;
+}
+
+function memoPreviewText(content) {
+  const normalized = String(content || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const parts = normalized.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [normalized];
+  return parts.slice(0, 2).join("").trim();
+}
+
+function memoPlacementStyle(id) {
+  const placement = memoPlacement(id);
+  return `--memo-x:${placement.x}px;--memo-y:${placement.y}px;--memo-rot:${placement.rot}deg;`;
+}
+
+function memoPlacement(id) {
+  const stored = memoStoredPlacements()[id];
+  if (stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)) {
+    return { x: stored.x, y: stored.y, rot: Number.isFinite(stored.rot) ? stored.rot : memoDefaultRotation(id) };
+  }
+  return { x: 0, y: 0, rot: memoDefaultRotation(id) };
+}
+
+function memoDefaultRotation(id) {
+  const text = String(id || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) % 997;
+  return ((hash % 9) - 4) * 0.55;
+}
+
+function memoStoredPlacements() {
+  try {
+    return JSON.parse(localStorage.getItem("nestMemoBoardPlacements") || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveMemoPlacement(id, placement) {
+  if (!id) return;
+  const placements = memoStoredPlacements();
+  placements[id] = {
+    x: Math.round(placement.x),
+    y: Math.round(placement.y),
+    rot: Math.round(placement.rot * 100) / 100,
+  };
+  localStorage.setItem("nestMemoBoardPlacements", JSON.stringify(placements));
+}
+
+function startMemoDrag(event) {
+  if (state.view !== "memos" || state.memoEditorOpen || state.selectedMemoId) return;
+  if (event.button !== undefined && event.button !== 0) return;
+  const note = event.target.closest(".memo-note[data-memo-id]");
+  if (!note || event.target.closest(".memo-note-actions, .icon-button")) return;
+  const id = note.dataset.memoId || "";
+  const placement = memoPlacement(id);
+  state.memoDrag = {
+    id,
+    note,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: placement.x,
+    originY: placement.y,
+    rot: placement.rot,
+    moved: false,
+  };
+  note.classList.add("dragging");
+  note.setPointerCapture?.(event.pointerId);
+}
+
+function moveMemoDrag(event) {
+  const drag = state.memoDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const dx = event.clientX - drag.startX;
+  const dy = event.clientY - drag.startY;
+  if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+  const next = { x: drag.originX + dx, y: drag.originY + dy, rot: drag.rot };
+  drag.note.style.setProperty("--memo-x", `${next.x}px`);
+  drag.note.style.setProperty("--memo-y", `${next.y}px`);
+  drag.note.style.setProperty("--memo-rot", `${next.rot}deg`);
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  state.memoSearch = String(form.get("q") || "").trim();
-  state.selectedMemoId = "";
-  syncRouteForState("memos");
-  await renderMemos();
-  updateShell();
+}
+
+function endMemoDrag(event) {
+  const drag = state.memoDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  drag.note.classList.remove("dragging");
+  drag.note.releasePointerCapture?.(event.pointerId);
+  if (drag.moved) {
+    const next = {
+      x: drag.originX + event.clientX - drag.startX,
+      y: drag.originY + event.clientY - drag.startY,
+      rot: drag.rot,
+    };
+    saveMemoPlacement(drag.id, next);
+    state.memoSuppressClickUntil = Date.now() + 260;
+  }
+  state.memoDrag = null;
 }
 
 async function selectMemo(id) {
   state.selectedMemoId = id || "";
+  state.memoEditorOpen = Boolean(id);
   syncRouteForState("memos");
   await renderMemos();
   updateShell();
@@ -1595,14 +1704,25 @@ async function selectMemo(id) {
 
 async function newMemo() {
   state.selectedMemoId = "";
+  state.memoEditorOpen = true;
   syncRouteForState("memos");
+  await renderMemos();
+  updateShell();
+}
+
+async function closeMemoDetail() {
+  state.selectedMemoId = "";
+  state.memoEditorOpen = false;
+  syncRouteForState("memos", true);
   await renderMemos();
   updateShell();
 }
 
 async function saveMemo(event) {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const memoForm = event.target.closest('[data-action="save-memo"]');
+  if (!memoForm) return;
+  const form = new FormData(memoForm);
   const id = String(form.get("id") || "").trim();
   const body = {
     title: form.get("title") || "",
@@ -1619,6 +1739,7 @@ async function saveMemo(event) {
     ? await api("/api/ui/memos/update", { method: "POST", body: JSON.stringify({ id, ...body }) })
     : await api("/api/ui/memos", { method: "POST", body: JSON.stringify(body) });
   state.selectedMemoId = payload.item?.id || id;
+  state.memoEditorOpen = true;
   state.notice = "备忘录已保存。";
   state.bootstrap = null;
   syncRouteForState("memos", true);
@@ -1637,6 +1758,7 @@ async function deleteMemo(id) {
   if (!id || !confirm("删除这条备忘录？")) return;
   await api(`/api/ui/memos/${encodeURIComponent(id)}`, { method: "DELETE" });
   state.selectedMemoId = "";
+  state.memoEditorOpen = false;
   state.notice = "备忘录已删除。";
   state.bootstrap = null;
   syncRouteForState("memos", true);
@@ -1899,46 +2021,62 @@ function renderGlobalDialogs() {
 function onboardingSteps() {
   return [
     {
-      title: "先从这里进入设置",
-      body: "设置里放着外观、模块、访问密钥和导入导出。第一次进小窝，先把这些位置认清楚就够了。",
+      title: "先看小窝的整体动线",
+      body: "首页负责给你快速回到最近状态，左侧是所有功能入口，右侧内容区会随着入口切换。新手引导现在点任意地方都会前进，全部看完才会自动退出。",
+      target: "首页 · 全局导航",
+      selector: ".app-shell",
+      view: "dashboard",
+      checklist: ["左侧用于切换功能", "中间区域显示当前页面", "遇到遮罩时点任意位置继续"],
+    },
+    {
+      title: "设置是小窝的总开关",
+      body: "外观、模块、访问密钥、导入导出都从设置进入。需要调整小窝长相、开放访问、备份迁移，先来这里找。",
       target: "左侧 · 设置",
       selector: '[data-tour-target="nav-settings"]',
       view: "dashboard",
-      checklist: ["点左侧设置", "看到外观设置、模块控制台、访问密钥、导入导出四个入口"],
+      checklist: ["进入设置后会展开二级菜单", "外观和模块分开管理", "访问密钥与导入导出也在这里"],
     },
     {
-      title: "先把外观放在这里调",
-      body: "标题、头像、玻璃小屋、纸庭、夜间工作室都收束在外观设置里。以后官方全局外观不会再散落到模块控制台。",
+      title: "外观页只负责长相",
+      body: "这里改小窝标题、副标题、头像和主题外观。玻璃小屋、纸庭、夜间工作室这类全局皮肤都归到外观页，保存后会影响整套 WebUI。",
       target: "设置 · 外观设置",
       selector: '[data-tour-target="settings-appearance"]',
       view: "settings",
       section: "appearance",
-      checklist: ["修改小窝标题和副标题", "选择喜欢的外观", "保存后刷新全局样式"],
+      checklist: ["修改标题、副标题、头像", "选择全局外观风格", "保存后刷新页面即可看到效果"],
     },
     {
-      title: "模块控制台只管功能",
-      body: "这里控制日记、媒体、印象、备忘录和拓展包。模块关闭后，对应左侧入口也会一起消失。",
+      title: "模块页只负责功能",
+      body: "这里控制日记、媒体、印象、备忘录和拓展包是否启用，也能进入每个模块自己的详细设置。关闭模块后，左侧对应入口会一起隐藏。",
       target: "设置 · 模块控制台",
       selector: '[data-tour-target="settings-modules"]',
       view: "settings",
       section: "modules",
-      checklist: ["进入某个模块的设置", "打开或关闭模块", "新增拓展包时也从这里安装"],
+      checklist: ["开关核心模块", "进入模块详情改规则", "从链接安装新的拓展包"],
     },
     {
-      title: "日记从这里整理",
-      body: "日记页负责按日记本和日期归档。bot 写入、搜索和图片推送都依赖这里的日记模块设置。",
+      title: "日记页负责长期记录",
+      body: "日记页按日记本和日期归档，适合沉淀完整事件、每日记录和 bot 写入的长内容。你可以筛选日记本、打开某一天，也可以手动补写。",
       target: "左侧 · 日记",
       selector: '[data-tour-target="nav-diary"]',
       view: "diary",
-      checklist: ["检查日记本", "确认写日记规范", "需要图片推送时选择模板"],
+      checklist: ["按日期查看记录", "按日记本分类管理", "需要时手动新建或编辑日记"],
     },
     {
-      title: "媒体和备忘录是辅助记忆",
-      body: "媒体放图片和附件，备忘录放账号提示、聊天片段、名言或待办。备忘录的敏感内容默认隐藏，bot 自主写入也可以在模块设置里控制。",
-      target: "左侧 · 媒体 / 备忘录",
-      selector: '[data-tour-target="nav-memos"], [data-tour-target="nav-media"]',
+      title: "媒体页负责图片和附件",
+      body: "媒体页用来归档图片、附件和外部文件。日记里的图片推送、原图查看、文件夹整理、回收站恢复，都围绕这里展开。",
+      target: "左侧 · 媒体",
+      selector: '[data-tour-target="nav-media"]',
+      view: "media",
+      checklist: ["按文件夹整理素材", "查看图片备注和原图", "误删后从回收站恢复"],
+    },
+    {
+      title: "备忘录负责短而敏感的记忆",
+      body: "备忘录适合账号提示、聊天片段、名言、待办和不值得写成长日记的小纸条。敏感内容默认隐藏，是否允许 bot 自主写入可以在模块设置里控制。",
+      target: "左侧 · 备忘录",
+      selector: '[data-tour-target="nav-memos"]',
       view: "memos",
-      checklist: ["媒体用于文件归档", "备忘录用于短纸条", "导入导出会一起覆盖这些数据"],
+      checklist: ["新建短纸条", "置顶或归档备忘录", "需要时临时显示敏感内容"],
     },
   ];
 }
@@ -2017,6 +2155,7 @@ function onboardingStepMarkup(step, index, total) {
         ${(step.checklist || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
       </ul>
       <div class="onboarding-dots">${Array.from({ length: total }, (_, i) => `<span class="${i === index ? "active" : ""}"></span>`).join("")}</div>
+      <p class="onboarding-hint">${index >= total - 1 ? "这是最后一步，点任意地方完成并退出。" : "点任意地方继续下一步。"}</p>
     </div>
   `;
 }
@@ -2028,10 +2167,9 @@ function onboardingDialog() {
   const rect = onboardingStepRect(step);
   const tooltip = onboardingTooltipStyle(rect);
   return `
-    <div class="onboarding-backdrop" data-onboarding-close>
+    <div class="onboarding-backdrop" data-onboarding-advance>
       <div class="onboarding-spotlight ${rect.found ? "" : "soft"}" style="left:${Math.round(rect.left)}px;top:${Math.round(rect.top)}px;width:${Math.round(rect.width)}px;height:${Math.round(rect.height)}px;"></div>
-      <article class="nest-dialog onboarding-dialog placement-${tooltip.placement}" data-onboarding-dialog role="dialog" aria-modal="true" aria-label="小窝首次使用引导" style="${tooltip.style}" onclick="event.stopPropagation()">
-        <button class="media-dialog-close" data-onboarding-close type="button" aria-label="关闭">×</button>
+      <article class="nest-dialog onboarding-dialog placement-${tooltip.placement}" data-onboarding-dialog data-onboarding-advance role="dialog" aria-modal="true" aria-label="小窝首次使用引导" style="${tooltip.style}">
         <div class="onboarding-arrow" aria-hidden="true"></div>
         <div class="onboarding-stage" data-onboarding-stage>
           ${onboardingStepMarkup(step, index, steps.length)}
@@ -2042,6 +2180,17 @@ function onboardingDialog() {
       </article>
     </div>
   `;
+}
+
+async function advanceOnboarding() {
+  const steps = onboardingSteps();
+  const index = Math.max(0, Math.min(state.onboardingStep || 0, steps.length - 1));
+  if (index >= steps.length - 1) {
+    await finishOnboarding();
+    return;
+  }
+  state.onboardingStep = index + 1;
+  await updateOnboardingDialog();
 }
 
 async function updateOnboardingDialog() {

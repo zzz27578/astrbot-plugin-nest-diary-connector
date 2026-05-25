@@ -33,7 +33,7 @@ body {
 .module-detail-body,
 .module-stat,
 .memo-stat,
-.memo-editor,
+.memo-detail-paper,
 .home-hero,
 .media-dialog,
 .nest-dialog,
@@ -105,10 +105,6 @@ button.ghost {
   box-shadow: inset 0 0 0 8px rgba(255, 248, 226, 0.2), var(--shadow);
 }
 
-.memo-searchbar input {
-  background: rgba(255, 253, 247, 0.94);
-}
-
 .memo-note {
   color: #383125;
   background: #fff0a8;
@@ -122,6 +118,11 @@ button.ghost {
 
 .memo-note:nth-child(3n) {
   background: #f7e4c1;
+}
+
+.memo-detail-paper {
+  color: #383125;
+  background: #fff0a8;
 }
 
 .memo-note-actions .icon-button,

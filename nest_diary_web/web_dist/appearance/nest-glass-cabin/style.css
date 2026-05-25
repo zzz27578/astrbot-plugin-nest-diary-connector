@@ -32,7 +32,7 @@ body {
 .module-detail-body,
 .module-stat,
 .memo-stat,
-.memo-editor,
+.memo-detail-paper,
 .media-dialog,
 .nest-dialog,
 .row,
@@ -108,10 +108,6 @@ button.ghost,
   box-shadow: inset 0 0 0 8px rgba(255, 255, 255, 0.18), var(--shadow);
 }
 
-.memo-searchbar input {
-  background: rgba(255, 255, 255, 0.76);
-}
-
 .memo-note {
   background: rgba(255, 252, 178, 0.86);
   backdrop-filter: blur(10px);
@@ -123,6 +119,11 @@ button.ghost,
 
 .memo-note:nth-child(3n) {
   background: rgba(220, 239, 235, 0.88);
+}
+
+.memo-detail-paper {
+  background: rgba(255, 252, 178, 0.9);
+  backdrop-filter: blur(10px);
 }
 
 .onboarding-dialog {
