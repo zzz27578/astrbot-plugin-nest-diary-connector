@@ -1482,11 +1482,11 @@ textarea {
 }
 
 .memo-editor-page {
-  min-height: calc(100vh - 188px);
+  min-height: auto;
   display: grid;
-  place-items: start center;
-  padding: 18px;
-  border: 8px solid #7b4b2a;
+  place-items: center;
+  padding: 14px;
+  border: 7px solid #7b4b2a;
   border-radius: 8px;
   background:
     radial-gradient(circle at 18px 18px, rgba(88, 52, 25, 0.14) 0 1px, transparent 1.4px),
@@ -1497,10 +1497,10 @@ textarea {
 
 .memo-detail-paper {
   position: relative;
-  width: min(680px, 100%);
+  width: min(600px, 100%);
   display: grid;
-  gap: 13px;
-  padding: 30px 24px 22px;
+  gap: 10px;
+  padding: 24px 22px 18px;
   color: #2b2a25;
   border: 1px solid rgba(93, 72, 28, 0.22);
   border-radius: 5px 5px 16px 6px;
@@ -1534,7 +1534,7 @@ textarea {
 
 .memo-detail-head h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.2;
 }
 
@@ -1557,11 +1557,11 @@ textarea {
 
 .memo-form {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .memo-form textarea[name="content"] {
-  min-height: 150px;
+  min-height: 96px;
 }
 
 .memo-meta-line {
@@ -1571,7 +1571,15 @@ textarea {
 }
 
 .memo-detail-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
   justify-content: space-between;
+}
+
+.memo-detail-actions .button,
+.memo-detail-actions button {
+  width: 100%;
 }
 
 @keyframes memo-drop-in {
@@ -2428,9 +2436,9 @@ textarea {
 
 .appearance-page {
   position: relative;
-  width: max-content;
-  min-width: 100%;
-  grid-template-columns: minmax(620px, 920px) 260px;
+  width: 100%;
+  min-width: 1320px;
+  grid-template-columns: minmax(0, 920px);
   align-items: start;
 }
 
@@ -2440,14 +2448,15 @@ textarea {
 }
 
 .appearance-easter-egg {
-  grid-column: 2;
-  align-self: center;
-  justify-self: center;
+  position: absolute;
+  left: 1080px;
+  top: 48%;
+  transform: translateY(-50%);
   display: grid;
   gap: 10px;
   justify-items: center;
   width: 190px;
-  margin: 120px 48px 0 20px;
+  margin: 0;
   color: var(--muted);
   text-align: center;
   font-size: 12px;
@@ -3271,16 +3280,6 @@ details[open] > *:not(summary) {
     grid-template-columns: 1fr;
   }
 
-  .appearance-page {
-    width: auto;
-    grid-template-columns: 1fr;
-  }
-
-  .appearance-easter-egg {
-    grid-column: 1;
-    margin: 4px auto 0;
-  }
-
   .module-detail-tags {
     justify-content: flex-start;
   }
@@ -3387,13 +3386,13 @@ details[open] > *:not(summary) {
   }
 
   .memo-editor-page {
-    min-height: 360px;
-    padding: 12px;
-    border-width: 7px;
+    min-height: auto;
+    padding: 10px;
+    border-width: 6px;
   }
 
   .memo-detail-paper {
-    padding: 30px 16px 18px;
+    padding: 24px 14px 16px;
   }
 
   .memo-detail-head {
