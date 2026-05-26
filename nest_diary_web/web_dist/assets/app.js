@@ -49,6 +49,7 @@ const state = {
     archive: [],
     selected: null,
     loaded: false,
+    loadedNotebookId: null,
     composerOpen: initialComposerFromLocation(),
     composerDate: initialComposeDateFromLocation(),
     filters: initialDiaryFilters(),
@@ -235,7 +236,7 @@ function routeForState(view = state.view) {
     return `/impressions${queryString(params)}`;
   }
   if (view === "diary") {
-    const notebookId = state.diary.selected?.notebook_id || state.diary.filters.notebook_id || "";
+    const notebookId = state.diary.filters.notebook_id || state.diary.selected?.notebook_id || "";
     if (state.diary.composerOpen) {
       const date = state.diary.composerDate || state.editingDate || state.selectedDate || "";
       if (date) params.set("date", date);
@@ -536,6 +537,11 @@ async function setView(view, options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, "notebook_id")) {
     state.diary.filters.notebook_id = options.notebook_id || "";
     state.search.notebook_id = options.notebook_id || "";
+  }
+  if (view === "diary" && !Object.prototype.hasOwnProperty.call(options, "notebook_id") && !Object.prototype.hasOwnProperty.call(options, "date") && !state.diary.composerOpen) {
+    clearDiaryFilters();
+    state.diary.selected = null;
+    state.selectedDate = "";
   }
   if (Object.prototype.hasOwnProperty.call(options, "editDate")) state.editingDate = options.editDate || "";
   if (Object.prototype.hasOwnProperty.call(options, "compose")) state.diary.composerOpen = Boolean(options.compose);
@@ -954,13 +960,15 @@ function entryRow(entry) {
 }
 
 async function ensureDiaryList(force = false) {
-  if (state.diary.loaded && !force) return;
   const notebookId = state.diary.filters.notebook_id || "";
+  if (state.diary.loaded && state.diary.loadedNotebookId === notebookId && !force) return;
+  if (!notebookId && state.diary.loadedNotebookId && !force) force = true;
   const payload = await api(`/api/ui/diary${notebookId ? `?notebook_id=${encodeURIComponent(notebookId)}` : ""}`);
   state.diary.items = payload.items;
   state.diary.archive = payload.archive;
   state.notebooks = payload.notebooks || state.notebooks || [];
   state.diary.loaded = true;
+  state.diary.loadedNotebookId = notebookId;
 }
 
 async function loadDiaryEntry(date, notebookId = "") {
@@ -3516,17 +3524,34 @@ function notebookOriginParts(item = {}) {
   };
 }
 
+function notebookMessageTypeFamily(messageType = "") {
+  const normalized = String(messageType || "").trim().toLowerCase();
+  if (!normalized) return "group";
+  if (normalized.includes("private") || normalized.includes("friend")) return "private";
+  if (normalized.includes("group") || normalized.includes("guild") || normalized.includes("channel")) return "group";
+  return normalized;
+}
+
+function notebookMessageTypeLabel(messageType = "") {
+  const family = notebookMessageTypeFamily(messageType);
+  if (family === "private") return "私聊";
+  if (family === "group") return "群聊";
+  return messageType || "自动识别";
+}
+
 function notebookRow(item, options = {}) {
   const id = item.id || item.notebook_id || options.id || `notebook_${Date.now()}`;
   const origin = notebookOriginParts(item);
   const isDefault = id === "default";
+  const messageType = origin.message_type || "group";
   return `
     <div class="notebook-row" data-notebook-row="${escapeHtml(id)}">
       <input name="notebook_id" value="${escapeHtml(id)}" type="hidden">
       <input name="notebook_platform_${escapeHtml(id)}" value="${escapeHtml(origin.platform_id)}" type="hidden">
+      <input name="notebook_message_type_${escapeHtml(id)}" value="${escapeHtml(messageType)}" type="hidden">
       <label>名称<input name="notebook_name_${escapeHtml(id)}" value="${escapeHtml(item.name || (options.draft ? "新日记本" : id))}" placeholder="例如：主群日记本"></label>
-      <label>会话类型<select name="notebook_message_type_${escapeHtml(id)}"><option value="group" ${origin.message_type !== "private" ? "selected" : ""}>群聊</option><option value="private" ${origin.message_type === "private" ? "selected" : ""}>私聊</option></select></label>
-      <label>QQ号或群号<input name="notebook_session_${escapeHtml(id)}" value="${escapeHtml(origin.session_id)}" placeholder="私聊填 QQ 号，群聊填群号"></label>
+      <label>协议类型<input value="${escapeHtml(notebookMessageTypeLabel(messageType))}" readonly title="${escapeHtml(messageType)}"></label>
+      <label>会话 ID<input name="notebook_session_${escapeHtml(id)}" value="${escapeHtml(origin.session_id)}" placeholder="建议在目标会话让 bot 绑定"></label>
       <label>写日记时间<input name="notebook_archive_time_${escapeHtml(id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
       <label>推送目标<select name="notebook_push_target_${escapeHtml(id)}"><option value="none" ${item.push_target === "none" ? "selected" : ""}>不推送</option><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
       <label class="check"><input name="notebook_enabled_${escapeHtml(id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
@@ -3542,7 +3567,7 @@ function notebookManagement(notebooks = []) {
   return `
     <div class="notebook-settings">
       <div class="settings-mini-head notebook-head">
-        <div><strong>日记本管理</strong><span>私聊填 QQ 号，群聊填群号；页面显示使用你写的名称。</span></div>
+        <div><strong>日记本管理</strong><span>协议类型自动识别；更推荐在目标会话让 bot 绑定日记本。</span></div>
         <button class="button primary" data-notebook-add type="button">新增日记本</button>
       </div>
       <div class="notebook-list" data-notebook-list>
