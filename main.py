@@ -1714,29 +1714,39 @@ class NestDiaryConnectorPlugin(Star):
         if not notebook_id:
             yield event.plain_result("请在命令后写日记本 ID，例如：小窝绑定日记本 default")
             return
-        if not hasattr(self.client, "diary_service"):
-            yield event.plain_result("当前模式不支持直接绑定日记本协议，请在 WebUI 日记本设置里调整。")
-            return
-        origin = self._event_origin(event)
         try:
-            notebook = self.client.diary_service.bind_notebook_origin(notebook_id, origin)
-            self.request_future_task_sync()
+            message = self._bind_notebook_origin_for_event(event, notebook_id)
         except KeyError:
             yield event.plain_result(f"没有找到日记本：{notebook_id}")
             return
         except Exception as exc:
             yield event.plain_result(f"绑定失败：{_brief_error(exc)}")
             return
-        yield event.plain_result(
-            f"已把当前会话绑定到日记本“{notebook.get('name') or notebook.get('id') or notebook_id}”。\n"
-            f"日记本 ID：{notebook.get('id') or notebook_id}\n"
-            f"协议来源：{notebook.get('origin_umo') or origin}"
-        )
+        yield event.plain_result(message)
 
     @filter.llm_tool(name="nest_status")
     async def nest_status_tool(self, event: AstrMessageEvent):
         """检查小窝框架、日记模块和 WebUI 状态。"""
         return await self._status_message()
+
+    @filter.llm_tool(name="bind_notebook_origin")
+    async def bind_notebook_origin_tool(self, event: AstrMessageEvent, notebook_id: str):
+        """把指定日记本绑定到当前会话的真实协议来源，仅管理员可用。
+
+        Args:
+            notebook_id(string): 要绑定到当前会话的日记本 ID。
+        """
+        if not self._is_nest_admin(event):
+            return "只有小窝管理员可以绑定日记本协议。"
+        notebook_id = str(notebook_id or "").strip()
+        if not notebook_id:
+            return "请提供日记本 ID，例如：把 default 日记本绑定到当前会话。"
+        try:
+            return self._bind_notebook_origin_for_event(event, notebook_id)
+        except KeyError:
+            return f"没有找到日记本：{notebook_id}"
+        except Exception as exc:
+            return f"绑定失败：{_brief_error(exc)}"
 
     async def _status_message(self) -> str:
         try:
@@ -1756,6 +1766,18 @@ class NestDiaryConnectorPlugin(Star):
             )
         except Exception as exc:
             return f"小窝暂时连接失败：{_brief_error(exc)}"
+
+    def _bind_notebook_origin_for_event(self, event, notebook_id: str) -> str:
+        if not hasattr(self.client, "diary_service"):
+            raise RuntimeError("当前模式不支持直接绑定日记本协议，请在 WebUI 日记本设置里调整。")
+        origin = self._event_origin(event)
+        notebook = self.client.diary_service.bind_notebook_origin(notebook_id, origin)
+        self.request_future_task_sync()
+        return (
+            f"已把当前会话绑定到日记本“{notebook.get('name') or notebook.get('id') or notebook_id}”。\n"
+            f"日记本 ID：{notebook.get('id') or notebook_id}\n"
+            f"协议来源：{notebook.get('origin_umo') or origin}"
+        )
 
     def _configured_admin_ids(self) -> set[str]:
         raw_values = [str(self.config.get("nest_admin_ids", "") or "")]
