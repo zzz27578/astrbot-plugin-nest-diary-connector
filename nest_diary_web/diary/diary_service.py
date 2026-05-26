@@ -99,6 +99,11 @@ class DiaryService:
     def resolve_notebook_from_origin(self, origin_umo: str) -> dict:
         return self.notebooks.resolve_from_origin(origin_umo).__dict__
 
+    def bind_notebook_origin(self, notebook_id: str, origin_umo: str) -> dict:
+        notebook = self.notebooks.bind_origin(notebook_id, origin_umo)
+        self.rebuild_index()
+        return notebook.__dict__
+
     def rebuild_index(self) -> int:
         entries = self.store.list_entries()
         return self.search_service.sync_entries(entries)

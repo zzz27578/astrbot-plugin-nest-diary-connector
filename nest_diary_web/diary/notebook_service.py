@@ -115,6 +115,50 @@ class NotebookService:
             self._save(items)
         return {"checked": len(items), "updated": updated}
 
+    def bind_origin(self, notebook_id: str, origin_umo: str) -> DiaryNotebook:
+        notebook_id = safe_package_id(notebook_id)
+        origin_umo = str(origin_umo or "").strip()
+        if not notebook_id:
+            raise ValueError("notebook_id is required")
+        parts = _origin_parts(origin_umo)
+        if not parts:
+            raise ValueError("origin_umo is invalid")
+        platform_id, message_type, session_id = parts
+        semantic_key = _semantic_origin_key(platform_id, message_type, session_id)
+        items = self._load()
+        if notebook_id not in items:
+            raise KeyError(notebook_id)
+        target = items[notebook_id]
+        for item_id, item in items.items():
+            if item_id == notebook_id:
+                continue
+            aliases = []
+            for alias in item.origin_aliases or []:
+                if alias == origin_umo:
+                    continue
+                if semantic_key and _semantic_origin_key_from_umo(alias) == semantic_key:
+                    continue
+                aliases.append(alias)
+            item.origin_aliases = aliases
+            if item.origin_umo == origin_umo or (semantic_key and _semantic_origin_key_from_umo(item.origin_umo) == semantic_key):
+                item.origin_umo = ""
+                item.platform_id = ""
+                item.message_type = ""
+                item.session_id = ""
+                item.protocol_audit_tag = ""
+                item.updated_at = self._now()
+        self._remember_origin_alias(target, target.origin_umo)
+        self._remember_origin_alias(target, origin_umo)
+        target.origin_umo = origin_umo
+        target.platform_id = platform_id
+        target.message_type = message_type
+        target.session_id = session_id
+        self._backfill_protocol_fields(target)
+        target.updated_at = self._now()
+        items[notebook_id] = target
+        self._save(items)
+        return target
+
     def ensure(
         self,
         notebook_id: str = "default",
@@ -376,6 +420,8 @@ class NotebookService:
     def _backfill_protocol_fields(self, item: DiaryNotebook, origin_umo: str = "") -> bool:
         changed = False
         parts = _origin_parts(origin_umo or item.origin_umo)
+        if not parts:
+            parts = self._origin_parts_from_audit_tag(item.protocol_audit_tag)
         if parts:
             platform_id, message_type, session_id = parts
             if item.platform_id != platform_id:
@@ -400,3 +446,15 @@ class NotebookService:
             item.origin_aliases = []
             changed = True
         return changed
+
+    def _origin_parts_from_audit_tag(self, tag: str) -> tuple[str, str, str] | None:
+        parts = str(tag or "").split(":")
+        if len(parts) < 6 or parts[0] != "umo" or parts[1] != "v1":
+            return None
+        platform_id = parts[2].strip()
+        family = parts[3].strip()
+        session_id = ":".join(parts[4:-1]).strip()
+        raw_type = parts[-1].strip() or family
+        if not platform_id or not session_id:
+            return None
+        return platform_id, raw_type, session_id

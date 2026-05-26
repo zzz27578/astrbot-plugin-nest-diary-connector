@@ -1704,6 +1704,35 @@ class NestDiaryConnectorPlugin(Star):
             f"{event.unified_msg_origin}"
         )
 
+    @filter.command("小窝绑定日记本")
+    async def bind_nest_notebook_origin(self, event: AstrMessageEvent, notebook_id: str = ""):
+        """把当前真实会话绑定到指定日记本。"""
+        if not self._is_nest_admin(event):
+            yield event.plain_result("只有小窝管理员可以绑定日记本协议。")
+            return
+        notebook_id = str(notebook_id or "").strip()
+        if not notebook_id:
+            yield event.plain_result("请在命令后写日记本 ID，例如：小窝绑定日记本 default")
+            return
+        if not hasattr(self.client, "diary_service"):
+            yield event.plain_result("当前模式不支持直接绑定日记本协议，请在 WebUI 日记本设置里调整。")
+            return
+        origin = self._event_origin(event)
+        try:
+            notebook = self.client.diary_service.bind_notebook_origin(notebook_id, origin)
+            self.request_future_task_sync()
+        except KeyError:
+            yield event.plain_result(f"没有找到日记本：{notebook_id}")
+            return
+        except Exception as exc:
+            yield event.plain_result(f"绑定失败：{_brief_error(exc)}")
+            return
+        yield event.plain_result(
+            f"已把当前会话绑定到日记本“{notebook.get('name') or notebook.get('id') or notebook_id}”。\n"
+            f"日记本 ID：{notebook.get('id') or notebook_id}\n"
+            f"协议来源：{notebook.get('origin_umo') or origin}"
+        )
+
     @filter.llm_tool(name="nest_status")
     async def nest_status_tool(self, event: AstrMessageEvent):
         """检查小窝框架、日记模块和 WebUI 状态。"""

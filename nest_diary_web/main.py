@@ -1754,6 +1754,9 @@ async def ui_import_backup(
 ):
     payload = await backup_file.read()
     result = backup_service.import_zip(payload, strategy=strategy)
+    protocol_audit = diary_service.notebooks.audit_protocols()
     indexed = diary_service.rebuild_index()
+    result["protocol_audit"] = protocol_audit
     result["reindexed_diaries"] = indexed
+    request_future_task_sync()
     return {"status": "ok", "result": result}
