@@ -19,7 +19,7 @@ class DiaryNotebook:
     session_id: str = ""
     protocol_audit_tag: str = ""
     enabled: bool = True
-    auto_archive_enabled: bool = True
+    auto_archive_enabled: bool = False
     archive_time: str = "03:00"
     push_enabled: bool = False
     push_target: str = "none"
@@ -231,7 +231,7 @@ class NotebookService:
             current.origin_umo = raw_origin or _canonical_origin_umo(current.platform_id, current.message_type, current.session_id)
             self._backfill_protocol_fields(current)
             current.enabled = bool(raw.get("enabled", current.enabled))
-            current.auto_archive_enabled = bool(raw.get("auto_archive_enabled", current.auto_archive_enabled))
+            current.auto_archive_enabled = bool(raw.get("auto_archive_enabled", False))
             current.archive_time = str(raw.get("archive_time") or current.archive_time or "03:00").strip()
             current.push_enabled = bool(raw.get("push_enabled", current.push_enabled))
             current.push_target = str(raw.get("push_target") or current.push_target or "none").strip()

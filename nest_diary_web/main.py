@@ -69,6 +69,12 @@ def require_web_session(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Web session required")
 
 
+def request_future_task_sync() -> None:
+    callback = getattr(app.state, "nest_future_task_sync", None)
+    if callback:
+        callback()
+
+
 def spa_index(request: Request):
     if not web_auth.verify_session(request.cookies.get("nest_session")):
         return RedirectResponse("/login", status_code=303)
@@ -1255,13 +1261,15 @@ async def ui_list_notebooks(_session: None = Depends(require_web_session)):
 
 @app.post("/api/ui/notebooks")
 async def ui_save_notebooks(payload: NotebookUpdateRequest, _session: None = Depends(require_web_session)):
+    saved = diary_service.save_notebooks(
+        payload.notebooks,
+        delete_ids=payload.delete_ids,
+        replace=payload.replace,
+    )
+    request_future_task_sync()
     return {
         "status": "ok",
-        "items": diary_service.save_notebooks(
-            payload.notebooks,
-            delete_ids=payload.delete_ids,
-            replace=payload.replace,
-        ),
+        "items": saved,
     }
 
 
@@ -1657,6 +1665,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             impression_prompt=payload.impression_prompt,
         )
     )
+    request_future_task_sync()
     return {"status": "ok", "settings": asdict(saved)}
 
 

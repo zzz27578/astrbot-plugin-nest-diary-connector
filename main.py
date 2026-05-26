@@ -709,6 +709,7 @@ if FunctionTool is not None:
                 "people": {"type": "string", "description": "相关人物，多个用逗号分隔。"},
                 "media_refs": {"type": "string", "description": "媒体引用，每行一个。"},
                 "reason": {"type": "string", "description": "写入原因。"},
+                "notebook_id": {"type": "string", "description": "可选日记本 ID；未来任务必须显式传入目标日记本 ID。"},
             },
             ["date", "title", "body"],
         ))
@@ -725,6 +726,7 @@ if FunctionTool is not None:
             people: str = Field(default="", description="相关人物，多个用逗号分隔。"),
             media_refs: str = Field(default="", description="媒体引用，每行一个，可为空。"),
             reason: str = Field(default="nightly_archive", description="写入原因。定时归档使用 nightly_archive。"),
+            notebook_id: str = Field(default="", description="可选日记本 ID；未来任务必须显式传入目标日记本 ID。"),
         ) -> ToolExecResult:
             owner = _tool_owner(self)
             if not owner._diary_module_enabled():
@@ -733,6 +735,21 @@ if FunctionTool is not None:
             if denial:
                 return _tool_text(denial)
             notebook = await owner._notebook_context_for_event(ctx)
+            if notebook_id and hasattr(owner.client, "diary_service"):
+                try:
+                    configured = owner.client.diary_service.notebooks.get(notebook_id).__dict__
+                    notebook.update(
+                        {
+                            "notebook_id": configured.get("id", notebook_id),
+                            "notebook_name": configured.get("name", notebook.get("notebook_name", "")),
+                            "origin_umo": configured.get("origin_umo", notebook.get("origin_umo", "")),
+                            "platform_id": configured.get("platform_id", notebook.get("platform_id", "")),
+                            "message_type": configured.get("message_type", notebook.get("message_type", "")),
+                            "session_id": configured.get("session_id", notebook.get("session_id", "")),
+                        }
+                    )
+                except Exception:
+                    notebook["notebook_id"] = notebook_id
             result = await owner.tools.write_diary(
                 date=date,
                 title=title,
@@ -1344,11 +1361,19 @@ class NestDiaryConnectorPlugin(Star):
         self._daily_sent_keys: set[str] = set()
         self._last_reminder_sent = ""
         self._scheduler_task = None
+        self._future_task_sync_task = None
+        self._future_task_sync_lock = None
+        self._astrbot_loop = None
         self._web_server = None
         self._web_thread = None
         self._webui_started = False
         self._webui_error = ""
         self._active_scheduled_origin = ""
+        try:
+            self._astrbot_loop = asyncio.get_running_loop()
+            self._future_task_sync_lock = asyncio.Lock()
+        except RuntimeError:
+            self._astrbot_loop = None
 
         if self.mode == "standalone":
             client = NestDiaryHttpClient(
@@ -1374,17 +1399,15 @@ class NestDiaryConnectorPlugin(Star):
                 pass
         self.tools = NestDiaryTools(self.client)
 
-        if self.config.get("scheduled_prompt_enabled", True):
-            try:
-                self._scheduler_task = asyncio.create_task(self._scheduled_prompt_loop())
-            except RuntimeError:
-                self._scheduler_task = None
+        self.request_future_task_sync()
 
         self._register_plugin_page_api()
 
     async def terminate(self):
         if self._scheduler_task:
             self._scheduler_task.cancel()
+        if self._future_task_sync_task:
+            self._future_task_sync_task.cancel()
         if self._web_server:
             self._web_server.should_exit = True
 
@@ -1489,6 +1512,7 @@ class NestDiaryConnectorPlugin(Star):
         try:
             from nest_diary_web.main import app as fastapi_app
 
+            fastapi_app.state.nest_future_task_sync = self.request_future_task_sync
             uvicorn_config = uvicorn.Config(
                 fastapi_app,
                 host=host,
@@ -1501,6 +1525,170 @@ class NestDiaryConnectorPlugin(Star):
             self._webui_started = True
         except Exception as exc:
             self._webui_error = _brief_error(exc)
+
+    def request_future_task_sync(self) -> None:
+        loop = self._astrbot_loop
+        if loop is None or loop.is_closed():
+            return
+
+        def schedule() -> None:
+            task = self._future_task_sync_task
+            if task and not task.done():
+                return
+            self._future_task_sync_task = loop.create_task(self._sync_future_tasks())
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is loop:
+            schedule()
+        else:
+            loop.call_soon_threadsafe(schedule)
+
+    async def _sync_future_tasks(self) -> None:
+        cron_mgr = getattr(self.context, "cron_manager", None)
+        if cron_mgr is None:
+            return
+        lock = self._future_task_sync_lock
+        if lock is None:
+            lock = asyncio.Lock()
+            self._future_task_sync_lock = lock
+        async with lock:
+            desired = self._desired_future_jobs()
+            existing = await self._managed_future_jobs(cron_mgr)
+            for name, job in existing.items():
+                if name not in desired or self._future_job_changed(job, desired[name]):
+                    await self._delete_future_job(cron_mgr, job)
+            for name, spec in desired.items():
+                job = existing.get(name)
+                if job is None or self._future_job_changed(job, spec):
+                    await self._add_future_job(cron_mgr, spec)
+
+    def _desired_future_jobs(self) -> dict[str, dict]:
+        if not self.config.get("scheduled_prompt_enabled", True):
+            return {}
+        if not self._diary_module_enabled() or not self.config.get("daily_write_enabled", True):
+            return {}
+        prompt = self.config.get("daily_write_prompt", "").strip() or self._default_daily_task_prompt()
+        jobs: dict[str, dict] = {}
+        for target in self._scheduled_diary_targets(self.config.get("daily_target_origin", "").strip()):
+            origin = str(target.get("origin") or "").strip()
+            notebook_id = str(target.get("notebook_id") or "default").strip() or "default"
+            if not origin:
+                continue
+            cron_expression = self._daily_cron_expression(str(target.get("archive_time") or self.config.get("daily_write_time", "03:00")))
+            push_target = str(target.get("push_target") or "none").strip() or "none"
+            push_format = str(target.get("push_format") or "text").strip() or "text"
+            name = f"nest_diary_daily_{safe_package_id(notebook_id)}"
+            note = self._future_daily_note(
+                configured_prompt=prompt,
+                notebook_id=notebook_id,
+                notebook_name=str(target.get("notebook_name") or notebook_id),
+                push_target=push_target,
+                push_format=push_format,
+            )
+            jobs[name] = {
+                "name": name,
+                "cron_expression": cron_expression,
+                "payload": {
+                    "session": origin,
+                    "note": note,
+                    "managed_by": PLUGIN_NAME,
+                    "task_kind": "daily_archive",
+                    "notebook_id": notebook_id,
+                    "push_target": push_target,
+                    "push_format": push_format,
+                },
+                "run_once": False,
+                "description": f"{PLUGIN_NAME}:daily_archive:{notebook_id}",
+            }
+        return jobs
+
+    def _future_daily_note(self, configured_prompt: str, notebook_id: str, notebook_name: str, push_target: str, push_format: str) -> str:
+        push_instruction = (
+            "写入完成后不要推送可见消息。"
+            if push_target == "none"
+            else f"如果成功写入今天的日记，请调用 push_diary，notebook_id 使用 {notebook_id}，target 使用 {push_target}，push_format 使用 {push_format}。"
+        )
+        return (
+            "小窝每日自动写日记任务。\n"
+            f"目标日记本：{notebook_name}（ID：{notebook_id}）。\n"
+            "请依据当前会话、已有小窝记忆和稳定证据判断是否需要写入今天的日记；材料不足时不要编造，也不要强行写入。\n"
+            f"需要写入时调用 write_diary，notebook_id 必须使用 {notebook_id}，reason 使用 nightly_archive。\n"
+            f"{push_instruction}\n\n"
+            f"{configured_prompt}"
+        )
+
+    def _daily_cron_expression(self, configured: str) -> str:
+        try:
+            hour_text, minute_text = str(configured or "03:00").strip().split(":", 1)
+            hour = max(0, min(23, int(hour_text)))
+            minute = max(0, min(59, int(minute_text)))
+        except Exception:
+            hour, minute = 3, 0
+        return f"{minute} {hour} * * *"
+
+    async def _managed_future_jobs(self, cron_mgr) -> dict[str, object]:
+        try:
+            jobs = await self._maybe_await(cron_mgr.list_jobs("active"))
+        except TypeError:
+            jobs = await self._maybe_await(cron_mgr.list_jobs())
+        managed: dict[str, object] = {}
+        for job in jobs or []:
+            name = str(getattr(job, "name", "") or self._job_field(job, "name") or "")
+            description = str(getattr(job, "description", "") or self._job_field(job, "description") or "")
+            payload = getattr(job, "payload", None) or self._job_field(job, "payload") or {}
+            if name.startswith("nest_diary_daily_") or PLUGIN_NAME in description or (isinstance(payload, dict) and payload.get("managed_by") == PLUGIN_NAME):
+                managed[name] = job
+        return managed
+
+    def _future_job_changed(self, job, spec: dict) -> bool:
+        cron_expression = str(getattr(job, "cron_expression", "") or self._job_field(job, "cron_expression") or "")
+        payload = getattr(job, "payload", None) or self._job_field(job, "payload") or {}
+        return cron_expression != spec["cron_expression"] or payload != spec["payload"]
+
+    async def _delete_future_job(self, cron_mgr, job) -> None:
+        job_id = str(getattr(job, "id", "") or getattr(job, "job_id", "") or self._job_field(job, "id") or self._job_field(job, "job_id") or getattr(job, "name", "") or self._job_field(job, "name") or "")
+        if job_id:
+            await self._maybe_await(cron_mgr.delete_job(job_id))
+
+    async def _add_future_job(self, cron_mgr, spec: dict) -> None:
+        try:
+            await self._maybe_await(
+                cron_mgr.add_active_job(
+                    name=spec["name"],
+                    cron_expression=spec["cron_expression"],
+                    payload=spec["payload"],
+                    run_once=spec["run_once"],
+                    description=spec["description"],
+                )
+            )
+        except TypeError:
+            await self._maybe_await(
+                cron_mgr.add_active_job(
+                    name=spec["name"],
+                    cron_expression=spec["cron_expression"],
+                    payload=spec["payload"],
+                    run_once=spec["run_once"],
+                )
+            )
+
+    def _job_field(self, job, key: str):
+        if isinstance(job, dict):
+            return job.get(key)
+        getter = getattr(job, "get", None)
+        if getter:
+            try:
+                return getter(key)
+            except Exception:
+                return None
+        return None
+
+    async def _maybe_await(self, value):
+        if asyncio.iscoroutine(value):
+            return await value
+        return value
 
     @filter.command("小窝状态")
     async def nest_status(self, event: AstrMessageEvent):
@@ -1702,7 +1890,13 @@ class NestDiaryConnectorPlugin(Star):
 
     def _is_scheduled_event(self, event) -> bool:
         event = self._unwrap_event(event)
-        return bool(getattr(event, "_nest_scheduled", False) or getattr(self, "_active_scheduled_origin", ""))
+        event_type = type(event).__name__.lower()
+        return bool(
+            getattr(event, "_nest_scheduled", False)
+            or getattr(self, "_active_scheduled_origin", "")
+            or event_type == "cronmessageevent"
+            or event_type.endswith("cronmessageevent")
+        )
 
     def _unwrap_event(self, event):
         current = event
@@ -2457,6 +2651,7 @@ class NestDiaryConnectorPlugin(Star):
         people: str = "",
         media_refs: str = "",
         reason: str = "",
+        notebook_id: str = "",
     ):
         """写入或更新某一天的日记模块记录。
 
@@ -2477,6 +2672,21 @@ class NestDiaryConnectorPlugin(Star):
             if denial:
                 return denial
             notebook = await self._notebook_context_for_event(event)
+            if notebook_id and hasattr(self.client, "diary_service"):
+                try:
+                    configured = self.client.diary_service.notebooks.get(notebook_id).__dict__
+                    notebook.update(
+                        {
+                            "notebook_id": configured.get("id", notebook_id),
+                            "notebook_name": configured.get("name", notebook.get("notebook_name", "")),
+                            "origin_umo": configured.get("origin_umo", notebook.get("origin_umo", "")),
+                            "platform_id": configured.get("platform_id", notebook.get("platform_id", "")),
+                            "message_type": configured.get("message_type", notebook.get("message_type", "")),
+                            "session_id": configured.get("session_id", notebook.get("session_id", "")),
+                        }
+                    )
+                except Exception:
+                    notebook["notebook_id"] = notebook_id
             result = await self.tools.write_diary(
                 date=date,
                 title=title,
@@ -2839,18 +3049,31 @@ class NestDiaryConnectorPlugin(Star):
                     {
                         "origin": item.get("origin_umo", ""),
                         "notebook_id": item.get("id") or item.get("notebook_id"),
+                        "notebook_name": item.get("name") or item.get("notebook_name") or item.get("id") or item.get("notebook_id"),
                         "archive_time": item.get("archive_time", "03:00"),
+                        "push_target": item.get("push_target", "none"),
+                        "push_format": item.get("push_format", "text"),
                     }
                     for item in notebooks
                     if item.get("enabled", True)
-                    and item.get("auto_archive_enabled", True)
+                    and item.get("auto_archive_enabled", False)
                     and item.get("origin_umo")
                 ]
-                if targets:
-                    return targets
+                return targets
             except Exception:
                 pass
-        return [{"origin": fallback_origin, "notebook_id": "legacy", "archive_time": self.config.get("daily_write_time", "03:00")}]
+        if not fallback_origin:
+            return []
+        return [
+            {
+                "origin": fallback_origin,
+                "notebook_id": "legacy",
+                "notebook_name": "legacy",
+                "archive_time": self.config.get("daily_write_time", "03:00"),
+                "push_target": "source" if self.config.get("notify_after_write", True) else "none",
+                "push_format": "text",
+            }
+        ]
 
     def _default_daily_task_prompt(self) -> str:
         return (

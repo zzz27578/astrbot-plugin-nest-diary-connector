@@ -3530,7 +3530,7 @@ function notebookRow(item, options = {}) {
       <label>写日记时间<input name="notebook_archive_time_${escapeHtml(id)}" type="time" value="${escapeHtml(item.archive_time || "03:00")}"></label>
       <label>推送目标<select name="notebook_push_target_${escapeHtml(id)}"><option value="none" ${item.push_target === "none" ? "selected" : ""}>不推送</option><option value="admin_private" ${item.push_target === "admin_private" ? "selected" : ""}>管理员私聊</option><option value="source" ${item.push_target === "source" ? "selected" : ""}>原会话</option><option value="both" ${item.push_target === "both" ? "selected" : ""}>两边都推送</option></select></label>
       <label class="check"><input name="notebook_enabled_${escapeHtml(id)}" type="checkbox" ${item.enabled !== false ? "checked" : ""}>启用</label>
-      <label class="check"><input name="notebook_auto_archive_${escapeHtml(id)}" type="checkbox" ${item.auto_archive_enabled !== false ? "checked" : ""}>自动写日记</label>
+      <label class="check"><input name="notebook_auto_archive_${escapeHtml(id)}" type="checkbox" ${item.auto_archive_enabled === true ? "checked" : ""}>自动写日记</label>
       <button class="button danger notebook-delete" data-notebook-delete="${escapeHtml(id)}" ${isDefault ? "disabled" : ""} type="button">${isDefault ? "默认" : "删除"}</button>
     </div>
   `;
@@ -3582,7 +3582,7 @@ function addNotebookDraft() {
   list.querySelector(".notice.soft")?.remove();
   const id = `notebook_${Date.now()}`;
   const wrapper = document.createElement("div");
-  wrapper.innerHTML = notebookRow({ id, name: "新日记本", enabled: true, auto_archive_enabled: true, push_target: "none" }, { draft: true }).trim();
+  wrapper.innerHTML = notebookRow({ id, name: "新日记本", enabled: true, auto_archive_enabled: false, push_target: "none" }, { draft: true }).trim();
   list.appendChild(wrapper.firstElementChild);
 }
 
