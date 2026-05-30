@@ -21,11 +21,13 @@
 
 html {
   min-width: 320px;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-x: clip;
   color: var(--ink);
   background:
     linear-gradient(90deg, rgba(32, 36, 42, 0.045) 1px, transparent 1px),
@@ -56,6 +58,7 @@ a {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
+  overflow-x: clip;
 }
 
 .nav {
@@ -235,6 +238,7 @@ a {
 
 .main {
   width: min(1180px, 100%);
+  max-width: 100%;
   min-width: 0;
   margin: 0 auto;
   padding: 34px 28px 56px;
@@ -242,6 +246,7 @@ a {
 
 .main:has(#view-media:not([hidden])) {
   width: min(1440px, 100%);
+  max-width: 100%;
 }
 
 .view-panel[hidden] {
@@ -2453,39 +2458,12 @@ textarea {
 .settings-page {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .appearance-page {
   position: relative;
-  overflow: visible;
-}
-
-.appearance-easter-egg {
-  position: absolute;
-  left: max(calc(1900px - 40vw), calc(100% + 1100px - 40vw));
-  top: 50%;
-  transform: translateY(-50%);
-  display: grid;
-  gap: 10px;
-  justify-items: center;
-  width: 190px;
-  margin: 0;
-  color: var(--muted);
-  text-align: center;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.appearance-easter-egg img {
-  width: 128px;
-  height: 128px;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 12px 24px rgba(47, 51, 64, 0.12);
-}
-
-.appearance-easter-egg p {
-  margin: 0;
+  overflow: clip;
 }
 
 .module-page-head,
@@ -2544,10 +2522,12 @@ textarea {
 }
 
 .settings-collapse {
+  min-width: 0;
   padding: 18px;
   border: 1px solid var(--line-strong);
   background: var(--panel);
   box-shadow: var(--shadow);
+  overflow: clip;
 }
 
 .settings-panel {
@@ -2571,7 +2551,7 @@ textarea {
 }
 
 .form-grid.compact {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 340px));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   align-items: start;
 }
 
@@ -2585,6 +2565,7 @@ textarea {
   grid-template-columns: 96px minmax(0, 1fr);
   gap: 16px;
   align-items: center;
+  min-width: 0;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
 }
@@ -2610,12 +2591,13 @@ textarea {
 
 .style-chooser {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 12px;
   padding: 4px 0 6px;
 }
 
 .style-card {
+  min-width: 0;
   min-height: 116px;
   justify-content: flex-start;
   gap: 13px;
@@ -2637,6 +2619,7 @@ textarea {
 .style-card span:not(.style-swatch) {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .style-card strong,
@@ -3176,6 +3159,7 @@ details[open] > *:not(summary) {
 .choice-card {
   position: relative;
   display: grid;
+  min-width: 0;
   min-height: 82px;
   padding: 13px 14px 13px 42px;
   border: 1px solid var(--line);

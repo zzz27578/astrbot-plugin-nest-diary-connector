@@ -3381,10 +3381,6 @@ function appearanceSettingsPage(payload) {
           <button class="primary">保存外观</button>
         </div>
       </form>
-      <aside class="appearance-easter-egg" aria-label="外观设置彩蛋">
-        <img src="/app-assets/easter-egg-memo.jpg" alt="彩蛋贴纸">
-        <p>这是彩蛋，但是我还没有想好。</p>
-      </aside>
     </section>
   `;
 }
