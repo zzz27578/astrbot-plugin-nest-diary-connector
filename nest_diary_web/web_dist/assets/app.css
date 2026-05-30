@@ -234,14 +234,48 @@ a {
 }
 
 .main {
-  width: min(1480px, 100%);
+  width: min(1180px, 100%);
   min-width: 0;
   margin: 0 auto;
   padding: 34px 28px 56px;
 }
 
 .main:has(#view-media:not([hidden])) {
-  width: min(1680px, 100%);
+  width: min(1440px, 100%);
+}
+
+@media (min-width: 1500px) {
+  .main {
+    width: min(1320px, 100%);
+  }
+
+  .main:has(#view-media:not([hidden])) {
+    width: min(1560px, 100%);
+  }
+}
+
+@media (min-width: 1900px) {
+  .main {
+    width: min(1480px, calc(100% - 96px));
+  }
+
+  .main:has(#view-media:not([hidden])) {
+    width: min(1720px, calc(100% - 96px));
+  }
+}
+
+@media (min-width: 2400px) {
+  .main {
+    width: min(1640px, calc(100% - 128px));
+  }
+
+  .main:has(#view-settings:not([hidden])) {
+    width: min(1560px, calc(100% - 128px));
+  }
+
+  .main:has(#view-media:not([hidden])) {
+    width: min(1880px, calc(100% - 128px));
+  }
 }
 
 .view-panel[hidden] {
