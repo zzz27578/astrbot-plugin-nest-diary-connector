@@ -790,7 +790,7 @@ document.addEventListener(
     }
     if (target.dataset.onboardingPrev !== undefined) {
       state.onboardingStep = Math.max(0, state.onboardingStep - 1);
-      void updateOnboardingDialog();
+      void updateOnboardingDialog({ animate: true });
       return;
     }
     if (target.dataset.onboardingFinish !== undefined || target.dataset.onboardingClose !== undefined) {
@@ -2212,13 +2212,29 @@ async function advanceOnboarding() {
     return;
   }
   state.onboardingStep = index + 1;
-  await updateOnboardingDialog();
+  await updateOnboardingDialog({ animate: true });
 }
 
-async function updateOnboardingDialog() {
+function waitForOnboardingFade(ms = 140) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function updateOnboardingDialog({ animate = false } = {}) {
   state.onboardingStep = Math.max(0, Math.min(state.onboardingStep || 0, onboardingSteps().length - 1));
+  const backdrop = document.querySelector(".onboarding-backdrop");
+  if (animate && backdrop) {
+    backdrop.classList.add("transitioning");
+    await waitForOnboardingFade();
+  }
   await applyOnboardingStepRoute(onboardingSteps()[state.onboardingStep]);
   renderGlobalDialogs();
+  if (animate) {
+    const nextBackdrop = document.querySelector(".onboarding-backdrop");
+    if (nextBackdrop) {
+      nextBackdrop.classList.add("transitioning");
+      requestAnimationFrame(() => nextBackdrop.classList.remove("transitioning"));
+    }
+  }
 }
 
 async function applyOnboardingStepRoute(step) {

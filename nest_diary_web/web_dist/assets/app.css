@@ -234,14 +234,14 @@ a {
 }
 
 .main {
-  width: min(1180px, 100%);
+  width: min(1480px, 100%);
   min-width: 0;
   margin: 0 auto;
   padding: 34px 28px 56px;
 }
 
 .main:has(#view-media:not([hidden])) {
-  width: min(1440px, 100%);
+  width: min(1680px, 100%);
 }
 
 .view-panel[hidden] {
@@ -2282,7 +2282,7 @@ textarea {
     0 0 0 7px rgba(246, 198, 103, 0.18),
     0 18px 44px rgba(0, 0, 0, 0.28);
   pointer-events: none;
-  transition: left 180ms ease, top 180ms ease, width 180ms ease, height 180ms ease;
+  transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease, opacity 140ms ease;
 }
 
 .onboarding-spotlight.soft {
@@ -2296,6 +2296,16 @@ textarea {
   padding: 22px;
   overflow: visible;
   cursor: pointer;
+  transition: left 220ms ease, top 220ms ease, opacity 140ms ease, transform 140ms ease;
+}
+
+.onboarding-backdrop.transitioning .onboarding-dialog,
+.onboarding-backdrop.transitioning .onboarding-spotlight {
+  opacity: 0;
+}
+
+.onboarding-backdrop.transitioning .onboarding-dialog {
+  transform: translateY(4px);
 }
 
 .onboarding-arrow {
@@ -2336,6 +2346,12 @@ textarea {
   display: grid;
   gap: 14px;
   align-items: start;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.onboarding-backdrop.transitioning .onboarding-stage {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .onboarding-copy {
@@ -3026,7 +3042,8 @@ details[open] > *:not(summary) {
 .module-detail-actions {
   position: static;
   z-index: 4;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(124px, max-content));
   justify-content: flex-end;
   gap: 10px;
   padding-top: 0;
