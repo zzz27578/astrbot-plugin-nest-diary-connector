@@ -21,13 +21,11 @@
 
 html {
   min-width: 320px;
-  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  overflow-x: clip;
   color: var(--ink);
   background:
     linear-gradient(90deg, rgba(32, 36, 42, 0.045) 1px, transparent 1px),
@@ -58,7 +56,6 @@ a {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
-  overflow-x: clip;
 }
 
 .nav {
@@ -238,7 +235,6 @@ a {
 
 .main {
   width: min(1180px, 100%);
-  max-width: 100%;
   min-width: 0;
   margin: 0 auto;
   padding: 34px 28px 56px;
@@ -246,7 +242,6 @@ a {
 
 .main:has(#view-media:not([hidden])) {
   width: min(1440px, 100%);
-  max-width: 100%;
 }
 
 .view-panel[hidden] {
@@ -2458,7 +2453,6 @@ textarea {
 .settings-page {
   display: grid;
   gap: 16px;
-  min-width: 0;
 }
 
 .appearance-page {
@@ -2522,12 +2516,10 @@ textarea {
 }
 
 .settings-collapse {
-  min-width: 0;
   padding: 18px;
   border: 1px solid var(--line-strong);
   background: var(--panel);
   box-shadow: var(--shadow);
-  overflow: clip;
 }
 
 .settings-panel {
@@ -2551,7 +2543,7 @@ textarea {
 }
 
 .form-grid.compact {
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 340px));
   align-items: start;
 }
 
@@ -2565,7 +2557,6 @@ textarea {
   grid-template-columns: 96px minmax(0, 1fr);
   gap: 16px;
   align-items: center;
-  min-width: 0;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
 }
@@ -2591,13 +2582,12 @@ textarea {
 
 .style-chooser {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   padding: 4px 0 6px;
 }
 
 .style-card {
-  min-width: 0;
   min-height: 116px;
   justify-content: flex-start;
   gap: 13px;
@@ -2619,7 +2609,6 @@ textarea {
 .style-card span:not(.style-swatch) {
   display: grid;
   gap: 6px;
-  min-width: 0;
 }
 
 .style-card strong,
@@ -3159,7 +3148,6 @@ details[open] > *:not(summary) {
 .choice-card {
   position: relative;
   display: grid;
-  min-width: 0;
   min-height: 82px;
   padding: 13px 14px 13px 42px;
   border: 1px solid var(--line);
