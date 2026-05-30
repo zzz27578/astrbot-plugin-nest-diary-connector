@@ -244,40 +244,6 @@ a {
   width: min(1440px, 100%);
 }
 
-@media (min-width: 1500px) {
-  .main {
-    width: min(1320px, 100%);
-  }
-
-  .main:has(#view-media:not([hidden])) {
-    width: min(1560px, 100%);
-  }
-}
-
-@media (min-width: 1900px) {
-  .main {
-    width: min(1480px, calc(100% - 96px));
-  }
-
-  .main:has(#view-media:not([hidden])) {
-    width: min(1720px, calc(100% - 96px));
-  }
-}
-
-@media (min-width: 2400px) {
-  .main {
-    width: min(1640px, calc(100% - 128px));
-  }
-
-  .main:has(#view-settings:not([hidden])) {
-    width: min(1560px, calc(100% - 128px));
-  }
-
-  .main:has(#view-media:not([hidden])) {
-    width: min(1880px, calc(100% - 128px));
-  }
-}
-
 .view-panel[hidden] {
   display: none !important;
 }
@@ -2316,7 +2282,7 @@ textarea {
     0 0 0 7px rgba(246, 198, 103, 0.18),
     0 18px 44px rgba(0, 0, 0, 0.28);
   pointer-events: none;
-  transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease, opacity 140ms ease;
+  transition: left 220ms ease, top 220ms ease, width 220ms ease, height 220ms ease;
 }
 
 .onboarding-spotlight.soft {
@@ -2331,15 +2297,6 @@ textarea {
   overflow: visible;
   cursor: pointer;
   transition: left 220ms ease, top 220ms ease, opacity 140ms ease, transform 140ms ease;
-}
-
-.onboarding-backdrop.transitioning .onboarding-dialog,
-.onboarding-backdrop.transitioning .onboarding-spotlight {
-  opacity: 0;
-}
-
-.onboarding-backdrop.transitioning .onboarding-dialog {
-  transform: translateY(4px);
 }
 
 .onboarding-arrow {

@@ -2227,14 +2227,42 @@ async function updateOnboardingDialog({ animate = false } = {}) {
     await waitForOnboardingFade();
   }
   await applyOnboardingStepRoute(onboardingSteps()[state.onboardingStep]);
-  renderGlobalDialogs();
+  if (animate && document.querySelector(".onboarding-backdrop")) {
+    patchOnboardingDialog();
+  } else {
+    renderGlobalDialogs();
+  }
   if (animate) {
     const nextBackdrop = document.querySelector(".onboarding-backdrop");
     if (nextBackdrop) {
-      nextBackdrop.classList.add("transitioning");
       requestAnimationFrame(() => nextBackdrop.classList.remove("transitioning"));
     }
   }
+}
+
+function patchOnboardingDialog() {
+  const steps = onboardingSteps();
+  const index = Math.max(0, Math.min(state.onboardingStep || 0, steps.length - 1));
+  const step = steps[index];
+  const rect = onboardingStepRect(step);
+  const tooltip = onboardingTooltipStyle(rect);
+  const spotlight = document.querySelector(".onboarding-spotlight");
+  const dialog = document.querySelector("[data-onboarding-dialog]");
+  const stage = document.querySelector("[data-onboarding-stage]");
+  const actions = document.querySelector("[data-onboarding-actions]");
+  if (!spotlight || !dialog || !stage || !actions) {
+    renderGlobalDialogs();
+    return;
+  }
+  spotlight.className = `onboarding-spotlight ${rect.found ? "" : "soft"}`.trim();
+  spotlight.style.left = `${Math.round(rect.left)}px`;
+  spotlight.style.top = `${Math.round(rect.top)}px`;
+  spotlight.style.width = `${Math.round(rect.width)}px`;
+  spotlight.style.height = `${Math.round(rect.height)}px`;
+  dialog.className = `nest-dialog onboarding-dialog placement-${tooltip.placement}`;
+  dialog.setAttribute("style", tooltip.style);
+  stage.innerHTML = onboardingStepMarkup(step, index, steps.length);
+  actions.innerHTML = onboardingActions(index, steps.length);
 }
 
 async function applyOnboardingStepRoute(step) {
