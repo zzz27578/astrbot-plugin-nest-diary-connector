@@ -929,6 +929,9 @@ class ImpressionWriteRequest(BaseModel):
     previous_name: str = ""
     name: str
     summary: str
+    qq_id: str = ""
+    source_chat: str = ""
+    group_impressions: list[dict] = Field(default_factory=list)
     identity: str = ""
     traits: list[str] = Field(default_factory=list)
     hobbies: list[str] = Field(default_factory=list)
@@ -978,6 +981,7 @@ class SettingsUpdateRequest(BaseModel):
     auto_impression_from_diary: bool = False
     impression_write_level: str = "balanced"
     impression_update_strategy: str = "evidence_only"
+    impression_identity_strategy: str = "separate"
     impression_allow_new_people: bool = False
     impression_min_confidence: int = 3
     show_impression_prompt: bool = True
@@ -1052,10 +1056,13 @@ async def write_impression(
         raise HTTPException(status_code=400, detail="Person name is required")
     if previous_name and previous_name != next_name:
         impression_service.delete(previous_name)
+    ui_settings = service_settings.load()
     saved = impression_service.save(
         PersonImpression(
             name=next_name,
             summary=payload.summary.strip(),
+            qq_id=payload.qq_id.strip(),
+            group_impressions=payload.group_impressions,
             identity=payload.identity.strip(),
             traits=payload.traits,
             hobbies=payload.hobbies,
@@ -1067,7 +1074,9 @@ async def write_impression(
             evidence_dates=payload.evidence_dates,
             confidence=payload.confidence,
             notes=payload.notes.strip(),
-        )
+        ),
+        identity_strategy=ui_settings.impression_identity_strategy,
+        source_chat=payload.source_chat,
     )
     return {"status": "ok", "item": saved.__dict__}
 
@@ -1300,10 +1309,13 @@ async def ui_write_impression(payload: ImpressionWriteRequest, _session: None = 
         raise HTTPException(status_code=400, detail="Person name is required")
     if previous_name and previous_name != next_name:
         impression_service.delete(previous_name)
+    ui_settings = service_settings.load()
     saved = impression_service.save(
         PersonImpression(
             name=next_name,
             summary=payload.summary.strip(),
+            qq_id=payload.qq_id.strip(),
+            group_impressions=payload.group_impressions,
             identity=payload.identity.strip(),
             traits=payload.traits,
             hobbies=payload.hobbies,
@@ -1315,7 +1327,9 @@ async def ui_write_impression(payload: ImpressionWriteRequest, _session: None = 
             evidence_dates=payload.evidence_dates,
             confidence=payload.confidence,
             notes=payload.notes.strip(),
-        )
+        ),
+        identity_strategy=ui_settings.impression_identity_strategy,
+        source_chat=payload.source_chat,
     )
     return {"status": "ok", "item": saved.__dict__}
 
@@ -1646,6 +1660,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             auto_impression_from_diary=payload.auto_impression_from_diary,
             impression_write_level=payload.impression_write_level,
             impression_update_strategy=payload.impression_update_strategy,
+            impression_identity_strategy=payload.impression_identity_strategy,
             impression_allow_new_people=payload.impression_allow_new_people,
             impression_min_confidence=payload.impression_min_confidence,
             show_impression_prompt=payload.show_impression_prompt,

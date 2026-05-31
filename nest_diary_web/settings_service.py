@@ -109,6 +109,9 @@ class ServiceSettingsStore:
             settings.impression_write_level = "balanced"
         if settings.impression_update_strategy not in {"manual", "evidence_only", "existing_only", "aggressive"}:
             settings.impression_update_strategy = "evidence_only"
+        settings.impression_identity_strategy = str(getattr(settings, "impression_identity_strategy", "separate") or "separate")
+        if settings.impression_identity_strategy not in {"unified", "nested", "separate"}:
+            settings.impression_identity_strategy = "separate"
         settings.impression_allow_new_people = bool(settings.impression_allow_new_people)
         settings.impression_min_confidence = max(1, min(int(settings.impression_min_confidence), 5))
         if settings.impression_write_level == "off":

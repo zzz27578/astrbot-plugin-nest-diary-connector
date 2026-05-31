@@ -30,6 +30,8 @@ class DiaryEntry:
 class PersonImpression:
     name: str
     summary: str
+    qq_id: str = ""
+    group_impressions: list[dict] = field(default_factory=list)
     identity: str = ""
     traits: list[str] = field(default_factory=list)
     hobbies: list[str] = field(default_factory=list)
@@ -119,6 +121,7 @@ class ServiceUiSettings:
     auto_impression_from_diary: bool = False
     impression_write_level: str = "balanced"
     impression_update_strategy: str = "evidence_only"
+    impression_identity_strategy: str = "separate"
     impression_allow_new_people: bool = False
     impression_min_confidence: int = 3
     show_impression_prompt: bool = True

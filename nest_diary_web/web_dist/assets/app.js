@@ -1395,6 +1395,8 @@ function renderImpressionDetail(item) {
     evidence_dates: [],
     confidence: 3,
     notes: "",
+    qq_id: "",
+    group_impressions: [],
   };
   const value = item || empty;
   return `
@@ -1421,9 +1423,27 @@ function renderImpressionDetail(item) {
       </div>
       <label>特殊点评<textarea name="special_comment" placeholder="bot 按自己人设写出的主观点评，可以保留语气，但必须有依据。">${escapeHtml(value.special_comment || "")}</textarea></label>
       <label>备注<textarea name="notes" placeholder="其他情报、待验证观察、长期边界。">${escapeHtml(value.notes || "")}</textarea></label>
+      <input name="qq_id" type="hidden" value="${escapeHtml(value.qq_id || "")}">
+      ${renderGroupImpressions(value.group_impressions || [])}
       <div class="notice soft">日记写完后如果开启人物印象自检，bot 应先读取旧印象，再根据新证据决定是否更新；没有稳定变化就不用硬写。</div>
       <div class="actions"><button class="primary">保存人物印象</button></div>
     </form>
+  `;
+}
+
+function renderGroupImpressions(items = []) {
+  if (!items.length) return "";
+  return `
+    <div class="notice soft impression-group-list">
+      <strong>不同群聊中的印象</strong>
+      ${items.map((item) => `
+        <section>
+          <h3>${escapeHtml(item.source_chat || "未知群聊")} · ${escapeHtml(item.name || "")}</h3>
+          <p>${escapeHtml(item.summary || "")}</p>
+          ${(item.evidence_dates || []).length ? `<em>证据：${escapeHtml((item.evidence_dates || []).join("、"))}</em>` : ""}
+        </section>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -1474,6 +1494,7 @@ async function saveImpression(event) {
     evidence_dates: splitWords(form.get("evidence_dates")),
     confidence: Number(form.get("confidence") || 3),
     notes: form.get("notes"),
+    qq_id: form.get("qq_id") || "",
   };
   const result = await api("/api/ui/impressions", { method: "POST", body: JSON.stringify(payload) });
   state.notice = "人物印象已保存。";
@@ -3725,6 +3746,11 @@ function moduleSettingsBody(payload, detailKey) {
           <option value="evidence_only" ${settings.impression_update_strategy === "evidence_only" ? "selected" : ""}>有证据才更新</option>
           <option value="aggressive" ${settings.impression_update_strategy === "aggressive" ? "selected" : ""}>允许新建人物</option>
         </select></label>
+        <label>跨群同人策略<select name="impression_identity_strategy">
+          <option value="separate" ${(settings.impression_identity_strategy || "separate") === "separate" ? "selected" : ""}>不收束：按群昵称分开写</option>
+          <option value="unified" ${settings.impression_identity_strategy === "unified" ? "selected" : ""}>统一人物：按 QQ 合成总体印象</option>
+          <option value="nested" ${settings.impression_identity_strategy === "nested" ? "selected" : ""}>统一人物：按 QQ 挂载不同群印象</option>
+        </select></label>
         <label>确认程度<input name="impression_min_confidence" type="number" min="1" max="5" value="${settings.impression_min_confidence || 3}"></label>
       </div>
       ${check("impression_allow_new_people", "允许自动新建人物", settings.impression_allow_new_people)}
@@ -4049,6 +4075,7 @@ async function saveSettings(event) {
     auto_impression_from_diary: boolField("auto_impression_from_diary", current.auto_impression_from_diary),
     impression_write_level: valueField("impression_write_level", current.impression_write_level || "balanced"),
     impression_update_strategy: valueField("impression_update_strategy", current.impression_update_strategy || "evidence_only"),
+    impression_identity_strategy: valueField("impression_identity_strategy", current.impression_identity_strategy || "separate"),
     impression_allow_new_people: boolField("impression_allow_new_people", current.impression_allow_new_people),
     impression_min_confidence: numberField("impression_min_confidence", current.impression_min_confidence || 3),
     show_impression_prompt: boolField("show_impression_prompt", current.show_impression_prompt),

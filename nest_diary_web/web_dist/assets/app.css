@@ -641,6 +641,34 @@ button.ghost {
   min-height: 150px;
 }
 
+.impression-group-list {
+  display: grid;
+  gap: 10px;
+}
+
+.impression-group-list section {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.impression-group-list h3,
+.impression-group-list p {
+  margin: 0;
+}
+
+.impression-group-list h3 {
+  font-size: 14px;
+}
+
+.impression-group-list em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .diary-article {
   min-height: calc(100vh - 126px);
   border-color: var(--line-strong);

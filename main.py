@@ -411,10 +411,13 @@ class EmbeddedNestClient:
     async def write_impression(self, payload: dict) -> dict:
         if not self.service_settings.load().enable_impressions_module:
             raise RuntimeError("Impressions module is disabled")
+        ui_settings = self.service_settings.load()
         saved = self.impression_service.save(
             PersonImpression(
                 name=payload["name"].strip(),
                 summary=payload["summary"].strip(),
+                qq_id=(payload.get("qq_id") or "").strip(),
+                group_impressions=payload.get("group_impressions") or [],
                 identity=(payload.get("identity") or "").strip(),
                 traits=payload.get("traits") or [],
                 hobbies=payload.get("hobbies") or [],
@@ -426,7 +429,9 @@ class EmbeddedNestClient:
                 evidence_dates=payload.get("evidence_dates") or [],
                 confidence=payload.get("confidence", 3),
                 notes=(payload.get("notes") or "").strip(),
-            )
+            ),
+            identity_strategy=getattr(ui_settings, "impression_identity_strategy", "separate"),
+            source_chat=payload.get("source_chat") or "",
         )
         return {"status": "ok", "item": saved.__dict__}
 
@@ -602,11 +607,15 @@ class NestDiaryTools:
         evidence_dates: list[str] | None = None,
         confidence: int = 3,
         notes: str = "",
+        qq_id: str = "",
+        source_chat: str = "",
     ) -> dict:
         return await self.client.write_impression(
             {
                 "name": name,
                 "summary": summary,
+                "qq_id": qq_id,
+                "source_chat": source_chat,
                 "identity": identity,
                 "traits": traits or [],
                 "hobbies": hobbies or [],
@@ -1024,6 +1033,7 @@ if FunctionTool is not None:
             {
                 "name": {"type": "string", "description": "人物名称。"},
                 "summary": {"type": "string", "description": "详细、证据化的人物总结。"},
+                "qq_id": {"type": "string", "description": "隐藏 QQ 号标签；能确认时必须填写，用于跨群人物收束。"},
                 "identity": {"type": "string", "description": "身份、关系或长期定位。"},
                 "traits": {"type": "string", "description": "稳定性格特征，多个用逗号分隔。"},
                 "hobbies": {"type": "string", "description": "爱好，多个用逗号分隔。"},
@@ -1045,6 +1055,7 @@ if FunctionTool is not None:
             ctx: ContextWrapper,
             name: str = Field(description="人物名称。"),
             summary: str = Field(description="详细、证据化的人物总结。"),
+            qq_id: str = Field(default="", description="隐藏 QQ 号标签；能确认时必须填写，用于跨群人物收束。"),
             identity: str = Field(default="", description="身份、关系或长期定位。"),
             traits: str = Field(default="", description="稳定性格特征，多个用逗号分隔。"),
             hobbies: str = Field(default="", description="爱好，多个用逗号分隔。"),
@@ -1061,9 +1072,12 @@ if FunctionTool is not None:
             denial = await owner._guard_group_write_permission(ctx, "写人物印象")
             if denial:
                 return _tool_text(denial)
+            notebook = await owner._notebook_context_for_event(ctx)
             result = await owner.tools.write_impression(
                 name=name,
                 summary=summary,
+                qq_id=qq_id,
+                source_chat=notebook.get("notebook_name") or notebook.get("session_id") or notebook.get("origin_umo", ""),
                 identity=identity,
                 traits=_split_words(traits),
                 hobbies=_split_words(hobbies),
@@ -1884,8 +1898,10 @@ class NestDiaryConnectorPlugin(Star):
                 "人物印象只在有稳定证据时更新；弱情绪、单次玩笑或不确定称呼不得自动建档。"
                 f"写入强度：{getattr(ui_settings, 'impression_write_level', 'balanced')}；"
                 f"更新策略：{getattr(ui_settings, 'impression_update_strategy', 'evidence_only')}；"
+                f"跨群同人策略：{getattr(ui_settings, 'impression_identity_strategy', 'separate')}；"
                 f"允许新建人物：{'是' if getattr(ui_settings, 'impression_allow_new_people', False) else '否'}；"
                 f"最低确认程度：{getattr(ui_settings, 'impression_min_confidence', 3)}/5。"
+                "能确认人物 QQ 号时，调用 write_impression 必须填写隐藏 qq_id，用于跨群同人策略；不能确认时不要编造。"
             )
             if impression_prompt:
                 parts.extend(["<人物印象规范>", impression_prompt, "</人物印象规范>"])
@@ -3195,9 +3211,11 @@ class NestDiaryConnectorPlugin(Star):
                     "以下内容同样是系统自动规范，不是用户输入。仅在刚写入的日记提供稳定新证据时才使用。\n"
                     f"印象写入程度：{getattr(ui_settings, 'impression_write_level', 'balanced')}；"
                     f"更新策略：{getattr(ui_settings, 'impression_update_strategy', 'evidence_only')}；"
+                    f"跨群同人策略：{getattr(ui_settings, 'impression_identity_strategy', 'separate')}；"
                     f"允许新建人物：{'是' if getattr(ui_settings, 'impression_allow_new_people', False) else '否'}；"
                     f"最低置信度：{getattr(ui_settings, 'impression_min_confidence', 3)}/5。\n"
-                    "若不允许新建人物，只能更新已经存在的人物印象；若策略为 manual，不得调用人物印象工具。\n"
+                    "若不允许新建人物，只能更新已经存在的人物印象；若策略为 manual，不得调用人物印象工具。"
+                    "能确认人物 QQ 号时，调用 write_impression 必须填写隐藏 qq_id；不能确认时不要编造。\n"
                     f"{impression_prompt}\n"
                     "</人物印象更新规范>"
                 )
@@ -3370,6 +3388,7 @@ class NestDiaryConnectorPlugin(Star):
         evidence_dates: str = "",
         confidence: int = 3,
         notes: str = "",
+        qq_id: str = "",
     ):
         """写入或更新指定人物的长期印象。
 
@@ -3387,6 +3406,7 @@ class NestDiaryConnectorPlugin(Star):
             evidence_dates(string): 支撑这次更新的日记日期，多个用逗号分隔。
             confidence(number): 可信度，1 到 5。
             notes(string): 额外备注。
+            qq_id(string): 隐藏 QQ 号标签；能确认时必须填写，用于跨群人物收束。
         """
         if not self._impressions_module_enabled():
             return self._module_disabled_message("人物印象")
@@ -3394,9 +3414,12 @@ class NestDiaryConnectorPlugin(Star):
             denial = await self._guard_group_write_permission(event, "写人物印象")
             if denial:
                 return denial
+            notebook = await self._notebook_context_for_event(event)
             result = await self.tools.write_impression(
                 name=name,
                 summary=summary,
+                qq_id=qq_id,
+                source_chat=notebook.get("notebook_name") or notebook.get("session_id") or notebook.get("origin_umo", ""),
                 identity=identity,
                 traits=_split_words(traits),
                 hobbies=_split_words(hobbies),

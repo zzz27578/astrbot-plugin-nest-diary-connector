@@ -20,8 +20,14 @@ class ImpressionService:
     def people_dir(self) -> Path:
         return self.paths.memory_dir / "people"
 
-    def save(self, impression: PersonImpression) -> PersonImpression:
+    def save(self, impression: PersonImpression, identity_strategy: str = "separate", source_chat: str = "") -> PersonImpression:
+        impression = self._apply_identity_strategy(impression, identity_strategy, source_chat)
         current = self.get(impression.name)
+        if current:
+            if not impression.qq_id:
+                impression.qq_id = current.qq_id
+            if not impression.group_impressions:
+                impression.group_impressions = current.group_impressions
         if current and not impression.updated_at:
             impression.updated_at = self._now()
         elif not impression.updated_at:
@@ -30,6 +36,8 @@ class ImpressionService:
         impression.name = impression.name.strip()
         if not impression.name:
             raise ValueError("Person name is required")
+        impression.qq_id = str(impression.qq_id or "").strip()
+        impression.group_impressions = [item for item in impression.group_impressions if isinstance(item, dict)]
         impression.summary = impression.summary.strip()
         impression.identity = impression.identity.strip()
         impression.relationship = impression.relationship.strip()
@@ -43,6 +51,26 @@ class ImpressionService:
             encoding="utf-8",
         )
         return impression
+
+    def _apply_identity_strategy(self, impression: PersonImpression, strategy: str, source_chat: str = "") -> PersonImpression:
+        strategy = strategy if strategy in {"unified", "nested", "separate"} else "separate"
+        qq_id = str(impression.qq_id or "").strip()
+        if not qq_id or strategy == "separate":
+            return impression
+        current_same_name = self.get(impression.name)
+        target = current_same_name or self.find_by_qq_id(qq_id)
+        if not target:
+            return impression
+        if target.name != impression.name:
+            self._remember_alias(target, impression.name)
+        if strategy == "nested":
+            target = self._merge_impression_fields(target, impression, merge_summary=False)
+            target.qq_id = qq_id
+            target.group_impressions = self._upsert_group_impression(target.group_impressions, impression, source_chat)
+            return target
+        target = self._merge_impression_fields(target, impression, merge_summary=True)
+        target.qq_id = qq_id
+        return target
 
     def delete(self, name: str) -> bool:
         path = self._person_path(name)
@@ -67,6 +95,15 @@ class ImpressionService:
             except Exception:
                 continue
         return sorted(people, key=lambda item: item.updated_at, reverse=True)
+
+    def find_by_qq_id(self, qq_id: str) -> PersonImpression | None:
+        qq_id = str(qq_id or "").strip()
+        if not qq_id:
+            return None
+        for item in self.list_people():
+            if str(item.qq_id or "").strip() == qq_id:
+                return item
+        return None
 
     def touch_from_diary(
         self,
@@ -115,6 +152,8 @@ class ImpressionService:
         return PersonImpression(
             name=data["name"],
             summary=data.get("summary", ""),
+            qq_id=str(data.get("qq_id", "") or ""),
+            group_impressions=data.get("group_impressions", []) if isinstance(data.get("group_impressions", []), list) else [],
             identity=data.get("identity", ""),
             traits=data.get("traits", []),
             hobbies=data.get("hobbies", []),
@@ -128,6 +167,70 @@ class ImpressionService:
             notes=data.get("notes", ""),
             updated_at=data.get("updated_at", ""),
         )
+
+    def _merge_impression_fields(self, base: PersonImpression, incoming: PersonImpression, merge_summary: bool) -> PersonImpression:
+        if merge_summary and incoming.summary and incoming.summary not in base.summary:
+            base.summary = f"{base.summary.rstrip()}\n\n【{incoming.name}】{incoming.summary}".strip() if base.summary else incoming.summary
+        for field_name in ("traits", "hobbies", "interests", "preferences", "evidence_dates"):
+            merged = list(dict.fromkeys([*getattr(base, field_name), *getattr(incoming, field_name)]))
+            setattr(base, field_name, merged)
+        for field_name in ("identity", "relationship", "special_comment", "notes"):
+            current = getattr(base, field_name)
+            value = getattr(incoming, field_name)
+            if value and value not in current:
+                setattr(base, field_name, f"{current.rstrip()}\n{value}".strip() if current else value)
+        base.affinity = max(int(base.affinity or 3), int(incoming.affinity or 3))
+        base.confidence = max(int(base.confidence or 3), int(incoming.confidence or 3))
+        return base
+
+    def _remember_alias(self, item: PersonImpression, alias: str) -> None:
+        alias = str(alias or "").strip()
+        if not alias or alias == item.name:
+            return
+        marker = f"历史昵称：{alias}"
+        if marker not in item.notes:
+            item.notes = f"{item.notes.rstrip()}\n{marker}".strip()
+
+    def _upsert_group_impression(self, items: list[dict], incoming: PersonImpression, source_chat: str) -> list[dict]:
+        source_chat = str(source_chat or "").strip() or "未知群聊"
+        next_items = [dict(item) for item in items if isinstance(item, dict)]
+        for item in next_items:
+            if str(item.get("source_chat") or "") == source_chat:
+                item.update(
+                    {
+                        "name": incoming.name,
+                        "summary": incoming.summary,
+                        "identity": incoming.identity,
+                        "relationship": incoming.relationship,
+                        "traits": incoming.traits,
+                        "hobbies": incoming.hobbies,
+                        "interests": incoming.interests,
+                        "preferences": incoming.preferences,
+                        "special_comment": incoming.special_comment,
+                        "evidence_dates": incoming.evidence_dates,
+                        "confidence": incoming.confidence,
+                        "updated_at": self._now(),
+                    }
+                )
+                return next_items
+        next_items.append(
+            {
+                "source_chat": source_chat,
+                "name": incoming.name,
+                "summary": incoming.summary,
+                "identity": incoming.identity,
+                "relationship": incoming.relationship,
+                "traits": incoming.traits,
+                "hobbies": incoming.hobbies,
+                "interests": incoming.interests,
+                "preferences": incoming.preferences,
+                "special_comment": incoming.special_comment,
+                "evidence_dates": incoming.evidence_dates,
+                "confidence": incoming.confidence,
+                "updated_at": self._now(),
+            }
+        )
+        return next_items
 
     def _person_path(self, name: str) -> Path:
         safe_name = quote(name.strip(), safe="")
