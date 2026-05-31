@@ -116,7 +116,7 @@ class ServiceSettingsStore:
         settings.impression_min_confidence = max(1, min(int(settings.impression_min_confidence), 5))
         if settings.impression_write_level == "off":
             settings.auto_impression_from_diary = False
-        if settings.impression_update_strategy in {"manual", "existing_only"}:
+        if settings.impression_update_strategy == "manual":
             settings.impression_allow_new_people = False
         settings.show_impression_prompt = bool(settings.show_impression_prompt)
         settings.enable_memos_module = bool(getattr(settings, "enable_memos_module", True))

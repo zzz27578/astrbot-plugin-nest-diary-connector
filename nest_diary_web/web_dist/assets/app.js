@@ -4142,7 +4142,10 @@ async function saveSettings(event) {
       payload.enabled_official_modules = syncEnabledModule(payload.enabled_official_modules, "memos", payload.enable_memos_module);
     }
   }
-  await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
+  const savedSettings = await api("/api/ui/settings", { method: "POST", body: JSON.stringify(payload) });
+  if (savedSettings?.settings) {
+    state.settings = { ...(state.settings || {}), settings: savedSettings.settings };
+  }
   await saveNotebookSettings(formEl, form);
   refreshThemeStylesheet();
   state.toast = "设置已保存";
