@@ -4022,7 +4022,10 @@ async function saveSettings(event) {
   const form = new FormData(formEl);
   const current = state.settings?.settings || {};
   const hasField = (name) => formEl.querySelector(`[name="${CSS.escape(name)}"]`) !== null;
-  const valueField = (name, fallback = "") => (hasField(name) ? form.get(name) : fallback);
+  const valueField = (name, fallback = "") => {
+    const field = formEl.querySelector(`[name="${CSS.escape(name)}"]`);
+    return field ? field.value : fallback;
+  };
   const boolField = (name, fallback = false) => (hasField(name) ? form.has(name) : Boolean(fallback));
   const boolValueField = (name, fallback = false) => {
     if (!hasField(name)) return Boolean(fallback);
