@@ -119,7 +119,7 @@ framework/user_custom/webui/templates/
 
 外观模块可以声明 `type: "appearance"` 和 `appearance_mode`。`appearance_mode: "global"` 表示全局替换小窝前端样式；官方全局外观收束在“设置 → 外观设置”里选择，不作为普通模块卡片散落展示。其他值按补充拓展处理，可以作为模块控制台里的外观拓展出现。
 
-`0.5.14` 内置三套官方全局外观：
+`0.5.15` 内置三套官方全局外观：
 
 - `nest-paper-garden`：纸庭，偏纸感手账和长期阅读。
 - `nest-glass-cabin`：玻璃小屋，偏轻玻璃、清爽管理界面。

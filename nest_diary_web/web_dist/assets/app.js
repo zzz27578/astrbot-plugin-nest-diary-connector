@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.14";
+const APP_VERSION = "0.5.15";
 
 const DIARY_T2I_TEMPLATES = [
   {

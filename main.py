@@ -60,7 +60,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.14"
+PLUGIN_VERSION = "0.5.15"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -432,6 +432,7 @@ class EmbeddedNestClient:
             ),
             identity_strategy=getattr(ui_settings, "impression_identity_strategy", "separate"),
             source_chat=payload.get("source_chat") or "",
+            merge_existing=True,
         )
         return {"status": "ok", "item": saved.__dict__}
 

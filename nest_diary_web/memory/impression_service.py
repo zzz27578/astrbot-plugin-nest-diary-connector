@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,9 @@ from nest_diary_web.paths import NestPaths
 
 
 class ImpressionService:
+    AUTO_EVIDENCE_NOTE_RE = re.compile(r"^自动补充证据：该人物出现在 (\d{4}-\d{2}-\d{2}) 的日记关联人物中。$")
+    AUTO_NOTE_RE = re.compile(r"^自动(?:补充证据|候选建档)：该人物出现在 \d{4}-\d{2}-\d{2} 的日记关联人物中。$")
+
     def __init__(self, paths: NestPaths):
         self.paths = paths
         self.paths.ensure_all()
@@ -20,10 +24,18 @@ class ImpressionService:
     def people_dir(self) -> Path:
         return self.paths.memory_dir / "people"
 
-    def save(self, impression: PersonImpression, identity_strategy: str = "separate", source_chat: str = "") -> PersonImpression:
+    def save(
+        self,
+        impression: PersonImpression,
+        identity_strategy: str = "separate",
+        source_chat: str = "",
+        merge_existing: bool = False,
+    ) -> PersonImpression:
         impression = self._apply_identity_strategy(impression, identity_strategy, source_chat)
         current = self.get(impression.name)
         if current:
+            if merge_existing:
+                impression = self._merge_existing_profile(current, impression)
             if not impression.qq_id:
                 impression.qq_id = current.qq_id
             if not impression.group_impressions:
@@ -43,6 +55,7 @@ class ImpressionService:
         impression.relationship = impression.relationship.strip()
         impression.special_comment = impression.special_comment.strip()
         impression.notes = impression.notes.strip()
+        impression = self._sanitize_impression(impression)
         impression.affinity = max(1, min(int(impression.affinity), 5))
         impression.confidence = max(1, min(int(impression.confidence), 5))
         path = self._person_path(impression.name)
@@ -123,15 +136,8 @@ class ImpressionService:
                 continue
             current = self.get(name)
             if current:
-                if not update_existing:
-                    continue
-                changed = False
-                if entry.date not in current.evidence_dates:
-                    current.evidence_dates.append(entry.date)
-                    changed = True
-                if changed:
-                    current.notes = self._append_auto_note(current.notes, entry.date, "自动补充证据")
-                    touched.append(self.save(current))
+                # Existing profiles should be updated by the bot with a real
+                # impression rewrite, not by logging every diary mention.
                 continue
             if not allow_new_people:
                 continue
@@ -142,14 +148,13 @@ class ImpressionService:
                         summary=self._auto_summary(name, entry.date, min_confidence),
                         evidence_dates=[entry.date],
                         confidence=min_confidence,
-                        notes=self._append_auto_note("", entry.date, "自动候选建档"),
                     )
                 )
             )
         return touched
 
     def _from_dict(self, data: dict) -> PersonImpression:
-        return PersonImpression(
+        return self._sanitize_impression(PersonImpression(
             name=data["name"],
             summary=data.get("summary", ""),
             qq_id=str(data.get("qq_id", "") or ""),
@@ -166,7 +171,7 @@ class ImpressionService:
             confidence=data.get("confidence", 3),
             notes=data.get("notes", ""),
             updated_at=data.get("updated_at", ""),
-        )
+        ))
 
     def _merge_impression_fields(self, base: PersonImpression, incoming: PersonImpression, merge_summary: bool) -> PersonImpression:
         if merge_summary and incoming.summary and incoming.summary not in base.summary:
@@ -182,6 +187,56 @@ class ImpressionService:
         base.affinity = max(int(base.affinity or 3), int(incoming.affinity or 3))
         base.confidence = max(int(base.confidence or 3), int(incoming.confidence or 3))
         return base
+
+    def _merge_existing_profile(self, current: PersonImpression, incoming: PersonImpression) -> PersonImpression:
+        current = self._sanitize_impression(current)
+        incoming = self._sanitize_impression(incoming)
+        for field_name in ("traits", "hobbies", "interests", "preferences", "evidence_dates"):
+            merged = list(dict.fromkeys([*getattr(current, field_name), *getattr(incoming, field_name)]))
+            setattr(incoming, field_name, merged)
+        for field_name in ("summary", "identity", "relationship", "special_comment"):
+            if not getattr(incoming, field_name):
+                setattr(incoming, field_name, getattr(current, field_name))
+        incoming.notes = self._merge_text_lines(current.notes, incoming.notes)
+        incoming.affinity = max(int(current.affinity or 3), int(incoming.affinity or 3))
+        incoming.confidence = max(int(current.confidence or 3), int(incoming.confidence or 3))
+        return incoming
+
+    def _merge_text_lines(self, current: str, incoming: str) -> str:
+        lines = []
+        for value in (current, incoming):
+            for line in str(value or "").splitlines():
+                line = line.strip()
+                if line and line not in lines:
+                    lines.append(line)
+        return "\n".join(lines)
+
+    def _sanitize_impression(self, impression: PersonImpression) -> PersonImpression:
+        auto_evidence_dates: set[str] = set()
+        clean_note_lines: list[str] = []
+        for line in str(impression.notes or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = self.AUTO_EVIDENCE_NOTE_RE.match(line)
+            if match:
+                auto_evidence_dates.add(match.group(1))
+                continue
+            if self.AUTO_NOTE_RE.match(line):
+                continue
+            clean_note_lines.append(line)
+        impression.notes = "\n".join(dict.fromkeys(clean_note_lines))
+        impression.evidence_dates = self._normalize_list(
+            date
+            for date in impression.evidence_dates
+            if str(date).strip() not in auto_evidence_dates
+        )
+        for field_name in ("traits", "hobbies", "interests", "preferences"):
+            setattr(impression, field_name, self._normalize_list(getattr(impression, field_name)))
+        return impression
+
+    def _normalize_list(self, values) -> list[str]:
+        return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
 
     def _remember_alias(self, item: PersonImpression, alias: str) -> None:
         alias = str(alias or "").strip()

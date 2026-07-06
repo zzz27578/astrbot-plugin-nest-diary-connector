@@ -31,7 +31,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.14"
+APP_VERSION = "0.5.15"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -1077,6 +1077,7 @@ async def write_impression(
         ),
         identity_strategy=ui_settings.impression_identity_strategy,
         source_chat=payload.source_chat,
+        merge_existing=True,
     )
     return {"status": "ok", "item": saved.__dict__}
 

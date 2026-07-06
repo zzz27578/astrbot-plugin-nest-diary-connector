@@ -51,7 +51,7 @@ nest_diary_web/web/static/
 
 ## Built-In Appearance Modules
 
-Version 0.5.14 ships three official global appearance modules. They are selectable in WebUI settings under `外观设置`; do not show these official global styles as ordinary module cards in `模块控制台`.
+Version 0.5.15 ships three official global appearance modules. They are selectable in WebUI settings under `外观设置`; do not show these official global styles as ordinary module cards in `模块控制台`.
 
 - `nest-paper-garden`: warm paper reading style for long diary browsing.
 - `nest-glass-cabin`: bright glass interface for a cleaner modern home.
