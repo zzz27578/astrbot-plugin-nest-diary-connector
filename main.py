@@ -14,7 +14,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from html import escape as html_escape
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
 PLUGIN_DIR = Path(__file__).resolve().parent
@@ -60,7 +60,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.16"
+PLUGIN_VERSION = "0.5.17"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1460,11 +1460,228 @@ class NestDiaryConnectorPlugin(Star):
                 }
             )
 
-        route = f"/{PLUGIN_NAME}/status"
+        async def nest_page_ui_proxy():
+            payload = await self._plugin_page_json_body()
+            path = str(payload.get("path") or "").strip()
+            method = str(payload.get("method") or "GET").upper()
+            body = payload.get("body")
+            try:
+                result = await self._proxy_embedded_webui_json(path, method=method, body=body)
+            except Exception as exc:
+                result = {"ok": False, "status_code": 502, "detail": _brief_error(exc)}
+            return make_json_response(result)
+
+        async def nest_page_ui_upload(upload_kind: str):
+            try:
+                result = await self._proxy_embedded_webui_upload(upload_kind)
+            except Exception as exc:
+                result = {"ok": False, "status_code": 502, "detail": _brief_error(exc)}
+            return make_json_response(result)
+
+        async def nest_page_ui_export():
+            return await self._proxy_embedded_webui_download("export")
+
+        async def nest_page_ui_media():
+            return await self._proxy_embedded_webui_download("media")
+
+        routes = [
+            (f"/{PLUGIN_NAME}/status", nest_page_status, ["GET"], "Nest page status"),
+            (f"/{PLUGIN_NAME}/ui/proxy", nest_page_ui_proxy, ["POST"], "Nest embedded WebUI proxy"),
+            (f"/{PLUGIN_NAME}/ui/upload/<upload_kind>", nest_page_ui_upload, ["POST"], "Nest embedded WebUI upload"),
+            (f"/{PLUGIN_NAME}/ui/export", nest_page_ui_export, ["GET"], "Nest embedded WebUI export"),
+            (f"/{PLUGIN_NAME}/ui/media", nest_page_ui_media, ["GET"], "Nest embedded WebUI media download"),
+        ]
+        for route, handler, methods, description in routes:
+            try:
+                self.context.register_web_api(route, handler, methods, description)
+            except TypeError:
+                self.context.register_web_api(route, handler, methods)
+
+    async def _plugin_page_json_body(self) -> dict:
         try:
-            self.context.register_web_api(route, nest_page_status, ["GET"], "Nest page status")
-        except TypeError:
-            self.context.register_web_api(route, nest_page_status, ["GET"])
+            from astrbot.api.web import request as plugin_request
+
+            payload = await plugin_request.json(default={})
+        except Exception:
+            try:
+                from quart import request as plugin_request
+
+                payload = await plugin_request.get_json(silent=True)
+            except Exception:
+                payload = {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _embedded_webui_origin(self) -> str:
+        host = str(self.config.get("web_host", "0.0.0.0") or "0.0.0.0").strip()
+        if host == "0.0.0.0":
+            host = "127.0.0.1"
+        elif host in {"::", "::0"}:
+            host = "::1"
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{int(self.config.get('web_port', 28080))}"
+
+    def _plugin_page_webui_meta(self) -> dict:
+        return {
+            "web_host": self.config.get("web_host", "0.0.0.0"),
+            "web_port": int(self.config.get("web_port", 28080)),
+        }
+
+    @staticmethod
+    def _allowed_plugin_page_path(path: str) -> bool:
+        clean_path = str(path or "").strip()
+        if not clean_path.startswith("/") or clean_path.startswith("//") or "://" in clean_path:
+            return False
+        base_path = clean_path.split("?", 1)[0]
+        return base_path == "/theme.css" or base_path.startswith("/api/ui/")
+
+    async def _embedded_webui_request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        json_body=None,
+        form_data=None,
+        timeout_seconds: int = 120,
+    ) -> tuple[int, str, bytes, dict]:
+        if not self.webui_enabled or not self._webui_started:
+            raise RuntimeError(self._webui_error or "Embedded WebUI is not running")
+        if not self._allowed_plugin_page_path(path) and not path.startswith("/media/blobs/"):
+            raise ValueError("Unsupported embedded WebUI path")
+
+        from nest_diary_web.main import web_auth
+
+        headers = {"Cookie": f"nest_session={web_auth.create_session_token()}"}
+        request_kwargs = {"headers": headers}
+        if form_data is not None:
+            request_kwargs["data"] = form_data
+        elif json_body is not None:
+            request_kwargs["json"] = json_body
+
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        target = f"{self._embedded_webui_origin()}{path}"
+        last_error = None
+        for attempt in range(12):
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.request(method, target, **request_kwargs) as response:
+                        content = await response.read()
+                        return response.status, response.headers.get("Content-Type", ""), content, dict(response.headers)
+            except (aiohttp.ClientConnectorError, ConnectionRefusedError, OSError) as exc:
+                last_error = exc
+                if attempt >= 11:
+                    break
+                await asyncio.sleep(0.1)
+        raise RuntimeError(f"Embedded WebUI connection failed: {last_error}")
+
+    async def _proxy_embedded_webui_json(self, path: str, *, method: str = "GET", body=None) -> dict:
+        if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
+            return {"ok": False, "status_code": 405, "detail": "Unsupported method"}
+        if not self._allowed_plugin_page_path(path):
+            return {"ok": False, "status_code": 400, "detail": "Unsupported path"}
+        status, content_type, content, _headers = await self._embedded_webui_request(
+            path,
+            method=method,
+            json_body=body if method != "GET" else None,
+        )
+        text = content.decode("utf-8", errors="replace")
+        if status >= 400:
+            detail = text
+            try:
+                parsed = json.loads(text)
+                detail = parsed.get("detail") or parsed.get("message") or text
+            except Exception:
+                pass
+            return {"ok": False, "status_code": status, "detail": detail}
+        if "json" in content_type.lower():
+            data = json.loads(text) if text else None
+        else:
+            data = text
+        return {"ok": True, "data": data, **self._plugin_page_webui_meta()}
+
+    async def _proxy_embedded_webui_upload(self, upload_kind: str) -> dict:
+        upload_map = {
+            "avatar": ("/api/ui/avatar", "file"),
+            "import-preview": ("/api/ui/import/preview", "backup_file"),
+            "import-safe": ("/api/ui/import", "backup_file"),
+            "import-overwrite": ("/api/ui/import", "backup_file"),
+        }
+        if upload_kind not in upload_map:
+            return {"ok": False, "status_code": 404, "detail": "Unknown upload target"}
+        try:
+            from astrbot.api.web import PluginUploadFile, request as plugin_request
+        except Exception:
+            return {"ok": False, "status_code": 501, "detail": "This AstrBot version does not support plugin page uploads"}
+
+        files = await plugin_request.files()
+        upload = files.get("file")
+        if not isinstance(upload, PluginUploadFile):
+            return {"ok": False, "status_code": 400, "detail": "Missing upload file"}
+        content = await upload.read()
+        target_path, field_name = upload_map[upload_kind]
+        strategy = "overwrite" if upload_kind == "import-overwrite" else "safe"
+        form = aiohttp.FormData()
+        form.add_field(
+            field_name,
+            content,
+            filename=upload.filename or "upload.bin",
+            content_type=upload.content_type or "application/octet-stream",
+        )
+        if upload_kind in {"import-safe", "import-overwrite"}:
+            form.add_field("strategy", strategy)
+        status, content_type, response_content, _headers = await self._embedded_webui_request(
+            target_path,
+            method="POST",
+            form_data=form,
+        )
+        text = response_content.decode("utf-8", errors="replace")
+        if status >= 400:
+            detail = text
+            try:
+                parsed = json.loads(text)
+                detail = parsed.get("detail") or parsed.get("message") or text
+            except Exception:
+                pass
+            return {"ok": False, "status_code": status, "detail": detail}
+        data = json.loads(text) if "json" in content_type.lower() and text else text
+        return {"ok": True, "data": data, **self._plugin_page_webui_meta()}
+
+    async def _proxy_embedded_webui_download(self, kind: str):
+        try:
+            from astrbot.api.web import error_response, request as plugin_request, stream_response
+        except Exception:
+            try:
+                from quart import Response
+
+                return Response("Plugin page downloads require a newer AstrBot version", status=501)
+            except Exception:
+                return {"status": "error", "message": "Plugin page downloads are unavailable"}
+
+        if kind == "export":
+            params = {
+                "package_type": plugin_request.query.get("package_type", "full"),
+                "module_id": plugin_request.query.get("module_id", ""),
+                "include_security": plugin_request.query.get("include_security", "false"),
+            }
+            target_path = f"/api/ui/export?{urlencode(params)}"
+        elif kind == "media":
+            digest = str(plugin_request.query.get("digest", "") or "").strip().lower()
+            if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                return error_response("Invalid media digest", status_code=400)
+            target_path = f"/media/blobs/{digest}"
+        else:
+            return error_response("Unknown download target", status_code=404)
+
+        try:
+            status, content_type, content, _headers = await self._embedded_webui_request(target_path)
+        except Exception as exc:
+            return error_response(_brief_error(exc), status_code=502)
+        if status >= 400:
+            return error_response(content.decode("utf-8", errors="replace"), status_code=status)
+        return stream_response(
+            iter([content]),
+            content_type=content_type.split(";", 1)[0] or "application/octet-stream",
+        )
 
     def _seed_embedded_settings(self, client: EmbeddedNestClient) -> None:
         if client.service_settings.path.exists():

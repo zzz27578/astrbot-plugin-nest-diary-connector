@@ -6,24 +6,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PluginPageTest(unittest.TestCase):
-    def test_plugin_page_uses_astrbot_bridge(self) -> None:
+    def test_plugin_page_loads_the_real_webui_bundle(self) -> None:
         index = (ROOT / "pages" / "nest" / "index.html").read_text(encoding="utf-8")
-        script = (ROOT / "pages" / "nest" / "main.js").read_text(encoding="utf-8")
+        page_script = ROOT / "pages" / "nest" / "assets" / "app.js"
+        webui_script = ROOT / "nest_diary_web" / "web_dist" / "assets" / "app.js"
+        page_css = ROOT / "pages" / "nest" / "assets" / "app.css"
+        webui_css = ROOT / "nest_diary_web" / "web_dist" / "assets" / "app.css"
 
         self.assertIn("/api/plugin/page/bridge-sdk.js", index)
-        self.assertIn('type="module" src="./main.js"', index)
-        self.assertIn("AstrBotPluginPage", script)
-        self.assertIn("bridge.ready", script)
-        self.assertIn('bridge.apiGet("status")', script)
-        self.assertNotIn("fetch(", script)
+        self.assertIn('src="./assets/app.js?ui=0.5.17"', index)
+        self.assertIn('href="./assets/app.css?ui=0.5.17"', index)
+        self.assertEqual(page_script.read_bytes(), webui_script.read_bytes())
+        self.assertEqual(page_css.read_bytes(), webui_css.read_bytes())
 
-    def test_plugin_page_status_route_is_namespaced(self) -> None:
+    def test_webui_bundle_uses_bridge_transport_inside_plugin_page(self) -> None:
+        script = (ROOT / "pages" / "nest" / "assets" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("PLUGIN_PAGE_BRIDGE", script)
+        self.assertIn('apiPost("ui/proxy"', script)
+        self.assertIn('upload("ui/upload/avatar"', script)
+        self.assertIn('download("ui/export"', script)
+        self.assertIn("confirmAction", script)
+
+    def test_plugin_page_backend_routes_are_namespaced(self) -> None:
         source = (ROOT / "main.py").read_text(encoding="utf-8")
 
-        self.assertIn('route = f"/{PLUGIN_NAME}/status"', source)
-        self.assertNotIn('"/nest/status"', source)
-        self.assertNotIn('"nest/status"', source)
-        self.assertIn("from astrbot.api.web import json_response", source)
+        self.assertIn('f"/{PLUGIN_NAME}/ui/proxy"', source)
+        self.assertIn('f"/{PLUGIN_NAME}/ui/upload/<upload_kind>"', source)
+        self.assertIn('f"/{PLUGIN_NAME}/ui/export"', source)
+        self.assertIn('f"/{PLUGIN_NAME}/ui/media"', source)
+        self.assertIn("_allowed_plugin_page_path", source)
+
+    def test_proxy_path_allowlist_blocks_external_urls(self) -> None:
+        source = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn('or "://" in clean_path', source)
+        self.assertIn('base_path == "/theme.css"', source)
+        self.assertIn('base_path.startswith("/api/ui/")', source)
 
 
 if __name__ == "__main__":

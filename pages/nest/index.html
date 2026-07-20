@@ -5,60 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>小窝</title>
-    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./assets/app.css?ui=0.5.17" />
+    <style id="theme-stylesheet"></style>
     <script src="/api/plugin/page/bridge-sdk.js"></script>
   </head>
   <body>
-    <main class="page" aria-labelledby="page-title">
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">AstrBot 插件入口</p>
-          <h1 id="page-title">小窝</h1>
-          <p class="lead">查看插件运行状态，并进入由小窝内置服务提供的独立 WebUI。</p>
-        </div>
-        <div class="hero-actions">
-          <span id="status-badge" class="status-badge is-loading" role="status" aria-live="polite">正在连接</span>
-          <a id="open-webui" class="button" href="#" target="_blank" rel="noopener noreferrer">打开小窝 WebUI</a>
-        </div>
-      </section>
-
-      <section class="status-panel" aria-label="插件状态">
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">运行信息</p>
-            <h2>插件状态</h2>
-          </div>
-          <button id="retry" class="text-button" type="button" hidden>重新读取</button>
-        </div>
-
-        <div class="grid">
-          <article>
-            <span>运行模式</span>
-            <strong id="mode" aria-live="polite">读取中</strong>
-          </article>
-          <article>
-            <span>WebUI 地址</span>
-            <strong id="webui" aria-live="polite">读取中</strong>
-          </article>
-          <article>
-            <span>数据根目录</span>
-            <strong id="data-dir" aria-live="polite">读取中</strong>
-          </article>
-          <article>
-            <span>自定义前端</span>
-            <strong id="custom-dir" aria-live="polite">读取中</strong>
-          </article>
-        </div>
-
-        <div id="error" class="notice" role="alert" hidden>
-          <strong>暂时无法读取插件状态</strong>
-          <span id="error-message">你仍可尝试打开默认 WebUI 地址。</span>
-        </div>
-      </section>
-
-      <p class="footnote">小窝 WebUI 使用独立管理员密码保护，不会复用 AstrBot Dashboard 登录状态。</p>
-    </main>
-
-    <script type="module" src="./main.js"></script>
+    <div id="app"></div>
+    <script type="module" src="./assets/app.js?ui=0.5.17"></script>
   </body>
 </html>
