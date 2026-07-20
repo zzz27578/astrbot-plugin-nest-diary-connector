@@ -60,7 +60,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.15"
+PLUGIN_VERSION = "0.5.16"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1429,13 +1429,17 @@ class NestDiaryConnectorPlugin(Star):
     def _register_plugin_page_api(self) -> None:
         if not hasattr(self.context, "register_web_api"):
             return
+
         try:
-            from quart import jsonify
+            from astrbot.api.web import json_response as make_json_response
         except Exception:
-            return
+            try:
+                from quart import jsonify as make_json_response
+            except Exception:
+                return
 
         async def nest_page_status():
-            return jsonify(
+            return make_json_response(
                 {
                     "plugin": PLUGIN_NAME,
                     "version": PLUGIN_VERSION,
@@ -1456,22 +1460,11 @@ class NestDiaryConnectorPlugin(Star):
                 }
             )
 
-        for route in [
-            f"/{PLUGIN_NAME}/status",
-            f"/{PLUGIN_NAME}/nest/status",
-            f"/{PLUGIN_NAME}/nest-diary/status",
-            "/nest/status",
-            "nest/status",
-            "/nest-diary/status",
-            "nest-diary/status",
-            "status",
-        ]:
-            try:
-                self.context.register_web_api(route, nest_page_status, ["GET"], "Nest page status")
-            except TypeError:
-                self.context.register_web_api(route, nest_page_status, ["GET"])
-            except Exception:
-                continue
+        route = f"/{PLUGIN_NAME}/status"
+        try:
+            self.context.register_web_api(route, nest_page_status, ["GET"], "Nest page status")
+        except TypeError:
+            self.context.register_web_api(route, nest_page_status, ["GET"])
 
     def _seed_embedded_settings(self, client: EmbeddedNestClient) -> None:
         if client.service_settings.path.exists():
