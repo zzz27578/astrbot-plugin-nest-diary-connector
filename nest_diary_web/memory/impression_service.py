@@ -19,6 +19,7 @@ class ImpressionService:
         self.paths = paths
         self.paths.ensure_all()
         self.people_dir.mkdir(parents=True, exist_ok=True)
+        self.purge_auto_candidates()
 
     @property
     def people_dir(self) -> Path:
@@ -31,6 +32,13 @@ class ImpressionService:
         source_chat: str = "",
         merge_existing: bool = False,
     ) -> PersonImpression:
+        identity_strategy = identity_strategy if identity_strategy in {"unified", "nested", "separate"} else "separate"
+        if identity_strategy in {"unified", "nested"} and not str(impression.qq_id or "").strip():
+            current_same_name = self.get(impression.name)
+            if current_same_name and not self._is_auto_candidate(current_same_name):
+                impression.qq_id = current_same_name.qq_id
+            elif not current_same_name or self._is_auto_candidate(current_same_name):
+                raise ValueError("Unified impression identity requires qq_id for a new nickname")
         impression = self._apply_identity_strategy(impression, identity_strategy, source_chat)
         current = self.get(impression.name)
         if current:
@@ -71,17 +79,27 @@ class ImpressionService:
         if not qq_id or strategy == "separate":
             return impression
         current_same_name = self.get(impression.name)
-        target = current_same_name or self.find_by_qq_id(qq_id)
+        target_by_qq = self.find_by_qq_id(qq_id)
+        target = target_by_qq or current_same_name
         if not target:
             return impression
         if target.name != impression.name:
             self._remember_alias(target, impression.name)
+        if (
+            target_by_qq
+            and current_same_name
+            and current_same_name.name != target_by_qq.name
+            and self._is_auto_candidate(current_same_name)
+        ):
+            self.delete(current_same_name.name)
         if strategy == "nested":
             target = self._merge_impression_fields(target, impression, merge_summary=False)
             target.qq_id = qq_id
             target.group_impressions = self._upsert_group_impression(target.group_impressions, impression, source_chat)
             return target
-        target = self._merge_impression_fields(target, impression, merge_summary=True)
+        target = self._merge_impression_fields(target, impression, merge_summary=False)
+        if impression.summary.strip():
+            target.summary = impression.summary.strip()
         target.qq_id = qq_id
         return target
 
@@ -126,32 +144,13 @@ class ImpressionService:
         update_existing: bool = False,
         min_confidence: int = 3,
     ) -> list[PersonImpression]:
-        if not allow_new_people and not update_existing:
-            return []
-        touched: list[PersonImpression] = []
-        min_confidence = max(1, min(int(min_confidence), 5))
-        for raw_name in entry.people:
-            name = raw_name.strip()
-            if not name:
-                continue
-            current = self.get(name)
-            if current:
-                # Existing profiles should be updated by the bot with a real
-                # impression rewrite, not by logging every diary mention.
-                continue
-            if not allow_new_people:
-                continue
-            touched.append(
-                self.save(
-                    PersonImpression(
-                        name=name,
-                        summary=self._auto_summary(name, entry.date, min_confidence),
-                        evidence_dates=[entry.date],
-                        confidence=min_confidence,
-                    )
-                )
-            )
-        return touched
+        # Diary people tags do not contain a trustworthy QQ identity or a
+        # rewritten long-term summary. Creating placeholder profiles here can
+        # split one real person into multiple nickname files, especially when
+        # the configured identity strategy is unified or nested. Actual
+        # creation and updates must go through write_impression after the bot
+        # reads the existing profile and produces a substantive rewrite.
+        return []
 
     def _from_dict(self, data: dict) -> PersonImpression:
         return self._sanitize_impression(PersonImpression(
@@ -237,6 +236,37 @@ class ImpressionService:
 
     def _normalize_list(self, values) -> list[str]:
         return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+
+    def purge_auto_candidates(self) -> int:
+        removed = 0
+        for path in self.people_dir.glob("*.json"):
+            try:
+                item = self._from_dict(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+            if self._is_auto_candidate(item):
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
+    def _is_auto_candidate(self, item: PersonImpression) -> bool:
+        return (
+            not str(item.qq_id or "").strip()
+            and "这是按当前印象策略生成的候选档案" in str(item.summary or "")
+            and not any(
+                [
+                    item.identity,
+                    item.traits,
+                    item.hobbies,
+                    item.interests,
+                    item.preferences,
+                    item.relationship,
+                    item.special_comment,
+                    item.notes,
+                    item.group_impressions,
+                ]
+            )
+        )
 
     def _remember_alias(self, item: PersonImpression, alias: str) -> None:
         alias = str(alias or "").strip()

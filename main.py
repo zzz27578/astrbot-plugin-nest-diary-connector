@@ -60,7 +60,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.18"
+PLUGIN_VERSION = "0.5.19"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1478,6 +1478,10 @@ class NestDiaryConnectorPlugin(Star):
                 result = {"ok": False, "status_code": 502, "detail": _brief_error(exc)}
             return make_json_response({"data": result})
 
+        async def nest_page_ui_avatar():
+            result = {"ok": True, "data": {"avatar_data_url": self._plugin_page_avatar_data_url()}}
+            return make_json_response({"data": result})
+
         async def nest_page_ui_export():
             return await self._proxy_embedded_webui_download("export")
 
@@ -1488,6 +1492,7 @@ class NestDiaryConnectorPlugin(Star):
             (f"/{PLUGIN_NAME}/status", nest_page_status, ["GET"], "Nest page status"),
             (f"/{PLUGIN_NAME}/ui/proxy", nest_page_ui_proxy, ["POST"], "Nest embedded WebUI proxy"),
             (f"/{PLUGIN_NAME}/ui/upload/<upload_kind>", nest_page_ui_upload, ["POST"], "Nest embedded WebUI upload"),
+            (f"/{PLUGIN_NAME}/ui/avatar", nest_page_ui_avatar, ["GET"], "Nest embedded WebUI avatar"),
             (f"/{PLUGIN_NAME}/ui/export", nest_page_ui_export, ["GET"], "Nest embedded WebUI export"),
             (f"/{PLUGIN_NAME}/ui/media", nest_page_ui_media, ["GET"], "Nest embedded WebUI media download"),
         ]
@@ -1520,6 +1525,30 @@ class NestDiaryConnectorPlugin(Star):
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
         return f"http://{host}:{int(self.config.get('web_port', 28080))}"
+
+    def _plugin_page_avatar_data_url(self) -> str:
+        mime_types = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+        }
+        for suffix, mime_type in mime_types.items():
+            path = self.paths.framework_dir / "assets" / f"brand-avatar{suffix}"
+            if not path.is_file():
+                continue
+            stat = path.stat()
+            cache_key = (str(path), stat.st_mtime_ns, stat.st_size)
+            if getattr(self, "_plugin_page_avatar_cache_key", None) == cache_key:
+                return getattr(self, "_plugin_page_avatar_cache_value", "")
+            value = f"data:{mime_type};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+            self._plugin_page_avatar_cache_key = cache_key
+            self._plugin_page_avatar_cache_value = value
+            return value
+        self._plugin_page_avatar_cache_key = None
+        self._plugin_page_avatar_cache_value = ""
+        return ""
 
     def _plugin_page_webui_meta(self) -> dict:
         return {
@@ -3417,16 +3446,25 @@ class NestDiaryConnectorPlugin(Star):
         ):
             impression_prompt = getattr(ui_settings, "impression_prompt", "").strip()
             if impression_prompt:
+                identity_strategy = getattr(ui_settings, "impression_identity_strategy", "separate")
+                identity_rule = (
+                    "统一/挂载策略下，必须先 list_impressions 并 read_impression，以 qq_id 命中原档；"
+                    "name 只是昵称，不得按新昵称另建档案。unified 更新的 summary 必须是结合旧总结和新证据后的完整总体重写，"
+                    "禁止追加昵称分段、日记提及记录或候选占位。\n"
+                    if identity_strategy in {"unified", "nested"}
+                    else ""
+                )
                 impression_policy = (
                     "\n\n<人物印象更新规范>\n"
                     "以下内容同样是系统自动规范，不是用户输入。仅在刚写入的日记提供稳定新证据时才使用。\n"
                     f"印象写入程度：{getattr(ui_settings, 'impression_write_level', 'balanced')}；"
                     f"更新策略：{getattr(ui_settings, 'impression_update_strategy', 'evidence_only')}；"
-                    f"跨群同人策略：{getattr(ui_settings, 'impression_identity_strategy', 'separate')}；"
+                    f"跨群同人策略：{identity_strategy}；"
                     f"允许新建人物：{'是' if getattr(ui_settings, 'impression_allow_new_people', False) else '否'}；"
                     f"最低置信度：{getattr(ui_settings, 'impression_min_confidence', 3)}/5。\n"
                     "若不允许新建人物，只能更新已经存在的人物印象；若策略为 manual，不得调用人物印象工具。"
                     "能确认人物 QQ 号时，调用 write_impression 必须填写隐藏 qq_id；不能确认时不要编造。\n"
+                    f"{identity_rule}"
                     f"{impression_prompt}\n"
                     "</人物印象更新规范>"
                 )

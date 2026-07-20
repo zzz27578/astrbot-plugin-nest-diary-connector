@@ -139,11 +139,11 @@ class ServiceUiSettings:
     custom_webui_dir: str = ""
     backup_custom_before_update: bool = True
     impression_prompt: str = (
-        "写完日记后，请依据你的角色设定和当天日记内容判断："
-        "这篇日记是否提供了关于某个人的稳定新证据。"
-        "如果有，请先读取旧人物印象，再按变化更新 name、identity、summary、traits、hobbies、interests、preferences、relationship、affinity、special_comment、evidence_dates、confidence、notes；"
-        "summary 写稳定总结，special_comment 写带有主观判断的特殊点评。"
-        "如果没有稳定变化，不要硬写。"
+        "写完日记后，请依据你的角色设定和当天日记内容判断：这篇日记是否提供了关于某个人的稳定新证据。"
+        "如果有，必须先列出并读取旧人物印象；跨群策略为 unified 或 nested 时，以 qq_id 为唯一身份主键，name 只是当前昵称，禁止按昵称新建同一人物的重复档案。"
+        "更新 unified 总体印象时，summary 必须结合旧档案与新证据重写成完整、稳定的总体总结，不能追加【昵称】片段、日记提及记录或候选占位文案。"
+        "再按真实变化更新 identity、traits、hobbies、interests、preferences、relationship、affinity、special_comment、evidence_dates、confidence、notes；"
+        "special_comment 写有证据的主观点评。如果没有稳定变化，不要写入。"
     )
 
 

@@ -1,7 +1,9 @@
-const APP_VERSION = "0.5.18";
+const APP_VERSION = "0.5.19";
 const PLUGIN_PAGE_BRIDGE = window.AstrBotPluginPage || null;
+const PLUGIN_PAGE_MODULE_URL = new URL(import.meta.url);
 let pluginPageContext = null;
 let pluginWebuiBase = "";
+let pluginAvatarDataUrl = "";
 const pluginBridgeReady = PLUGIN_PAGE_BRIDGE
   ? PLUGIN_PAGE_BRIDGE.ready().then((context) => {
       pluginPageContext = context || null;
@@ -269,6 +271,14 @@ function syncRouteForState(view = state.view, replace = false) {
   window.history[replace ? "replaceState" : "pushState"]({ view }, "", next);
 }
 
+function pluginPageAssetUrl(relativePath) {
+  const url = new URL(relativePath, PLUGIN_PAGE_MODULE_URL);
+  PLUGIN_PAGE_MODULE_URL.searchParams.forEach((value, key) => {
+    if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+  });
+  return url.href;
+}
+
 function pluginPageHost(host) {
   const normalized = String(host || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
   const publicHost = !normalized || ["0.0.0.0", "::", "::0", "localhost", "127.0.0.1", "::1"].includes(normalized)
@@ -285,7 +295,17 @@ function updatePluginWebuiBase(result = {}) {
 function webuiAssetUrl(value = "") {
   const url = String(value || "").trim();
   if (!PLUGIN_PAGE_BRIDGE || !url || /^(?:data:|blob:|https?:\/\/)/i.test(url)) return url;
+  if (url.startsWith("/api/ui/avatar")) return pluginAvatarDataUrl;
   return pluginWebuiBase && url.startsWith("/") ? `${pluginWebuiBase}${url}` : url;
+}
+
+async function refreshPluginAvatarData(force = false) {
+  if (!PLUGIN_PAGE_BRIDGE || (pluginAvatarDataUrl && !force)) return pluginAvatarDataUrl;
+  await pluginBridgeReady;
+  const result = normalizePluginBridgeResult(await PLUGIN_PAGE_BRIDGE.apiGet("ui/avatar"));
+  if (!result.ok) return "";
+  pluginAvatarDataUrl = String(result.data?.avatar_data_url || "");
+  return pluginAvatarDataUrl;
 }
 
 function normalizePluginBridgeResult(value) {
@@ -313,6 +333,8 @@ async function pluginApi(path, options = {}) {
   const result = normalizePluginBridgeResult(await PLUGIN_PAGE_BRIDGE.apiPost("ui/proxy", { path, method, body }));
   if (!result.ok) throw new Error(result.detail || `WebUI request failed (${result.status_code || "unknown"})`);
   updatePluginWebuiBase(result);
+  const avatarUrl = result.data?.settings?.brand_avatar_url;
+  if (String(avatarUrl || "").startsWith("/api/ui/avatar")) await refreshPluginAvatarData();
   return result.data;
 }
 
@@ -553,7 +575,10 @@ function renderNavLinks() {
 }
 
 function iconImg(name, label = "") {
-  return `<img class="ui-icon" src="${PLUGIN_PAGE_BRIDGE ? "./assets/icons" : "/app-assets/icons"}/${escapeHtml(name)}.svg" alt="${escapeHtml(label)}" loading="lazy">`;
+  const source = PLUGIN_PAGE_BRIDGE
+    ? pluginPageAssetUrl(`./icons/${encodeURIComponent(name)}.svg`)
+    : `/app-assets/icons/${encodeURIComponent(name)}.svg`;
+  return `<img class="ui-icon" src="${escapeHtml(source)}" alt="${escapeHtml(label)}" loading="lazy">`;
 }
 
 function navIcon(key) {
@@ -1509,6 +1534,7 @@ function renderImpressionDetail(item) {
       <div class="form-grid compact">
         <label>名字<input name="name" value="${escapeHtml(value.name)}" required></label>
         <label>身份<input name="identity" value="${escapeHtml(value.identity || "")}" placeholder="身份、关系定位或长期角色"></label>
+        <label>QQ 标识<input name="qq_id" value="${escapeHtml(value.qq_id || "")}" placeholder="统一/挂载策略用于命中原人物档案"></label>
         <label>关系<input name="relationship" value="${escapeHtml(value.relationship || "")}" placeholder="与 bot、项目或管理员的关系"></label>
         <label>喜爱程度<input name="affinity" type="number" min="1" max="5" value="${value.affinity || 3}"></label>
         <label>可信度<input name="confidence" type="number" min="1" max="5" value="${value.confidence || 3}"></label>
@@ -1523,9 +1549,8 @@ function renderImpressionDetail(item) {
       </div>
       <label>特殊点评<textarea name="special_comment" placeholder="bot 按自己人设写出的主观点评，可以保留语气，但必须有依据。">${escapeHtml(value.special_comment || "")}</textarea></label>
       <label>备注<textarea name="notes" placeholder="其他情报、待验证观察、长期边界。">${escapeHtml(value.notes || "")}</textarea></label>
-      <input name="qq_id" type="hidden" value="${escapeHtml(value.qq_id || "")}">
       ${renderGroupImpressions(value.group_impressions || [])}
-      <div class="notice soft">日记写完后如果开启人物印象自检，bot 应先读取旧印象，再根据新证据决定是否更新；没有稳定变化就不用硬写。</div>
+      <div class="notice soft">日记写完后如果开启人物印象自检，bot 应先读取旧印象，再根据新证据决定是否更新；统一人物时必须使用同一 QQ 标识更新原档，summary 应重写完整总体总结，不能按新昵称建立候选档案。</div>
       <div class="actions"><button class="primary">保存人物印象</button></div>
     </form>
   `;
@@ -4024,7 +4049,7 @@ function webuiAppearanceBody(payload, mode = "module") {
   const currentId = settings.active_frontend_style || "default";
   return `
     <div class="brand-settings">
-      <div class="brand-preview">${settings.brand_avatar_url ? `<img src="${escapeHtml(webuiAssetUrl(settings.brand_avatar_url))}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
+      <div class="brand-preview">${webuiAssetUrl(settings.brand_avatar_url) ? `<img src="${escapeHtml(webuiAssetUrl(settings.brand_avatar_url))}" alt="${escapeHtml(settings.site_title || "小窝")}">` : `<span>${escapeHtml((settings.site_title || "小窝").slice(0, 1))}</span>`}</div>
       <div class="form-grid compact">
         <label>小窝标题<input name="site_title" value="${escapeHtml(settings.site_title || "小窝")}" placeholder="例如：某某的小窝"></label>
         <label>小窝副标题<input name="site_subtitle" value="${escapeHtml(settings.site_subtitle || "把今天安放好，旧事也能被轻轻找回来")}" placeholder="显示在首页标题下面"></label>
@@ -4328,9 +4353,10 @@ function syncEnabledModule(items, moduleId, enabled) {
 async function uploadAvatar(file) {
   if (PLUGIN_PAGE_BRIDGE) {
     await pluginBridgeReady;
-    const result = await PLUGIN_PAGE_BRIDGE.upload("ui/upload/avatar", file);
-    if (!result?.ok) throw new Error(result?.detail || "头像上传失败");
+    const result = normalizePluginBridgeResult(await PLUGIN_PAGE_BRIDGE.upload("ui/upload/avatar", file));
+    if (!result.ok) throw new Error(result.detail || "头像上传失败");
     updatePluginWebuiBase(result);
+    await refreshPluginAvatarData(true);
     return result.data.avatar_url;
   }
   const payload = new FormData();
@@ -4408,8 +4434,8 @@ async function importBackup(event) {
   let previewData;
   if (PLUGIN_PAGE_BRIDGE) {
     await pluginBridgeReady;
-    const result = await PLUGIN_PAGE_BRIDGE.upload("ui/upload/import-preview", file);
-    if (!result?.ok) throw new Error(result?.detail || "备份预检失败");
+    const result = normalizePluginBridgeResult(await PLUGIN_PAGE_BRIDGE.upload("ui/upload/import-preview", file));
+    if (!result.ok) throw new Error(result.detail || "备份预检失败");
     updatePluginWebuiBase(result);
     previewData = result.data;
   } else {
@@ -4449,8 +4475,8 @@ async function importBackup(event) {
   let data;
   if (PLUGIN_PAGE_BRIDGE) {
     const strategy = form.get("strategy") === "overwrite" ? "overwrite" : "safe";
-    const result = await PLUGIN_PAGE_BRIDGE.upload(`ui/upload/import-${strategy}`, file);
-    if (!result?.ok) throw new Error(result?.detail || "备份导入失败");
+    const result = normalizePluginBridgeResult(await PLUGIN_PAGE_BRIDGE.upload(`ui/upload/import-${strategy}`, file));
+    if (!result.ok) throw new Error(result.detail || "备份导入失败");
     updatePluginWebuiBase(result);
     data = result.data;
   } else {

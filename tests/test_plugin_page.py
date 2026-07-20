@@ -14,8 +14,8 @@ class PluginPageTest(unittest.TestCase):
         webui_css = ROOT / "nest_diary_web" / "web_dist" / "assets" / "app.css"
 
         self.assertIn("/api/plugin/page/bridge-sdk.js", index)
-        self.assertIn('src="./assets/app.js?ui=0.5.18"', index)
-        self.assertIn('href="./assets/app.css?ui=0.5.18"', index)
+        self.assertIn('src="./assets/app.js?ui=0.5.19"', index)
+        self.assertIn('href="./assets/app.css?ui=0.5.19"', index)
         self.assertEqual(page_script.read_bytes(), webui_script.read_bytes())
         self.assertEqual(page_css.read_bytes(), webui_css.read_bytes())
 
@@ -28,21 +28,26 @@ class PluginPageTest(unittest.TestCase):
         self.assertIn('download("ui/export"', script)
         self.assertIn("confirmAction", script)
         self.assertIn("normalizePluginBridgeResult", script)
+        self.assertIn("new URL(import.meta.url)", script)
+        self.assertIn("PLUGIN_PAGE_MODULE_URL.searchParams.forEach", script)
+        self.assertIn('apiGet("ui/avatar")', script)
 
     def test_plugin_page_backend_routes_are_namespaced(self) -> None:
         source = (ROOT / "main.py").read_text(encoding="utf-8")
 
         self.assertIn('f"/{PLUGIN_NAME}/ui/proxy"', source)
         self.assertIn('f"/{PLUGIN_NAME}/ui/upload/<upload_kind>"', source)
+        self.assertIn('f"/{PLUGIN_NAME}/ui/avatar"', source)
+        self.assertIn("_plugin_page_avatar_data_url", source)
         self.assertIn('f"/{PLUGIN_NAME}/ui/export"', source)
         self.assertIn('f"/{PLUGIN_NAME}/ui/media"', source)
         self.assertIn("_allowed_plugin_page_path", source)
-        self.assertEqual(source.count('make_json_response({"data": result})'), 2)
+        self.assertEqual(source.count('make_json_response({"data": result})'), 3)
 
     def test_astrbot_bridge_unwrap_keeps_proxy_envelope(self) -> None:
         proxy_result = {
             "ok": True,
-            "data": {"version": "0.5.18"},
+            "data": {"version": "0.5.19"},
             "web_host": "0.0.0.0",
             "web_port": 28080,
         }
@@ -50,7 +55,7 @@ class PluginPageTest(unittest.TestCase):
         bridge_value = handler_response.get("data", handler_response)
 
         self.assertTrue(bridge_value["ok"])
-        self.assertEqual(bridge_value["data"]["version"], "0.5.18")
+        self.assertEqual(bridge_value["data"]["version"], "0.5.19")
         self.assertEqual(bridge_value["web_port"], 28080)
 
     def test_proxy_path_allowlist_blocks_external_urls(self) -> None:

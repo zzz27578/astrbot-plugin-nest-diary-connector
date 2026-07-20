@@ -185,7 +185,18 @@ class ServiceSettingsStore:
             settings.active_frontend_style = "default"
         settings.custom_webui_dir = (settings.custom_webui_dir or "").strip()
         settings.backup_custom_before_update = bool(settings.backup_custom_before_update)
-        settings.impression_prompt = settings.impression_prompt or ""
+        legacy_impression_prompt = (
+            "写完日记后，请依据你的角色设定和当天日记内容判断："
+            "这篇日记是否提供了关于某个人的稳定新证据。"
+            "如果有，请先读取旧人物印象，再按变化更新 name、identity、summary、traits、hobbies、interests、preferences、relationship、affinity、special_comment、evidence_dates、confidence、notes；"
+            "summary 写稳定总结，special_comment 写带有主观判断的特殊点评。"
+            "如果没有稳定变化，不要硬写。"
+        )
+        current_impression_prompt = str(settings.impression_prompt or "").strip()
+        if not current_impression_prompt or current_impression_prompt == legacy_impression_prompt:
+            settings.impression_prompt = ServiceUiSettings().impression_prompt
+        else:
+            settings.impression_prompt = current_impression_prompt
         return settings
 
     def _safe_package_id(self, value: str) -> bool:
