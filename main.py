@@ -60,7 +60,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.17"
+PLUGIN_VERSION = "0.5.18"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1469,14 +1469,14 @@ class NestDiaryConnectorPlugin(Star):
                 result = await self._proxy_embedded_webui_json(path, method=method, body=body)
             except Exception as exc:
                 result = {"ok": False, "status_code": 502, "detail": _brief_error(exc)}
-            return make_json_response(result)
+            return make_json_response({"data": result})
 
         async def nest_page_ui_upload(upload_kind: str):
             try:
                 result = await self._proxy_embedded_webui_upload(upload_kind)
             except Exception as exc:
                 result = {"ok": False, "status_code": 502, "detail": _brief_error(exc)}
-            return make_json_response(result)
+            return make_json_response({"data": result})
 
         async def nest_page_ui_export():
             return await self._proxy_embedded_webui_download("export")

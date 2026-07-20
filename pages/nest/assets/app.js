@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.17";
+const APP_VERSION = "0.5.18";
 const PLUGIN_PAGE_BRIDGE = window.AstrBotPluginPage || null;
 let pluginPageContext = null;
 let pluginWebuiBase = "";
@@ -288,6 +288,19 @@ function webuiAssetUrl(value = "") {
   return pluginWebuiBase && url.startsWith("/") ? `${pluginWebuiBase}${url}` : url;
 }
 
+function normalizePluginBridgeResult(value) {
+  if (
+    value &&
+    typeof value === "object" &&
+    "ok" in value &&
+    ("data" in value || "detail" in value || "status_code" in value || "web_port" in value)
+  ) {
+    return value;
+  }
+  if (value?.data && typeof value.data === "object" && "ok" in value.data) return value.data;
+  return { ok: true, data: value };
+}
+
 async function pluginApi(path, options = {}) {
   await pluginBridgeReady;
   const method = String(options.method || "GET").toUpperCase();
@@ -297,8 +310,8 @@ async function pluginApi(path, options = {}) {
       body = JSON.parse(body);
     } catch (_) {}
   }
-  const result = await PLUGIN_PAGE_BRIDGE.apiPost("ui/proxy", { path, method, body });
-  if (!result?.ok) throw new Error(result?.detail || `WebUI request failed (${result?.status_code || "unknown"})`);
+  const result = normalizePluginBridgeResult(await PLUGIN_PAGE_BRIDGE.apiPost("ui/proxy", { path, method, body }));
+  if (!result.ok) throw new Error(result.detail || `WebUI request failed (${result.status_code || "unknown"})`);
   updatePluginWebuiBase(result);
   return result.data;
 }
