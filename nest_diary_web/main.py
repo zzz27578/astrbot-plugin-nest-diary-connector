@@ -25,13 +25,28 @@ from .memory.impression_service import ImpressionService
 from .media.media_service import MediaService
 from .memos.memo_service import MemoService
 from .models import DiaryEntry, MemoEntry, PersonImpression, ServiceUiSettings
+from .module_registry import (
+    MODULE_ROUTE_PREFIX,
+    OFFICIAL_APPEARANCE_IDS,
+    OFFICIAL_MODULE_IDS,
+    RESERVED_MODULE_DIR_NAMES,
+    RUNTIME_PYTHON,
+    STORE_MAX_KEYS,
+    collect_nav_entries,
+    is_official_id,
+    module_asset_base,
+    normalize_capabilities,
+    resolve_asset,
+    verify_page_entry,
+)
+from .module_store import ModuleStore, ModuleStoreError
 from .paths import NestPaths, safe_package_id
 from .settings_service import SecuritySettingsStore, ServiceSettingsStore
 from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.19"
+APP_VERSION = "0.5.20"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -43,6 +58,7 @@ media_service = MediaService(paths)
 impression_service = ImpressionService(paths)
 memo_service = MemoService(paths)
 service_settings = ServiceSettingsStore(paths)
+module_store = ModuleStore(paths)
 backup_service = BackupService(paths)
 version_service = VersionService(
     current_version=APP_VERSION,
@@ -88,6 +104,11 @@ def spa_index_date(date: str, request: Request):
     return spa_index(request)
 
 
+def spa_module_page(module_id: str, request: Request):
+    """自定义模块页面统一走 /m/<module-id>，由 SPA 动态加载模块自带的 page.js。"""
+    return spa_index(request)
+
+
 for spa_route in [
     "/",
     "/dashboard",
@@ -101,6 +122,7 @@ for spa_route in [
 ]:
     app.add_api_route(spa_route, spa_index, methods=["GET"], include_in_schema=False)
 app.add_api_route("/diary/{date}", spa_index_date, methods=["GET"], include_in_schema=False)
+app.add_api_route(f"{MODULE_ROUTE_PREFIX}/{{module_id}}", spa_module_page, methods=["GET"], include_in_schema=False)
 
 app.include_router(
     create_web_router(
@@ -227,13 +249,25 @@ def _module_catalog(ui_settings: ServiceUiSettings) -> dict:
         "appearance": appearance,
         "conflicts": _module_conflicts(ui_settings, official, custom, extensions),
         "appearance_conflicts": _appearance_conflicts(ui_settings, appearance),
+        "nav_entries": _module_nav_entries(ui_settings, custom, extensions),
     }
+
+
+def _module_nav_entries(ui_settings: ServiceUiSettings, custom: list[dict], extensions: list[dict]) -> list[dict]:
+    """算出侧边栏应该多出哪些自定义入口。"""
+    return collect_nav_entries(
+        [
+            (custom, ui_settings.enabled_custom_modules),
+            (extensions, ui_settings.enabled_custom_extensions),
+        ],
+        hidden_ids=ui_settings.hidden_module_nav_ids,
+    )
 
 
 def _discover_official_modules() -> list[dict]:
     modules_root = Path(__file__).resolve().parents[1] / "modules"
     modules: list[dict] = []
-    for module_id in ["diary", "impressions", "media", "memos", "webui"]:
+    for module_id in OFFICIAL_MODULE_IDS:
         item = _load_package_manifest(
             modules_root / module_id / "module.json",
             {
@@ -258,7 +292,7 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
     if package_type == "module":
         module_paths = sorted(paths.modules_dir.iterdir()) if paths.modules_dir.exists() else []
         for path in module_paths:
-            if path.is_dir() and path.name not in {"diary", "impressions", "media", "memos", "extensions", "archive"}:
+            if path.is_dir() and path.name not in RESERVED_MODULE_DIR_NAMES:
                 packages[path.name] = _load_package_manifest(
                     path / "module.json",
                     {
@@ -317,6 +351,13 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
                 for key in ["name", "description", "feature_tags", "target_modules", "replaces", "conflicts_with"]:
                     if loaded.get(key):
                         current[key] = loaded[key]
+                # 前端目录里的声明优先：页面文件就在那里，能力声明必须跟着它重算。
+                for key in ["runtime", "nav", "page", "store"]:
+                    if key in loaded:
+                        current[key] = loaded[key]
+                current.pop("capability_errors", None)
+                current.pop("manifest_error", None)
+                _attach_capabilities(current)
             else:
                 packages[path.name] = loaded
     return sorted(packages.values(), key=lambda item: item["id"])
@@ -403,11 +444,83 @@ def _load_package_manifest(path: Path, fallback: dict, kind: str, data_path: str
         data["data_path"] = data_path
     if frontend_path:
         data["frontend_path"] = frontend_path
+    _attach_capabilities(data)
     return data
+
+
+def _attach_capabilities(manifest: dict) -> dict:
+    """解析并校验模块能力声明。
+
+    三层把关的第二和第三层在这里：开发者声明经过归一化（第二层是用户开关，
+    在设置里），框架再验真声明的页面文件是否真的存在（第三层）。
+    校验不通过只降级该模块的入口，不影响小窝其余部分。
+    """
+    capabilities = normalize_capabilities(manifest)
+    errors = list(capabilities.pop("errors", []))
+    manifest["capabilities"] = capabilities
+    manifest["asset_base"] = module_asset_base(manifest["id"])
+
+    page_error = verify_page_entry(manifest)
+    if page_error:
+        errors.append(page_error)
+        capabilities["page"] = None
+        capabilities["nav"] = None
+
+    nav = capabilities.get("nav")
+    if nav and nav.get("icon_asset"):
+        if resolve_asset(manifest, nav["icon_asset"]) is None:
+            errors.append(f"nav 图标文件不存在：{nav['icon_asset']}")
+            nav["icon_asset"] = ""
+            nav["icon"] = "modules"
+
+    if capabilities.get("runtime") == RUNTIME_PYTHON:
+        # Python 档等于在插件进程里执行第三方代码，所以不允许安装即自动启用。
+        manifest["requires_explicit_enable"] = True
+
+    if errors:
+        manifest["capability_errors"] = errors
+        if not manifest.get("manifest_error"):
+            manifest["manifest_error"] = errors[0]
+    return manifest
 
 
 def _timestamp_label() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _find_enabled_module(ui_settings: ServiceUiSettings, module_id: str) -> dict | None:
+    """按用户开关找到一个已启用的自定义模块/拓展/外观包。
+
+    这是三层把关的第二层：模块声明了能力，也必须被用户启用，
+    资源与存储接口才会对它开放。
+    """
+    catalog = _module_catalog(ui_settings)
+    groups = [
+        (catalog.get("custom", []), ui_settings.enabled_custom_modules),
+        (catalog.get("extensions", []), ui_settings.enabled_custom_extensions),
+        (catalog.get("appearance", []), ui_settings.enabled_appearance_modules),
+    ]
+    for items, enabled_ids in groups:
+        for item in items:
+            if item.get("id") != module_id:
+                continue
+            if module_id in enabled_ids or ui_settings.active_frontend_style == module_id:
+                return item
+            return None
+    return None
+
+
+def _require_store_module(module_id: str) -> dict:
+    safe_module = safe_package_id(module_id, "")
+    if not safe_module or safe_module != module_id:
+        raise HTTPException(status_code=400, detail="模块 ID 不合法。")
+    ui_settings = service_settings.load()
+    manifest = _find_enabled_module(ui_settings, safe_module)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"模块 {module_id} 未启用或不存在。")
+    if not (manifest.get("capabilities", {}) or {}).get("store"):
+        raise HTTPException(status_code=403, detail=f"模块 {module_id} 没有声明 store 能力。")
+    return manifest
 
 
 def _module_install_candidates(source_url: str) -> list[str]:
@@ -483,9 +596,8 @@ def _manifest_from_zip(payload: bytes) -> tuple[dict, tuple[str, ...]]:
 def _module_install_target(manifest: dict, ui_settings: ServiceUiSettings) -> tuple[str, Path]:
     module_type = str(manifest.get("type") or "module").strip().lower()
     module_id = safe_package_id(str(manifest.get("id") or manifest.get("name") or "custom-module"), "custom-module")
-    official_ids = {"diary", "impressions", "media", "memos", "webui"}
-    official_appearance_ids = {item["id"] for item in _discover_appearance_modules(ui_settings) if item.get("kind") == "official"}
-    if module_id in official_ids or module_id in official_appearance_ids:
+    installed_appearance_ids = {item["id"] for item in _discover_appearance_modules(ui_settings) if item.get("kind") == "official"}
+    if is_official_id(module_id) or module_id in installed_appearance_ids:
         raise HTTPException(status_code=409, detail=f"{module_id} 是官方模块 ID，不能通过链接安装覆盖。")
     if module_type == "extension":
         return module_id, paths.modules_dir / "extensions" / module_id
@@ -994,6 +1106,7 @@ class SettingsUpdateRequest(BaseModel):
     enabled_custom_modules: list[str] = Field(default_factory=list)
     enabled_custom_extensions: list[str] = Field(default_factory=list)
     enabled_appearance_modules: list[str] = Field(default_factory=list)
+    hidden_module_nav_ids: list[str] = Field(default_factory=list)
     appearance_modules_initialized: bool = True
     onboarding_completed: bool = False
     custom_webui_dir: str = ""
@@ -1022,6 +1135,16 @@ class ModuleInstallRequest(BaseModel):
     source_url: str
     overwrite: bool = False
     enable_after_install: bool = False
+
+
+class ModuleUninstallRequest(BaseModel):
+    module_id: str
+    keep_data: bool = False
+
+
+class ModuleStoreWriteRequest(BaseModel):
+    key: str
+    value: object = None
 
 
 @app.get("/api/v1/impressions")
@@ -1569,7 +1692,9 @@ async def ui_install_module(payload: ModuleInstallRequest, _session: None = Depe
         frontend_path=str(target) if str(manifest.get("type") or "module").lower() == "appearance" else "",
     )
     module_type = installed_manifest.get("type", "module")
-    if payload.enable_after_install:
+    requires_explicit_enable = bool(installed_manifest.get("requires_explicit_enable"))
+    auto_enable = bool(payload.enable_after_install) and not requires_explicit_enable
+    if auto_enable:
         if module_type == "appearance":
             ui_settings.enabled_appearance_modules = list(dict.fromkeys([*ui_settings.enabled_appearance_modules, module_id]))
             if installed_manifest.get("appearance_mode", "global") == "global":
@@ -1584,10 +1709,126 @@ async def ui_install_module(payload: ModuleInstallRequest, _session: None = Depe
         "status": "ok",
         "module": installed_manifest,
         "install": result,
-        "enabled": bool(payload.enable_after_install),
+        "enabled": auto_enable,
+        "requires_explicit_enable": requires_explicit_enable,
+        "capabilities": installed_manifest.get("capabilities", {}),
+        "capability_errors": installed_manifest.get("capability_errors", []),
         "module_catalog": _module_catalog(fresh_settings),
         "frontend_styles": _frontend_styles(fresh_settings),
     }
+
+
+@app.post("/api/ui/modules/uninstall")
+async def ui_uninstall_module(payload: ModuleUninstallRequest, _session: None = Depends(require_web_session)):
+    """卸载自定义模块、拓展包或外观包。官方 ID 一律拒绝。
+
+    默认把整个目录备份到 imports/module-uninstall-backups/ 后再删除；
+    keep_data 为真时只摘掉前端与开关，保留 modules/<id>/data。
+    """
+    module_id = safe_package_id(payload.module_id.strip(), "")
+    if not module_id or module_id != payload.module_id.strip():
+        raise HTTPException(status_code=400, detail="模块 ID 不合法。")
+    if is_official_id(module_id):
+        raise HTTPException(status_code=409, detail=f"{module_id} 是官方模块，不能卸载。")
+
+    ui_settings = service_settings.load()
+    custom_root = _custom_webui_root(ui_settings)
+    candidates = [
+        paths.modules_dir / module_id,
+        paths.modules_dir / "extensions" / module_id,
+        custom_root / "modules" / module_id,
+        custom_root / "extensions" / module_id,
+        custom_root / "appearance" / module_id,
+        custom_root / "themes" / module_id,
+    ]
+    existing = [path for path in candidates if path.is_dir()]
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"没有找到模块 {module_id}。")
+
+    backup_root = paths.root / "imports" / "module-uninstall-backups" / _timestamp_label() / module_id
+    removed: list[str] = []
+    kept: list[str] = []
+    for path in existing:
+        is_data_dir = path == paths.modules_dir / module_id or path == paths.modules_dir / "extensions" / module_id
+        if payload.keep_data and is_data_dir:
+            kept.append(str(path))
+            continue
+        target = backup_root / path.parent.name / path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(path, target)
+        shutil.rmtree(path)
+        removed.append(str(path))
+
+    ui_settings.enabled_custom_modules = [item for item in ui_settings.enabled_custom_modules if item != module_id]
+    ui_settings.enabled_custom_extensions = [item for item in ui_settings.enabled_custom_extensions if item != module_id]
+    ui_settings.enabled_appearance_modules = [item for item in ui_settings.enabled_appearance_modules if item != module_id]
+    if ui_settings.active_frontend_style == module_id:
+        ui_settings.active_frontend_style = "default"
+    saved = service_settings.save(ui_settings)
+
+    return {
+        "status": "ok",
+        "module_id": module_id,
+        "removed_paths": removed,
+        "kept_paths": kept,
+        "backup_dir": str(backup_root) if removed else "",
+        "module_catalog": _module_catalog(saved),
+        "frontend_styles": _frontend_styles(saved),
+        "settings": asdict(saved),
+    }
+
+
+@app.get("/api/ui/module-assets/{module_id}/{asset_path:path}")
+async def ui_module_asset(module_id: str, asset_path: str, _session: None = Depends(require_web_session)):
+    """按模块 ID 提供其自带的前端资源。
+
+    路由收在 /api/ui/ 前缀下，是为了让 AstrBot 插件页的 bridge 白名单
+    不必为第三方模块反复放开。
+    """
+    safe_module = safe_package_id(module_id, "")
+    if not safe_module or safe_module != module_id:
+        raise HTTPException(status_code=400, detail="模块 ID 不合法。")
+    ui_settings = service_settings.load()
+    manifest = _find_enabled_module(ui_settings, safe_module)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"模块 {module_id} 未启用或不存在。")
+    resolved = resolve_asset(manifest, asset_path)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="资源不存在或类型不被允许。")
+    media_type = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+    return FileResponse(resolved, media_type=media_type)
+
+
+@app.get("/api/ui/modules/{module_id}/store")
+async def ui_module_store_list(module_id: str, key: str = "", _session: None = Depends(require_web_session)):
+    manifest = _require_store_module(module_id)
+    try:
+        if key:
+            return {"status": "ok", "module_id": manifest["id"], **module_store.read(manifest["id"], key)}
+        return {"status": "ok", "module_id": manifest["id"], "keys": module_store.list_keys(manifest["id"])}
+    except ModuleStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@app.post("/api/ui/modules/{module_id}/store")
+async def ui_module_store_write(module_id: str, payload: ModuleStoreWriteRequest, _session: None = Depends(require_web_session)):
+    manifest = _require_store_module(module_id)
+    max_bytes = (manifest.get("capabilities", {}).get("store") or {}).get("max_bytes")
+    try:
+        result = module_store.write(manifest["id"], payload.key, payload.value, max_bytes=max_bytes)
+    except ModuleStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return {"status": "ok", "module_id": manifest["id"], **result}
+
+
+@app.delete("/api/ui/modules/{module_id}/store")
+async def ui_module_store_delete(module_id: str, key: str, _session: None = Depends(require_web_session)):
+    manifest = _require_store_module(module_id)
+    try:
+        result = module_store.delete(manifest["id"], key)
+    except ModuleStoreError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return {"status": "ok", "module_id": manifest["id"], **result}
 
 
 @app.get("/api/ui/avatar")
@@ -1674,6 +1915,7 @@ async def ui_save_settings(payload: SettingsUpdateRequest, _session: None = Depe
             enabled_custom_modules=payload.enabled_custom_modules,
             enabled_custom_extensions=payload.enabled_custom_extensions,
             enabled_appearance_modules=payload.enabled_appearance_modules,
+            hidden_module_nav_ids=payload.hidden_module_nav_ids,
             appearance_modules_initialized=True,
             onboarding_completed=payload.onboarding_completed,
             custom_webui_dir=payload.custom_webui_dir,

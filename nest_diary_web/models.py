@@ -134,6 +134,8 @@ class ServiceUiSettings:
     enabled_custom_modules: list[str] = field(default_factory=list)
     enabled_custom_extensions: list[str] = field(default_factory=list)
     enabled_appearance_modules: list[str] = field(default_factory=list)
+    #: 已启用但用户不想在侧边栏看到的模块 ID。模块本身仍可用，只是没有入口。
+    hidden_module_nav_ids: list[str] = field(default_factory=list)
     appearance_modules_initialized: bool = False
     onboarding_completed: bool = False
     custom_webui_dir: str = ""

@@ -1,0 +1,23 @@
+{
+  "id": "habit-board",
+  "name": "习惯打卡",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "示例轻量模块：只有 module.json 和 page.js，用小窝通用存储记录每天的打卡。",
+  "author": "小窝示例",
+  "runtime": "webui",
+  "nav": {
+    "label": "打卡",
+    "icon": "modules",
+    "order": 310
+  },
+  "page": {
+    "entry": "page.js",
+    "export": "mount",
+    "title": "习惯打卡"
+  },
+  "store": true,
+  "feature_tags": ["example", "habit"],
+  "conflicts_with": [],
+  "schema_version": 2
+}

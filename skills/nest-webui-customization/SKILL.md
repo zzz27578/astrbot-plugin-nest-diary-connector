@@ -63,25 +63,30 @@ New WebUI pages should use shared shell variables and common classes (`--paper`,
 
 ## Framework vs Module Customization
 
+This skill covers the **shell** of 小窝: global appearance, themes, title, avatar, and shared components. If the task is to add a new page, a new sidebar entry, a new feature, or module data, that is module development — use the `nest-module-development` skill instead, which describes the `module.json` capability declaration and the `page.js` mount contract.
+
 Use framework-level customization for the shell of 小窝:
 
 ```text
 framework/user_custom/webui/themes/<theme-id>/style.css
+framework/user_custom/webui/appearance/<appearance-id>/style.css
 framework/user_custom/webui/static/
-framework/user_custom/webui/templates/
 ```
+
+Global appearance packages are the one customization surface that is purely CSS: 小窝 concatenates the `style.css` of every enabled appearance package and serves it at `/theme.css`.
 
 Simple identity changes such as the page title (`xxx的小窝`) and the top-left avatar should be done through WebUI settings first. Uploaded official avatar files are stored under `framework/assets/`; deeper visual redesigns belong in `framework/user_custom/webui/`.
 
-Use module-level customization when a feature owns its own UI or data:
+Use module-level customization when a feature owns its own UI or data. A module directory holds its declaration and its frontend entry:
 
 ```text
-framework/user_custom/webui/modules/<module-id>/
-  module.json
-  templates/
-  static/
-  notes.md
+modules/<module-id>/
+  module.json      # 声明 runtime / nav / page / store
+  page.js          # export mount(root, ctx)
+  data/            # 持久数据
 ```
+
+`framework/user_custom/webui/modules/<module-id>/` also works and is searched for frontend files, with the same `module.json` + `page.js` contract. Note that `templates/` and `static/` inside a module folder are **not** loaded by the SPA — server-rendered module templates are not part of the current contract. Use `page.js`.
 
 Prefer extension packages when enhancing an existing module:
 
@@ -152,6 +157,8 @@ Extension example:
 
 If two enabled packages share a feature tag, the module console should warn about possible overlap. Do not forcibly disable either package unless the user explicitly asks.
 
+Identity and conflict metadata is only half of a module manifest. The other half — `runtime`, `nav`, `page`, `store` — decides whether the module actually gets a sidebar entry and a page. See the `nest-module-development` skill for that contract.
+
 ## From-Link Module Installation
 
 The WebUI module console supports installing a module package from a link. The package must be a zip file or a GitHub repository that contains `module.json`.
@@ -165,6 +172,10 @@ framework/user_custom/webui/appearance/<theme-id>/  # appearance package
 ```
 
 Do not use an official module id (`diary`, `impressions`, `media`, `memos`, `webui`) or an official appearance id for a downloadable package. If a package replaces an official module, use a distinct id, set `replaces` and `conflicts_with`, and let the module console warn the user.
+
+A package that declares `runtime: "python"` runs code inside the plugin process, so 小窝 will not auto-enable it after install even if the user checked that box. Tell the user they need to switch it on deliberately from the module card.
+
+Custom modules, extensions and appearance packages can be uninstalled from their module detail page — either fully, or keeping `modules/<id>/data`. Both paths back up to `imports/module-uninstall-backups/` first. Official modules cannot be uninstalled, only switched off.
 
 ## Module Data Rule
 
@@ -196,7 +207,7 @@ modules/media/
 modules/memos/
 ```
 
-Frontend files describe the room. Module data stores the memory.
+Frontend files describe the room. Module data stores the memory. For a lightweight module the storage API is `ctx.store` from the page contract, which writes to `modules/<module-id>/data/store/`; never use `localStorage`, or the data will be invisible to export and backup.
 
 ## Real Controls Only
 
@@ -207,9 +218,9 @@ Remove or hide unfinished controls. Do not create fake dashboards or pretend mod
 ## Safe Workflow
 
 1. Call `nest_status` and locate `<data_dir>`.
-2. Decide whether the change is framework-level or module-level.
-3. Work under `framework/user_custom/webui/` for personal UI.
-4. Work under `modules/<module-id>/` only when adding persistent module data.
+2. Decide whether the change is framework-level (this skill) or a new module/page/feature (`nest-module-development`).
+3. Work under `framework/user_custom/webui/` for personal shell UI and appearance.
+4. Work under `modules/<module-id>/` when adding a module, its page entry, or its persistent data.
 5. Keep existing form names, API paths, and route contracts unless backend code is updated too.
 6. Test login, navigation, diary read/write, search, settings, import/export, and any changed module.
 7. Record changes in `notes.md` for custom modules.

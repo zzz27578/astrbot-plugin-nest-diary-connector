@@ -2,24 +2,25 @@
   "enable_webui": {
     "description": "启用小窝 WebUI",
     "type": "bool",
-    "hint": "推荐保持开启。日记、媒体、人物印象、模块管理、外观和导入导出都请进入小窝 WebUI 设置。",
+    "hint": "推荐保持开启。开启后可以直接在 AstrBot 插件页里打开内置小窝界面。日记、媒体、人物印象、模块管理、外观和导入导出都在里面设置。",
     "default": true
   },
   "web_host": {
-    "description": "WebUI 监听地址",
+    "description": "WebUI 监听地址（进阶）",
     "type": "string",
-    "hint": "本机使用可填 127.0.0.1；需要局域网访问时填 0.0.0.0，并请设置强密码。",
-    "default": "0.0.0.0"
+    "hint": "一般不用改。内置 UI 走插件页，不需要你手动访问地址。只有确实要从别的设备直连时才改成 0.0.0.0，并务必设置强密码。",
+    "default": "127.0.0.1"
   },
   "web_port": {
-    "description": "WebUI 端口",
+    "description": "WebUI 端口（进阶）",
     "type": "int",
+    "hint": "一般不用改。仅在默认端口被占用时调整。",
     "default": 28080
   },
   "admin_password": {
     "description": "WebUI 登录密码",
     "type": "string",
-    "hint": "首次安装后建议立刻修改。更多访问密钥请在小窝 WebUI 的访问密钥页面管理。",
+    "hint": "首次安装后建议立刻修改。在 AstrBot 插件页里打开内置 UI 不需要输入它，但它保护着直连访问和访问密钥。",
     "default": "12345678"
   },
   "nest_admin_ids": {

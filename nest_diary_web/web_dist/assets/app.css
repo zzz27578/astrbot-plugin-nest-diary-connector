@@ -3490,3 +3490,27 @@ details[open] > *:not(summary) {
   color: var(--muted);
   line-height: 1.7;
 }
+
+/* 自定义模块：能力清单与页面加载失败提示 */
+.module-capability-list {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.module-capability-list .setting-line {
+  align-items: flex-start;
+}
+
+.module-error-detail {
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--wash);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

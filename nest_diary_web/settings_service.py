@@ -183,6 +183,11 @@ class ServiceSettingsStore:
         ]
         if settings.active_frontend_style == "nest-tactical":
             settings.active_frontend_style = "default"
+        if not isinstance(getattr(settings, "hidden_module_nav_ids", None), list):
+            settings.hidden_module_nav_ids = []
+        settings.hidden_module_nav_ids = [
+            item.strip() for item in settings.hidden_module_nav_ids if self._safe_package_id(item.strip())
+        ]
         settings.custom_webui_dir = (settings.custom_webui_dir or "").strip()
         settings.backup_custom_before_update = bool(settings.backup_custom_before_update)
         legacy_impression_prompt = (

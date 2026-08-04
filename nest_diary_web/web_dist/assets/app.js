@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.19";
+const APP_VERSION = "0.5.20";
 const PLUGIN_PAGE_BRIDGE = window.AstrBotPluginPage || null;
 const PLUGIN_PAGE_MODULE_URL = new URL(import.meta.url);
 let pluginPageContext = null;
@@ -112,8 +112,11 @@ const state = {
   t2iTemplateDialogOpen: false,
   t2iCustomOpen: false,
   notebookDeleteIds: [],
+  moduleMounts: {},
+  moduleMountError: "",
 };
 
+// 官方基础入口。自定义模块入口不写在这里，由 module_catalog.nav_entries 生成。
 const navItems = [
   ["dashboard", "首页"],
   ["diary", "日记"],
@@ -124,8 +127,37 @@ const navItems = [
   ["settings", "设置"],
 ];
 
+const MODULE_VIEW_PREFIX = "module:";
+
+function isModuleView(view = state.view) {
+  return String(view || "").startsWith(MODULE_VIEW_PREFIX);
+}
+
+function moduleIdFromView(view = state.view) {
+  return isModuleView(view) ? String(view).slice(MODULE_VIEW_PREFIX.length) : "";
+}
+
+function moduleViewFor(moduleId) {
+  return `${MODULE_VIEW_PREFIX}${moduleId}`;
+}
+
+/** 已启用、声明了入口且通过框架验真的自定义模块入口。 */
+function moduleNavEntries() {
+  const catalog = state.bootstrap?.module_catalog || state.settings?.module_catalog || {};
+  const entries = catalog.nav_entries;
+  return Array.isArray(entries) ? entries : [];
+}
+
+function moduleNavEntry(moduleId) {
+  return moduleNavEntries().find((entry) => entry.id === moduleId) || null;
+}
+
 function initialViewFromLocation() {
   const path = window.location.pathname;
+  if (path.startsWith("/m/")) {
+    const moduleId = decodeURIComponent(path.slice(3).split("/")[0] || "");
+    if (moduleId) return moduleViewFor(moduleId);
+  }
   if (path.startsWith("/diary")) return "diary";
   if (path === "/write") return "diary";
   if (path === "/search") return "search";
@@ -225,6 +257,7 @@ function queryString(params) {
 
 function routeForState(view = state.view) {
   const params = new URLSearchParams();
+  if (isModuleView(view)) return `/m/${encodeURIComponent(moduleIdFromView(view))}`;
   if (view === "dashboard") return "/";
   if (view === "media") return "/media";
   if (view === "memos") {
@@ -438,7 +471,26 @@ function ensureShell() {
   `;
 }
 
+/** 自定义模块面板按需创建，卸载或停用后会被移除。 */
+function ensureModulePanel(moduleId) {
+  ensureShell();
+  const main = document.getElementById("view");
+  if (!main) return null;
+  const panelId = `view-module-${moduleId}`;
+  let node = document.getElementById(panelId);
+  if (!node) {
+    node = document.createElement("section");
+    node.className = "view-panel";
+    node.id = panelId;
+    node.dataset.panel = moduleViewFor(moduleId);
+    node.dataset.moduleHost = moduleId;
+    main.appendChild(node);
+  }
+  return node;
+}
+
 function panel(name) {
+  if (isModuleView(name)) return ensureModulePanel(moduleIdFromView(name));
   return document.getElementById(`view-${name}`);
 }
 
@@ -550,7 +602,18 @@ function t2iPreviewHtml(template) {
     .replaceAll("{{ body }}", "今天把日记本、推送和权限重新分清了。重要的是，群聊和私聊不会混在一起，写日记也会先看证据，再决定要不要记录。");
 }
 
-function renderNavLinks() {
+/** 官方基础入口的排序权重。自定义模块默认 500，落在备忘录与设置之间。 */
+const NAV_ORDER = {
+  dashboard: 10,
+  diary: 20,
+  search: 30,
+  impressions: 40,
+  media: 50,
+  memos: 60,
+  settings: 900,
+};
+
+function officialNavLinks() {
   return navItems
     .filter(([key]) => {
       if (key === "media") return isMediaEnabled();
@@ -558,9 +621,37 @@ function renderNavLinks() {
       if (key === "memos") return isMemosEnabled();
       return true;
     })
-    .map(([key, label]) => {
+    .map(([key, label]) => ({
+      view: key,
+      label,
+      icon: navIcon(key),
+      iconUrl: "",
+      order: NAV_ORDER[key] ?? 500,
+      official: true,
+    }));
+}
+
+function customNavLinks() {
+  return moduleNavEntries().map((entry) => ({
+    view: moduleViewFor(entry.id),
+    label: entry.label || entry.id,
+    icon: entry.icon || "modules",
+    // 插件页里模块资源不能直接当 <img src> 用，缺少独立 WebUI 的 Cookie，
+    // 所以那种情况退回内置图标。
+    iconUrl: PLUGIN_PAGE_BRIDGE ? "" : entry.icon_url || "",
+    order: Number.isFinite(entry.order) ? entry.order : 500,
+    official: false,
+  }));
+}
+
+function renderNavLinks() {
+  const links = [...officialNavLinks(), ...customNavLinks()].sort(
+    (left, right) => left.order - right.order || String(left.label).localeCompare(String(right.label))
+  );
+  return links
+    .map((link) => {
       const children =
-        key === "settings" && state.settingsMenuOpen
+        link.view === "settings" && state.settingsMenuOpen
           ? `<div class="nav-submenu">
               ${settingsTab("appearance", "外观设置")}
               ${settingsTab("modules", "模块控制台")}
@@ -568,8 +659,11 @@ function renderNavLinks() {
               ${settingsTab("backup", "导入导出")}
             </div>`
           : "";
-      const attrs = key === "settings" ? `data-settings-toggle aria-expanded="${state.settingsMenuOpen}"` : "";
-      return `<div class="nav-link-group"><button class="nav-link" data-nav="${key}" data-view="${key}" data-tour-target="nav-${key}" ${attrs} type="button">${iconImg(navIcon(key), label)}<span>${label}</span></button>${children}</div>`;
+      const attrs = link.view === "settings" ? `data-settings-toggle aria-expanded="${state.settingsMenuOpen}"` : "";
+      const icon = link.iconUrl
+        ? `<img class="ui-icon" src="${escapeHtml(link.iconUrl)}" alt="${escapeHtml(link.label)}" loading="lazy">`
+        : iconImg(link.icon, link.label);
+      return `<div class="nav-link-group"><button class="nav-link" data-nav="${escapeHtml(link.view)}" data-view="${escapeHtml(link.view)}" data-tour-target="nav-${escapeHtml(link.view)}" ${attrs} type="button">${icon}<span>${escapeHtml(link.label)}</span></button>${children}</div>`;
     })
     .join("");
 }
@@ -632,6 +726,7 @@ function pageHead(eyebrow, title, actions = "") {
 async function loadBootstrap() {
   if (!state.bootstrap) state.bootstrap = await api("/api/ui/bootstrap");
   state.notebooks = state.bootstrap?.notebooks || state.notebooks || [];
+  await pruneModuleMounts();
   if (!state.onboardingChecked && state.bootstrap?.settings && state.bootstrap.settings.onboarding_completed === false) {
     state.onboardingOpen = true;
     state.onboardingStep = 0;
@@ -958,6 +1053,9 @@ document.addEventListener(
     if (target.dataset.settingsBack !== undefined) {
       closeModuleSettings();
     }
+    if (target.dataset.moduleUninstall) {
+      uninstallModule(target.dataset.moduleUninstall, target.dataset.keepData === "1");
+    }
   },
   true
 );
@@ -971,6 +1069,11 @@ document.addEventListener("change", (event) => {
   const moduleTarget = event.target.closest("[data-module-toggle]");
   if (moduleTarget) {
     saveModuleToggle(moduleTarget);
+    return;
+  }
+  const navTarget = event.target.closest("[data-module-nav-toggle]");
+  if (navTarget) {
+    saveModuleNavVisibility(navTarget.dataset.moduleNavToggle, navTarget.checked);
     return;
   }
   const exportTarget = event.target.closest('input[name="package_type"]');
@@ -1004,6 +1107,12 @@ async function loadView() {
       state.view = "dashboard";
       syncRouteForState("dashboard", true);
     }
+    if (isModuleView() && !moduleNavEntry(moduleIdFromView())) {
+      // 模块被停用、卸载或声明校验失败，入口已经不存在了。
+      state.error = `模块 ${moduleIdFromView()} 没有可用页面，可能已停用或被卸载。`;
+      state.view = "dashboard";
+      syncRouteForState("dashboard", true);
+    }
     if (state.view === "dashboard") renderDashboard();
     if (state.view === "diary") await renderDiary();
     if (state.view === "search") await renderSearch();
@@ -1011,13 +1120,161 @@ async function loadView() {
     if (state.view === "media") await renderMedia();
     if (state.view === "memos") await renderMemos();
     if (state.view === "settings") await renderSettings();
+    if (isModuleView()) await renderModulePage(moduleIdFromView());
     updateShell();
     renderGlobalDialogs();
   } catch (err) {
     state.error = err.message;
     updateShell();
-    panel(state.view).innerHTML = `<div class="loading">加载失败：${escapeHtml(err.message)}</div>`;
+    const target = panel(state.view);
+    if (target) target.innerHTML = `<div class="loading">加载失败：${escapeHtml(err.message)}</div>`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// 自定义模块页面加载
+// ---------------------------------------------------------------------------
+
+/** 交给模块 mount() 的能力包。模块不需要自己处理鉴权、bridge 转发和主题。 */
+function moduleContext(entry) {
+  const moduleId = entry.id;
+  const base = `/api/ui/modules/${encodeURIComponent(moduleId)}`;
+  const storeBase = `${base}/store`;
+  return {
+    moduleId,
+    assetBase: entry.asset_base || "",
+    hasStore: Boolean(entry.store),
+    insidePluginPage: Boolean(PLUGIN_PAGE_BRIDGE),
+    assetUrl(relativePath = "") {
+      const clean = String(relativePath || "").replace(/^\/+/, "");
+      return clean ? `${entry.asset_base}/${clean}` : entry.asset_base || "";
+    },
+    async request(path, options = {}) {
+      const clean = String(path || "").replace(/^\/+/, "");
+      return api(clean ? `${base}/${clean}` : base, options);
+    },
+    store: {
+      async keys() {
+        const result = await api(storeBase);
+        return result?.keys || [];
+      },
+      async get(key, fallback = null) {
+        const result = await api(`${storeBase}?key=${encodeURIComponent(key)}`);
+        return result?.exists ? result.value : fallback;
+      },
+      async set(key, value) {
+        return api(storeBase, { method: "POST", body: JSON.stringify({ key, value }) });
+      },
+      async remove(key) {
+        return api(`${storeBase}?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+      },
+    },
+    notify(message) {
+      state.toast = String(message || "");
+      updateShell();
+      clearToastSoon();
+    },
+    reportError(message) {
+      state.error = String(message || "");
+      updateShell();
+    },
+    confirm(message) {
+      return confirmAction(String(message || "确认执行这个操作吗？"));
+    },
+    escapeHtml,
+    icon: iconImg,
+    goHome() {
+      setView("dashboard");
+    },
+    async refresh() {
+      state.bootstrap = null;
+      await loadView();
+    },
+  };
+}
+
+async function renderModulePage(moduleId) {
+  const entry = moduleNavEntry(moduleId);
+  const target = panel(moduleViewFor(moduleId));
+  if (!entry || !target) return;
+
+  let mounted = state.moduleMounts[moduleId];
+  if (mounted && mounted.pageUrl !== entry.page_url) {
+    // 模块升级换了入口文件，旧实例必须先退场。
+    await unmountModulePage(moduleId);
+    mounted = null;
+  }
+  if (mounted) {
+    if (typeof mounted.update === "function") {
+      try {
+        await mounted.update();
+      } catch (err) {
+        moduleFailure(target, entry, err);
+      }
+    }
+    return;
+  }
+
+  target.innerHTML = `<div class="loading">正在加载 ${escapeHtml(entry.label || moduleId)}…</div>`;
+  try {
+    const namespace = await import(/* webpackIgnore: true */ entry.page_url);
+    const exportName = entry.page_export || "mount";
+    const mount = typeof namespace[exportName] === "function" ? namespace[exportName] : namespace.default;
+    if (typeof mount !== "function") {
+      throw new Error(`页面没有导出可调用的 ${exportName}()`);
+    }
+    target.innerHTML = "";
+    const context = moduleContext(entry);
+    const handle = (await mount(target, context)) || {};
+    state.moduleMounts[moduleId] = {
+      pageUrl: entry.page_url,
+      unmount: typeof handle.unmount === "function" ? handle.unmount : null,
+      update: typeof handle.update === "function" ? handle.update : null,
+    };
+  } catch (err) {
+    moduleFailure(target, entry, err);
+  }
+}
+
+function moduleFailure(target, entry, err) {
+  const label = entry.label || entry.id;
+  const detail = err?.message || String(err);
+  state.moduleMountError = `${entry.id}: ${detail}`;
+  target.innerHTML = `
+    <section class="card">
+      <div class="card-head"><h2>${escapeHtml(label)} 加载失败</h2></div>
+      <div class="card-body">
+        <p class="muted">这个模块的页面没能运行起来，小窝其余部分不受影响。</p>
+        <pre class="module-error-detail">${escapeHtml(detail)}</pre>
+        <p class="muted">请检查模块的 page.js 是否导出了 mount()，以及控制台里的具体报错。</p>
+      </div>
+    </section>
+  `;
+}
+
+async function unmountModulePage(moduleId) {
+  const mounted = state.moduleMounts[moduleId];
+  if (!mounted) return;
+  delete state.moduleMounts[moduleId];
+  if (typeof mounted.unmount === "function") {
+    try {
+      await mounted.unmount();
+    } catch (_) {}
+  }
+  const node = document.getElementById(`view-module-${moduleId}`);
+  if (node) node.remove();
+}
+
+/** 停用或卸载模块后，清掉已经不该存在的面板与实例。 */
+async function pruneModuleMounts() {
+  const alive = new Set(moduleNavEntries().map((entry) => entry.id));
+  for (const moduleId of Object.keys(state.moduleMounts)) {
+    if (!alive.has(moduleId)) await unmountModulePage(moduleId);
+  }
+  document.querySelectorAll("[data-module-host]").forEach((node) => {
+    const moduleId = node.dataset.moduleHost;
+    if (moduleId && !alive.has(moduleId) && !state.moduleMounts[moduleId]) node.remove();
+  });
 }
 
 function renderDashboard() {
@@ -2513,7 +2770,14 @@ async function installModuleFromLink(event) {
     state.moduleInstallOpen = false;
     state.moduleInstallBusy = false;
     state.moduleInstallMessage = "";
-    state.toast = `已安装 ${payload.module?.name || payload.module?.id || "模块"}`;
+    const installedName = payload.module?.name || payload.module?.id || "模块";
+    const capabilityErrors = payload.capability_errors || [];
+    if (capabilityErrors.length) {
+      state.error = `${installedName} 已安装，但声明校验没通过：${capabilityErrors.join("；")}`;
+    } else if (payload.requires_explicit_enable) {
+      state.error = `${installedName} 自带后端代码，出于安全没有自动启用。请在模块卡片上手动开启。`;
+    }
+    state.toast = `已安装 ${installedName}`;
     state.bootstrap = null;
     await renderSettings();
     updateShell();
@@ -2522,6 +2786,57 @@ async function installModuleFromLink(event) {
     state.moduleInstallBusy = false;
     state.moduleInstallMessage = err.message;
     renderGlobalDialogs();
+  }
+}
+
+/** 单独控制某个已启用模块要不要出现在侧边栏。 */
+async function saveModuleNavVisibility(moduleId, visible) {
+  const current = state.settings?.settings || state.bootstrap?.settings;
+  if (!moduleId || !current) return;
+  const hidden = new Set(current.hidden_module_nav_ids || []);
+  if (visible) hidden.delete(moduleId);
+  else hidden.add(moduleId);
+  try {
+    const saved = await api("/api/ui/settings", {
+      method: "POST",
+      body: JSON.stringify({ ...current, hidden_module_nav_ids: Array.from(hidden) }),
+    });
+    if (saved?.settings) state.settings = { ...(state.settings || {}), settings: saved.settings };
+    state.toast = visible ? "已在侧边栏显示" : "已从侧边栏隐藏";
+    state.bootstrap = null;
+    await loadView();
+    clearToastSoon();
+  } catch (err) {
+    state.error = err.message;
+    updateShell();
+  }
+}
+
+async function uninstallModule(moduleId, keepData = false) {
+  if (!moduleId) return;
+  const message = keepData
+    ? `卸载 ${moduleId}，但保留它的数据目录？前端文件会先备份再删除。`
+    : `完全卸载 ${moduleId}？整个模块目录会先备份到 imports/module-uninstall-backups/ 再删除。`;
+  if (!(await confirmAction(message))) return;
+  try {
+    const result = await api("/api/ui/modules/uninstall", {
+      method: "POST",
+      body: JSON.stringify({ module_id: moduleId, keep_data: keepData }),
+    });
+    await unmountModulePage(moduleId);
+    if (result?.settings) state.settings = { ...(state.settings || {}), settings: result.settings };
+    state.settingsModuleDetail = "";
+    state.toast = keepData ? `已卸载 ${moduleId}，数据仍保留` : `已卸载 ${moduleId}`;
+    state.bootstrap = null;
+    if (isModuleView() && moduleIdFromView() === moduleId) {
+      await setView("settings");
+    } else {
+      await loadView();
+    }
+    clearToastSoon();
+  } catch (err) {
+    state.error = err.message;
+    updateShell();
   }
 }
 
@@ -3930,7 +4245,53 @@ function moduleSettingsBody(payload, detailKey) {
       ${permissionSettings(settings)}
     `;
   }
+  const customModule = findModuleByDetailKey(payload.module_catalog, detailKey);
+  if (customModule && customModule.kind !== "official") {
+    return customModuleSettingsBody(payload, customModule);
+  }
   return `<div class="notice soft">这个模块暂时没有可调整的选项。</div>`;
+}
+
+/** 自定义模块详情：能力清单 + 侧边栏开关 + 卸载。 */
+function customModuleSettingsBody(payload, module) {
+  const settings = payload.settings || {};
+  const capabilities = module.capabilities || {};
+  const errors = module.capability_errors || [];
+  const navDeclared = Boolean(capabilities.nav);
+  const pageDeclared = Boolean(capabilities.page);
+  const hidden = (settings.hidden_module_nav_ids || []).includes(module.id);
+  const runtimeLabel = capabilities.runtime === "python" ? "自带后端代码" : "只用小窝前端与存储";
+
+  const capabilityRows = [
+    ["运行档位", runtimeLabel],
+    ["页面", pageDeclared ? `声明了 ${capabilities.page.entry}` : "没有声明页面"],
+    ["侧边栏入口", navDeclared ? `声明为「${capabilities.nav.label}」` : "没有声明（缺省即关闭）"],
+    ["通用存储", capabilities.store ? `已开启，单文档上限 ${Math.floor(capabilities.store.max_bytes / 1024)} KB` : "没有声明"],
+    ["工具", (module.tools || []).length ? (module.tools || []).join("、") : "没有声明"],
+  ];
+
+  return `
+    ${errors.length ? `<div class="notice error"><strong>声明校验没通过：</strong>${escapeHtml(errors.join("；"))}</div>` : ""}
+    <div class="module-capability-list">
+      ${capabilityRows
+        .map(([label, value]) => `<div class="setting-line"><div><strong>${escapeHtml(label)}</strong><p class="muted">${escapeHtml(value)}</p></div></div>`)
+        .join("")}
+    </div>
+    ${
+      navDeclared
+        ? `<div class="setting-line"><div><strong>在侧边栏显示</strong><p class="muted">关掉之后模块仍然可用，只是不出现在左侧入口。</p></div>
+             <label class="switch"><input type="checkbox" data-module-nav-toggle="${escapeHtml(module.id)}" ${hidden ? "" : "checked"}><span></span></label>
+           </div>`
+        : `<div class="notice soft">这个模块没有声明侧边栏入口。只提供工具或数据的模块就该是这样。</div>`
+    }
+    <div class="setting-line">
+      <div><strong>卸载模块</strong><p class="muted">卸载前会把整个模块目录备份到 imports/module-uninstall-backups/。</p></div>
+      <div class="actions">
+        <button class="button" data-module-uninstall="${escapeHtml(module.id)}" data-keep-data="1" type="button">卸载并保留数据</button>
+        <button class="button danger" data-module-uninstall="${escapeHtml(module.id)}" type="button">完全卸载</button>
+      </div>
+    </div>
+  `;
 }
 
 function moduleDetailTitle(detailKey) {
@@ -4225,6 +4586,7 @@ async function saveSettings(event) {
     enabled_custom_modules: listField("enabled_custom_modules", current.enabled_custom_modules || []),
     enabled_custom_extensions: listField("enabled_custom_extensions", current.enabled_custom_extensions || []),
     enabled_appearance_modules: listField("enabled_appearance_modules", current.enabled_appearance_modules || []),
+    hidden_module_nav_ids: listField("hidden_module_nav_ids", current.hidden_module_nav_ids || []),
     appearance_modules_initialized: true,
     onboarding_completed: boolValueField("onboarding_completed", current.onboarding_completed),
     custom_webui_dir: valueField("custom_webui_dir", current.custom_webui_dir || ""),
