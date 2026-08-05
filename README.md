@@ -114,6 +114,10 @@ export async function mount(root, ctx) {
 
 入口是否出现要过三层：模块自己声明、用户在模块控制台启用（还可以单独隐藏侧边栏入口）、框架验真声明的页面文件确实存在。任何一层没过，模块卡片上会写明原因，而不是静默消失。
 
+小窝内置 `nest-module-development` skill，bot 在创建、修改、安装或排查自定义模块时应优先使用它。直接写入或修改模块文件后，bot 必须提醒用户重启 AstrBot（或重载插件）再刷新页面；仅刷新浏览器不保证插件运行时会重新发现模块。
+
+常见问题：侧边栏没有入口时，先确认 `nav` 和 `page` 都已声明，再确认模块已启用且入口未隐藏；模块详情页会给出文件或能力声明的校验原因。内置 UI 和独立 WebUI 都支持模块页面加载，若更新后仍显示旧页面，重启 AstrBot 后再刷新。
+
 完整规范见 `skills/nest-module-development/SKILL.md`，可运行的示例在 `examples/habit-board/`。
 
 ## 已注册工具

@@ -1193,6 +1193,28 @@ function moduleContext(entry) {
   };
 }
 
+/**
+ * 内置插件页不能直接请求小窝服务的受保护资源。入口脚本经 bridge 取回后，
+ * 从内存 Blob 导入；独立 WebUI 保持浏览器原生的直接导入。
+ */
+async function importModulePage(entry) {
+  if (!PLUGIN_PAGE_BRIDGE) return import(/* webpackIgnore: true */ entry.page_url);
+
+  const source = await pluginApi(entry.page_url);
+  if (typeof source !== "string") {
+    throw new Error("模块入口未返回 JavaScript 文本。");
+  }
+
+  const sourceUrl = pluginWebuiBase ? `${pluginWebuiBase}${entry.page_url}` : entry.page_url;
+  const blob = new Blob([`${source}\n//# sourceURL=${sourceUrl}\n`], { type: "text/javascript" });
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    return await import(/* webpackIgnore: true */ blobUrl);
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
 async function renderModulePage(moduleId) {
   const entry = moduleNavEntry(moduleId);
   const target = panel(moduleViewFor(moduleId));
@@ -1217,7 +1239,7 @@ async function renderModulePage(moduleId) {
 
   target.innerHTML = `<div class="loading">正在加载 ${escapeHtml(entry.label || moduleId)}…</div>`;
   try {
-    const namespace = await import(/* webpackIgnore: true */ entry.page_url);
+    const namespace = await importModulePage(entry);
     const exportName = entry.page_export || "mount";
     const mount = typeof namespace[exportName] === "function" ? namespace[exportName] : namespace.default;
     if (typeof mount !== "function") {
@@ -2727,6 +2749,11 @@ function moduleInstallDialog() {
             <label class="choice-card"><input name="enable_after_install" type="checkbox" checked><span><strong>安装后启用</strong><em>外观模块会切换为当前样式，其他模块会加入启用列表。</em></span></label>
             <label class="choice-card"><input name="overwrite" type="checkbox"><span><strong>覆盖同名模块</strong><em>覆盖前会自动备份旧目录。</em></span></label>
           </div>
+          <details class="module-install-help">
+            <summary>内置 skill 与常见问题</summary>
+            <p>让 bot 使用 <code>nest-module-development</code> skill 创建或排查模块。手工创建或修改模块文件后，需要重启 AstrBot（或重载插件）再刷新页面。</p>
+            <p>侧边栏入口需要同时声明 <code>nav</code> 和 <code>page</code>，并在模块控制台启用且未隐藏；详情页会显示未通过校验的原因。</p>
+          </details>
           ${state.moduleInstallMessage ? `<div class="notice soft">${escapeHtml(state.moduleInstallMessage)}</div>` : ""}
           <div class="actions dialog-actions">
             <button class="button ghost" data-module-install-close type="button">取消</button>
@@ -3891,7 +3918,7 @@ function appearanceSettingsPage(payload) {
       </div>
       <form class="settings-collapse form" data-action="save-appearance">
         ${webuiAppearanceBody(payload, "page")}
-        <div class="module-detail-actions">
+        <div class="module-detail-actions appearance-actions">
           <button class="primary">保存外观</button>
         </div>
       </form>

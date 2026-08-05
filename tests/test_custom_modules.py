@@ -365,6 +365,10 @@ class FrontendContractTest(unittest.TestCase):
         self.assertIn("catalog.nav_entries", self.script)
 
     def test_module_pages_are_dynamically_imported_and_mounted(self) -> None:
+        self.assertIn("function importModulePage(", self.script)
+        self.assertIn("PLUGIN_PAGE_BRIDGE", self.script)
+        self.assertIn("pluginApi(entry.page_url)", self.script)
+        self.assertIn("URL.createObjectURL", self.script)
         self.assertIn("await import(", self.script)
         self.assertIn("entry.page_url", self.script)
         self.assertIn("mount(target, context)", self.script)

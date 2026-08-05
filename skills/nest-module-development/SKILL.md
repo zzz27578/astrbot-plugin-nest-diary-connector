@@ -94,6 +94,12 @@ Frontend files may sit at the module root or under a `webui/` subdirectory; both
 
 Only these asset types are served: `.js .mjs .css .json .svg .png .jpg .jpeg .webp .gif .woff2 .html .txt .md`. Path traversal is rejected.
 
+## Restart after direct changes
+
+When you create or modify a module by directly writing files, you must tell the user to restart AstrBot (or reload the plugin) before checking the new sidebar entry or page. A browser refresh alone does not reliably reload the plugin runtime and its module discovery state. This reminder is part of the completion response, not an optional troubleshooting note.
+
+For modules installed through the module console, follow the install result first. If an entry is still missing, refresh the page after the install completes, then use the three-layer checks below.
+
 ## Three-layer gating
 
 When a page or sidebar entry does not appear, walk these in order — the cause is almost always one of them.

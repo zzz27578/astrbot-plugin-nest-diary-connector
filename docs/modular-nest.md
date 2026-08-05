@@ -123,6 +123,12 @@ modules/extensions/<extension-id>/
 
 模块资源由 `/api/ui/module-assets/<module-id>/` 提供，页面路由是 `/m/<module-id>`。收在 `/api/ui/` 前缀下是为了让 AstrBot 插件页的桥接白名单不必为第三方模块反复放开。允许的资源类型：`.js .mjs .css .json .svg .png .jpg .jpeg .webp .gif .woff2 .html .txt .md`，路径穿越一律拒绝。
 
+## 内置 skill 与常见问题
+
+小窝内置 `nest-module-development` skill。bot 创建、修改、安装或排查自定义模块时应遵循这份 skill，并在直接写入或修改模块文件后明确提醒用户：需要重启 AstrBot（或重载插件）再刷新页面，单独刷新浏览器不保证插件运行时会重新发现模块。
+
+若侧边栏入口没有出现，依次检查：模块是否同时声明 `nav` 和 `page`，是否已在模块控制台启用且未隐藏入口，以及 `page.entry` 和自定义图标是否通过框架验真。模块详情页会展示校验失败原因。内置 UI 与独立 WebUI 都应能加载已验证的模块页面；更新后若仍显示旧内容，先重启 AstrBot，再刷新页面。
+
 ## 三层把关
 
 入口和页面能不能出现，要同时过三层，任何一层没过都会在模块卡片上写明原因：

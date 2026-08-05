@@ -2290,6 +2290,24 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
+.module-install-help {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.module-install-help p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.module-install-help code {
+  color: var(--ink);
+}
+
 .onboarding-backdrop {
   position: fixed;
   inset: 0;
@@ -3074,6 +3092,12 @@ details[open] > *:not(summary) {
 
 .module-detail-actions .primary {
   min-width: 148px;
+}
+
+.appearance-actions {
+  grid-template-columns: minmax(148px, max-content);
+  align-items: center;
+  padding: 8px 8px 8px 0;
 }
 
 .module-warnings {

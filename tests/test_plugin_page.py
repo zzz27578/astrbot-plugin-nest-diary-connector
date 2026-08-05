@@ -31,6 +31,8 @@ class PluginPageTest(unittest.TestCase):
         self.assertIn("new URL(import.meta.url)", script)
         self.assertIn("PLUGIN_PAGE_MODULE_URL.searchParams.forEach", script)
         self.assertIn('apiGet("ui/avatar")', script)
+        self.assertIn("function importModulePage(", script)
+        self.assertIn("pluginApi(entry.page_url)", script)
 
     def test_plugin_page_backend_routes_are_namespaced(self) -> None:
         source = (ROOT / "main.py").read_text(encoding="utf-8")
