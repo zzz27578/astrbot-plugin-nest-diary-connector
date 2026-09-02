@@ -60,7 +60,7 @@ from nest_diary_web.settings_service import SecuritySettingsStore, ServiceSettin
 
 
 PLUGIN_NAME = "astrbot_plugin_nest_diary_connector"
-PLUGIN_VERSION = "0.5.22"
+PLUGIN_VERSION = "0.5.23"
 DEFAULT_DIARY_WRITE_PROMPT = (
     "请把可用上下文整理成一篇小窝日记。标题要概括当天记忆的意义；正文要包含发生了什么、"
     "为什么重要、你的主观评价与情绪、相关人物、未来线索。不要写成聊天流水账，不要编造。"
@@ -1811,12 +1811,20 @@ class NestDiaryConnectorPlugin(Star):
         async with lock:
             desired = self._desired_future_jobs()
             existing = await self._managed_future_jobs(cron_mgr)
-            for name, job in existing.items():
-                if name not in desired or self._future_job_changed(job, desired[name]):
-                    await self._delete_future_job(cron_mgr, job)
+            for name, jobs in existing.items():
+                spec = desired.get(name)
+                if spec is not None and len(jobs) == 1 and not self._future_job_changed(jobs[0], spec):
+                    continue
+
+                deleted_all = True
+                for job in jobs:
+                    deleted_all = await self._delete_future_job(cron_mgr, job) and deleted_all
+
+                if spec is not None and deleted_all:
+                    await self._add_future_job(cron_mgr, spec)
+
             for name, spec in desired.items():
-                job = existing.get(name)
-                if job is None or self._future_job_changed(job, spec):
+                if name not in existing:
                     await self._add_future_job(cron_mgr, spec)
 
     def _desired_future_jobs(self) -> dict[str, dict]:
@@ -1883,29 +1891,54 @@ class NestDiaryConnectorPlugin(Star):
             hour, minute = 3, 0
         return f"{minute} {hour} * * *"
 
-    async def _managed_future_jobs(self, cron_mgr) -> dict[str, object]:
+    async def _managed_future_jobs(self, cron_mgr) -> dict[str, list[object]]:
         try:
-            jobs = await self._maybe_await(cron_mgr.list_jobs("active"))
-        except TypeError:
+            # AstrBot uses job_type="active_agent"; "active" is not a valid
+            # filter and would make every sync think the task does not exist.
+            # Query all jobs and filter by this plugin's ownership markers so
+            # this remains compatible with older AstrBot versions as well.
             jobs = await self._maybe_await(cron_mgr.list_jobs())
-        managed: dict[str, object] = {}
+        except TypeError:
+            jobs = await self._maybe_await(cron_mgr.list_jobs("active_agent"))
+        managed: dict[str, list[object]] = {}
         for job in jobs or []:
             name = str(getattr(job, "name", "") or self._job_field(job, "name") or "")
             description = str(getattr(job, "description", "") or self._job_field(job, "description") or "")
             payload = getattr(job, "payload", None) or self._job_field(job, "payload") or {}
             if name.startswith("nest_diary_daily_") or PLUGIN_NAME in description or (isinstance(payload, dict) and payload.get("managed_by") == PLUGIN_NAME):
-                managed[name] = job
+                managed.setdefault(name, []).append(job)
         return managed
 
     def _future_job_changed(self, job, spec: dict) -> bool:
         cron_expression = str(getattr(job, "cron_expression", "") or self._job_field(job, "cron_expression") or "")
         payload = getattr(job, "payload", None) or self._job_field(job, "payload") or {}
-        return cron_expression != spec["cron_expression"] or payload != spec["payload"]
+        enabled = getattr(job, "enabled", None)
+        if enabled is None:
+            enabled = self._job_field(job, "enabled")
+        run_once = getattr(job, "run_once", None)
+        if run_once is None:
+            run_once = self._job_field(job, "run_once")
+        return (
+            cron_expression != spec["cron_expression"]
+            or payload != spec["payload"]
+            or enabled is False
+            or (run_once is not None and bool(run_once) != bool(spec["run_once"]))
+        )
 
-    async def _delete_future_job(self, cron_mgr, job) -> None:
-        job_id = str(getattr(job, "id", "") or getattr(job, "job_id", "") or self._job_field(job, "id") or self._job_field(job, "job_id") or getattr(job, "name", "") or self._job_field(job, "name") or "")
-        if job_id:
-            await self._maybe_await(cron_mgr.delete_job(job_id))
+    async def _delete_future_job(self, cron_mgr, job) -> bool:
+        # AstrBot deletes by the public job_id (normally a UUID), not the
+        # database's auto-increment integer id and not the display name.
+        job_id = str(
+            getattr(job, "job_id", "")
+            or self._job_field(job, "job_id")
+            or getattr(job, "id", "")
+            or self._job_field(job, "id")
+            or ""
+        )
+        if not job_id:
+            return False
+        await self._maybe_await(cron_mgr.delete_job(job_id))
+        return True
 
     async def _add_future_job(self, cron_mgr, spec: dict) -> None:
         try:
