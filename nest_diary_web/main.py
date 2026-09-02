@@ -46,7 +46,7 @@ from .version_service import VersionService
 from .web.routes import create_web_router, mount_static
 from .web_auth import WebSessionAuth
 
-APP_VERSION = "0.5.21"
+APP_VERSION = "0.5.22"
 settings = load_settings()
 app = FastAPI(title="Nest Service", version=APP_VERSION)
 WEB_DIST_DIR = Path(__file__).resolve().parent / "web_dist"
@@ -287,12 +287,20 @@ def _discover_official_modules() -> list[dict]:
     return modules
 
 
+def _contains_module_files(path: Path) -> bool:
+    """判断目录是否包含 data/ 之外的模块文件。"""
+    try:
+        return any(child.name != "data" for child in path.iterdir())
+    except OSError:
+        return False
+
+
 def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, package_type: str) -> list[dict]:
     packages: dict[str, dict] = {}
     if package_type == "module":
         module_paths = sorted(paths.modules_dir.iterdir()) if paths.modules_dir.exists() else []
         for path in module_paths:
-            if path.is_dir() and path.name not in RESERVED_MODULE_DIR_NAMES:
+            if path.is_dir() and path.name not in RESERVED_MODULE_DIR_NAMES and _contains_module_files(path):
                 packages[path.name] = _load_package_manifest(
                     path / "module.json",
                     {
@@ -311,7 +319,7 @@ def _discover_custom_packages(ui_settings: ServiceUiSettings, folder_name: str, 
         extension_root = paths.modules_dir / "extensions"
         if extension_root.exists():
             for path in sorted(extension_root.iterdir()):
-                if path.is_dir():
+                if path.is_dir() and _contains_module_files(path):
                     packages[path.name] = _load_package_manifest(
                         path / "module.json",
                         {
@@ -485,7 +493,8 @@ def _attach_capabilities(manifest: dict) -> dict:
 
 
 def _timestamp_label() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # 提高时间戳精度，避免连续卸载时备份目录重名
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def _find_enabled_module(ui_settings: ServiceUiSettings, module_id: str) -> dict | None:
@@ -1720,48 +1729,68 @@ async def ui_install_module(payload: ModuleInstallRequest, _session: None = Depe
 
 @app.post("/api/ui/modules/uninstall")
 async def ui_uninstall_module(payload: ModuleUninstallRequest, _session: None = Depends(require_web_session)):
-    """卸载自定义模块、拓展包或外观包。官方 ID 一律拒绝。
+    """卸载自定义模块、扩展包或外观包。官方 ID 一律拒绝。
 
-    默认把整个目录备份到 imports/module-uninstall-backups/ 后再删除；
-    keep_data 为真时只摘掉前端与开关，保留 modules/<id>/data。
+    默认先完整备份所有相关目录再删除；keep_data 为真时仅保留
+    modules/<id>/data 或 modules/extensions/<id>/data。
     """
     module_id = safe_package_id(payload.module_id.strip(), "")
     if not module_id or module_id != payload.module_id.strip():
-        raise HTTPException(status_code=400, detail="模块 ID 不合法。")
+        raise HTTPException(status_code=400, detail="模块 ID 不合法")
     if is_official_id(module_id):
-        raise HTTPException(status_code=409, detail=f"{module_id} 是官方模块，不能卸载。")
+        raise HTTPException(status_code=409, detail=f"{module_id} 是官方模块，不允许卸载")
 
     ui_settings = service_settings.load()
     custom_root = _custom_webui_root(ui_settings)
-    candidates = [
-        paths.modules_dir / module_id,
-        paths.modules_dir / "extensions" / module_id,
-        custom_root / "modules" / module_id,
-        custom_root / "extensions" / module_id,
-        custom_root / "appearance" / module_id,
-        custom_root / "themes" / module_id,
+    locations = [
+        ("module", paths.modules_dir / module_id, True),
+        ("extension", paths.modules_dir / "extensions" / module_id, True),
+        ("frontend-module", custom_root / "modules" / module_id, False),
+        ("frontend-extension", custom_root / "extensions" / module_id, False),
+        ("appearance", custom_root / "appearance" / module_id, False),
+        ("theme", custom_root / "themes" / module_id, False),
+        ("skin", custom_root / "skins" / module_id, False),
     ]
-    existing = [path for path in candidates if path.is_dir()]
+    existing: list[tuple[str, Path, bool]] = []
+    seen_paths: set[Path] = set()
+    for label, path, can_keep_data in locations:
+        resolved = path.resolve()
+        if resolved in seen_paths or not path.is_dir():
+            continue
+        seen_paths.add(resolved)
+        existing.append((label, path, can_keep_data))
     if not existing:
-        raise HTTPException(status_code=404, detail=f"没有找到模块 {module_id}。")
+        raise HTTPException(status_code=404, detail=f"未找到模块 {module_id}")
 
     backup_root = paths.root / "imports" / "module-uninstall-backups" / _timestamp_label() / module_id
-    removed: list[str] = []
-    kept: list[str] = []
-    for path in existing:
-        is_data_dir = path == paths.modules_dir / module_id or path == paths.modules_dir / "extensions" / module_id
-        if payload.keep_data and is_data_dir:
-            kept.append(str(path))
-            continue
-        target = backup_root / path.parent.name / path.name
+    # 先完整备份所有相关目录，避免备份失败时只删除了部分模块文件
+    for label, path, _can_keep_data in existing:
+        target = backup_root / label
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(path, target)
+
+    removed: list[str] = []
+    kept: list[str] = []
+    for _label, path, can_keep_data in existing:
+        data_dir = path / "data"
+        if payload.keep_data and can_keep_data and data_dir.is_dir():
+            for child in list(path.iterdir()):
+                if child == data_dir:
+                    continue
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+            kept.append(str(data_dir))
+            removed.append(str(path))
+            continue
         shutil.rmtree(path)
         removed.append(str(path))
 
     ui_settings.enabled_custom_modules = [item for item in ui_settings.enabled_custom_modules if item != module_id]
     ui_settings.enabled_custom_extensions = [item for item in ui_settings.enabled_custom_extensions if item != module_id]
     ui_settings.enabled_appearance_modules = [item for item in ui_settings.enabled_appearance_modules if item != module_id]
+    ui_settings.hidden_module_nav_ids = [item for item in ui_settings.hidden_module_nav_ids if item != module_id]
     if ui_settings.active_frontend_style == module_id:
         ui_settings.active_frontend_style = "default"
     saved = service_settings.save(ui_settings)
@@ -1771,7 +1800,7 @@ async def ui_uninstall_module(payload: ModuleUninstallRequest, _session: None = 
         "module_id": module_id,
         "removed_paths": removed,
         "kept_paths": kept,
-        "backup_dir": str(backup_root) if removed else "",
+        "backup_dir": str(backup_root),
         "module_catalog": _module_catalog(saved),
         "frontend_styles": _frontend_styles(saved),
         "settings": asdict(saved),

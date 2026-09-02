@@ -1,4 +1,4 @@
-const APP_VERSION = "0.5.21";
+const APP_VERSION = "0.5.22";
 const PLUGIN_PAGE_BRIDGE = window.AstrBotPluginPage || null;
 const PLUGIN_PAGE_MODULE_URL = new URL(import.meta.url);
 let pluginPageContext = null;
@@ -104,6 +104,7 @@ const state = {
   moduleFilter: "all",
   moduleInstallOpen: false,
   moduleInstallBusy: false,
+  moduleUninstallBusy: "",
   moduleInstallMessage: "",
   versionBusy: false,
   onboardingOpen: false,
@@ -778,7 +779,7 @@ async function setView(view, options = {}) {
 document.addEventListener(
   "click",
   (event) => {
-    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-memo-new], [data-memo-select], [data-memo-detail-back], [data-memo-pin], [data-memo-archive], [data-memo-delete], [data-memo-reveal], [data-memo-archived-toggle], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-advance], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save]");
+    const target = event.target.closest("[data-view], [data-date], [data-open-write], [data-close-write], [data-edit-date], [data-search-query], [data-impression-name], [data-new-impression], [data-media-open], [data-media-close], [data-media-note-edit], [data-media-folder-create], [data-media-folder-edit], [data-media-folder-modal-close], [data-media-trash], [data-media-restore], [data-media-delete], [data-media-open-original], [data-media-toggle-float], [data-media-mode], [data-media-folder-collapse], [data-media-folder-expand], [data-media-folder-open], [data-media-folder-close], [data-media-dropdown], [data-memo-new], [data-memo-select], [data-memo-detail-back], [data-memo-pin], [data-memo-archive], [data-memo-delete], [data-memo-reveal], [data-memo-archived-toggle], [data-settings-section], [data-module-settings], [data-settings-back], [data-module-filter], [data-module-install-open], [data-module-install-close], [data-version-check], [data-version-update], [data-style-select], [data-onboarding-advance], [data-onboarding-next], [data-onboarding-prev], [data-onboarding-finish], [data-onboarding-close], [data-onboarding-replay], [data-notebook-add], [data-notebook-delete], [data-t2i-open], [data-t2i-close], [data-t2i-select], [data-t2i-custom-toggle], [data-t2i-custom-save], [data-module-uninstall]");
     if (!target) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (
@@ -1052,9 +1053,11 @@ document.addEventListener(
     }
     if (target.dataset.settingsBack !== undefined) {
       closeModuleSettings();
+      return;
     }
     if (target.dataset.moduleUninstall) {
-      uninstallModule(target.dataset.moduleUninstall, target.dataset.keepData === "1");
+      void uninstallModule(target.dataset.moduleUninstall, target.dataset.keepData === "1", target);
+      return;
     }
   },
   true
@@ -2839,13 +2842,24 @@ async function saveModuleNavVisibility(moduleId, visible) {
   }
 }
 
-async function uninstallModule(moduleId, keepData = false) {
-  if (!moduleId) return;
+async function uninstallModule(moduleId, keepData = false, source = null) {
+  if (!moduleId || state.moduleUninstallBusy) return;
+  state.moduleUninstallBusy = moduleId;
   const message = keepData
-    ? `卸载 ${moduleId}，但保留它的数据目录？前端文件会先备份再删除。`
+    ? `卸载 ${moduleId}，但保留它的数据目录？模块文件会先备份再删除。`
     : `完全卸载 ${moduleId}？整个模块目录会先备份到 imports/module-uninstall-backups/ 再删除。`;
-  if (!(await confirmAction(message))) return;
+  const buttons = Array.from(document.querySelectorAll("[data-module-uninstall]")).filter(
+    (button) => button.dataset.moduleUninstall === moduleId
+  );
+
   try {
+    if (!(await confirmAction(message))) return;
+    for (const button of buttons) {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    }
+    if (source) source.textContent = "正在卸载…";
+
     const result = await api("/api/ui/modules/uninstall", {
       method: "POST",
       body: JSON.stringify({ module_id: moduleId, keep_data: keepData }),
@@ -2854,6 +2868,7 @@ async function uninstallModule(moduleId, keepData = false) {
     if (result?.settings) state.settings = { ...(state.settings || {}), settings: result.settings };
     state.settingsModuleDetail = "";
     state.toast = keepData ? `已卸载 ${moduleId}，数据仍保留` : `已卸载 ${moduleId}`;
+    state.error = "";
     state.bootstrap = null;
     if (isModuleView() && moduleIdFromView() === moduleId) {
       await setView("settings");
@@ -2864,6 +2879,14 @@ async function uninstallModule(moduleId, keepData = false) {
   } catch (err) {
     state.error = err.message;
     updateShell();
+  } finally {
+    state.moduleUninstallBusy = "";
+    for (const button of buttons) {
+      if (!button.isConnected) continue;
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+    if (source?.isConnected) source.textContent = keepData ? "卸载并保留数据" : "完全卸载";
   }
 }
 

@@ -1,6 +1,6 @@
 """自定义模块契约测试。
 
-覆盖 0.5.21 的三件事：能力声明解析、模块隔离存储、以及前端确实按清单渲染侧边栏。
+覆盖 0.5.22 的三件事：能力声明解析、模块隔离存储、以及前端确实按清单渲染侧边栏。
 不依赖 fastapi，可以在裸环境跑。
 """
 
@@ -389,6 +389,11 @@ class FrontendContractTest(unittest.TestCase):
         self.assertIn("function pruneModuleMounts(", self.script)
 
     def test_uninstall_and_nav_visibility_are_wired(self) -> None:
+        delegated_selector = next(
+            line for line in self.script.splitlines() if "const target = event.target.closest" in line
+        )
+        self.assertIn("[data-module-uninstall]", delegated_selector)
+        self.assertIn("void uninstallModule(target.dataset.moduleUninstall", self.script)
         self.assertIn("/api/ui/modules/uninstall", self.script)
         self.assertIn("saveModuleNavVisibility", self.script)
         self.assertIn("hidden_module_nav_ids", self.script)
